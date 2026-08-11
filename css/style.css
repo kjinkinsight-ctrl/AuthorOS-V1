@@ -1,0 +1,611 @@
+/*
+=========================================================
+AUTHOROS
+GLOBAL STYLES
+Version 0.1.0
+=========================================================
+*/
+
+:root {
+
+    --font-ui:
+        "Inter",
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    --font-reading:
+        "Merriweather",
+        Georgia,
+        serif;
+
+    --font-mono:
+        "JetBrains Mono",
+        monospace;
+
+    --transition-fast:
+        150ms ease;
+
+    --transition-normal:
+        250ms ease;
+
+    --radius-small:
+        6px;
+
+    --radius-medium:
+        10px;
+
+    --radius-large:
+        16px;
+
+    --sidebar-width:
+        250px;
+
+    --sidebar-collapsed-width:
+        72px;
+
+    --toolbar-height:
+        64px;
+
+    --statusbar-height:
+        28px;
+}
+
+
+* {
+    box-sizing: border-box;
+}
+
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+
+body {
+
+    font-family: var(--font-ui);
+
+    background:
+        var(--color-background);
+
+    color:
+        var(--color-text);
+
+    overflow: hidden;
+
+    -webkit-font-smoothing: antialiased;
+}
+
+
+button,
+input,
+textarea,
+select {
+    font: inherit;
+}
+
+
+button {
+    cursor: pointer;
+}
+
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline:
+        2px solid var(--color-accent);
+
+    outline-offset:
+        2px;
+}
+
+
+h1,
+h2,
+h3,
+h4,
+p {
+    margin-top: 0;
+}
+
+
+h1,
+h2,
+h3,
+h4 {
+    color:
+        var(--color-heading);
+}
+
+
+a {
+    color:
+        var(--text-link, var(--color-accent));
+}
+
+
+a:hover {
+    color:
+        var(--text-link-hover, var(--color-accent-hover, var(--color-accent)));
+}
+
+
+.hidden {
+    display: none !important;
+}
+
+
+.eyebrow {
+
+    margin-bottom: 8px;
+
+    font-size: 11px;
+
+    font-weight: 700;
+
+    letter-spacing:
+        0.14em;
+
+    color:
+        var(--color-muted);
+
+}
+
+
+.status-pill {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    padding:
+        5px 9px;
+
+    border:
+        1px solid var(--color-border);
+
+    border-radius:
+        999px;
+
+    font-size:
+        10px;
+
+    font-weight:
+        700;
+
+    letter-spacing:
+        0.08em;
+
+    color:
+        var(--color-accent);
+
+    background:
+        var(--color-accent-soft);
+
+}
+
+
+.empty-view {
+
+    min-height:
+        100%;
+
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    text-align:
+        center;
+
+    padding:
+        40px;
+
+}
+
+
+.empty-view-icon {
+
+    width:
+        72px;
+
+    height:
+        72px;
+
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    margin-bottom:
+        24px;
+
+    border:
+        1px solid var(--color-border);
+
+    border-radius:
+        var(--radius-large);
+
+    color:
+        var(--color-accent);
+
+    background:
+        var(--color-surface);
+
+    font-size:
+        28px;
+
+}
+
+
+.empty-view h1 {
+
+    margin-bottom:
+        10px;
+
+    font-size:
+        32px;
+
+}
+
+
+.empty-view p:not(.eyebrow) {
+
+    max-width:
+        500px;
+
+    margin-bottom:
+        24px;
+
+    color:
+        var(--color-muted);
+
+    line-height:
+        1.7;
+
+}
+
+
+.fatal-error {
+
+    width:
+        100vw;
+
+    height:
+        100vh;
+
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    background:
+        var(--color-background);
+
+}
+
+
+.fatal-error-content {
+
+    max-width:
+        560px;
+
+    padding:
+        40px;
+
+    border:
+        1px solid var(--color-border);
+
+    border-radius:
+        var(--radius-large);
+
+    background:
+        var(--color-surface);
+
+}
+
+
+.fatal-error-icon {
+
+    width:
+        48px;
+
+    height:
+        48px;
+
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    margin-bottom:
+        20px;
+
+    border-radius:
+        50%;
+
+    background:
+        var(--color-danger-soft);
+
+    color:
+        var(--color-danger);
+
+    font-weight:
+        700;
+
+}
+
+
+.fatal-error h1 {
+    margin-bottom:
+        10px;
+}
+
+
+.fatal-error p {
+    color:
+        var(--color-muted);
+}
+
+
+.fatal-error details {
+    margin-top:
+        20px;
+}
+
+
+.fatal-error pre {
+
+    margin-top:
+        12px;
+
+    padding:
+        16px;
+
+    overflow:
+        auto;
+
+    border-radius:
+        var(--radius-small);
+
+    background:
+        var(--color-background);
+
+    color:
+        var(--color-danger);
+
+    font-family:
+        var(--font-mono);
+
+    font-size:
+        12px;
+
+    white-space:
+        pre-wrap;
+
+}
+
+/*
+=========================================================
+AUTHOROS
+NOTIFICATIONS
+=========================================================
+*/
+
+.notification-container {
+
+    position:
+        fixed;
+
+    right:
+        20px;
+
+    bottom:
+        44px;
+
+    z-index:
+        200;
+
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    align-items:
+        flex-end;
+
+    gap:
+        8px;
+
+    pointer-events:
+        none;
+
+}
+
+
+.notification {
+
+    min-width:
+        240px;
+
+    max-width:
+        380px;
+
+    padding:
+        12px 16px;
+
+    border:
+        1px solid var(--color-border);
+
+    border-radius:
+        var(--radius-medium);
+
+    background:
+        var(--color-surface);
+
+    color:
+        var(--color-text);
+
+    box-shadow:
+        0 8px 30px rgba(0, 0, 0, 0.12);
+
+    font-size:
+        12px;
+
+    animation:
+        authoros-notification-in
+        200ms ease forwards;
+
+}
+
+
+.notification-error {
+
+    border-color:
+        var(--color-danger);
+
+    color:
+        var(--color-danger);
+
+}
+
+
+.notification-removing {
+
+    animation:
+        authoros-notification-out
+        250ms ease forwards;
+
+}
+
+
+@keyframes authoros-notification-in {
+
+    from {
+
+        opacity:
+            0;
+
+        transform:
+            translateY(8px);
+
+    }
+
+    to {
+
+        opacity:
+            1;
+
+        transform:
+            translateY(0);
+
+    }
+
+}
+
+
+@keyframes authoros-notification-out {
+
+    from {
+
+        opacity:
+            1;
+
+        transform:
+            translateY(0);
+
+    }
+
+    to {
+
+        opacity:
+            0;
+
+        transform:
+            translateY(8px);
+
+    }
+
+}
+
+
+:root[data-density="compact"] {
+
+    --toolbar-height: 58px;
+
+    --statusbar-height: 24px;
+
+}
+
+
+:root[data-density="spacious"] {
+
+    --toolbar-height: 70px;
+
+    --statusbar-height: 32px;
+
+}
+
+
+html.reduced-motion *,
+html.reduced-effects * {
+
+    transition-duration: 0.01ms !important;
+
+    animation-duration: 0.01ms !important;
+
+}
+
+
+html.large-ui-text {
+
+    font-size: 17px;
+
+}
+
+
+html.high-contrast-ui {
+
+    --color-border: color-mix(in srgb, var(--color-text) 45%, transparent);
+
+}
+
+
+html.enhanced-focus button:focus-visible,
+html.enhanced-focus input:focus-visible,
+html.enhanced-focus textarea:focus-visible,
+html.enhanced-focus select:focus-visible,
+html.enhanced-focus [tabindex]:focus-visible {
+
+    outline-width: 3px;
+
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 28%, transparent);
+
+}

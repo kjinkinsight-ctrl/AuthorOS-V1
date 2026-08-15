@@ -1,0 +1,23 @@
+# Node workspace
+node_modules/
+.pnpm-store/
+
+# Build outputs
+.next/
+dist/
+out/
+coverage/
+
+# Logs
+*.log
+
+# Runtime
+.env
+.env.*
+!.env.example
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

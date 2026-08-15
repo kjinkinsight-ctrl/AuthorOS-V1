@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: Indie Authors Platform API
+  version: 0.0.1
+  description: API boundary for indiauthors.com account, commerce, licensing, downloads, support, and admin domains.
+servers:
+  - url: https://api.indiauthors.com
+paths:
+  /v1/health:
+    get:
+      summary: Service health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+  /v1/catalog/products:
+    get:
+      summary: List products and purchasable license options
+      operationId: listCatalogProducts
+      responses:
+        "200":
+          description: Product catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [productCode, name]
+                      properties:
+                        productCode:
+                          type: string
+                        name:
+                          type: string
+  /v1/checkout/sessions:
+    post:
+      summary: Create checkout session with payment provider
+      operationId: createCheckoutSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lineItems, successUrl, cancelUrl]
+              properties:
+                lineItems:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [productCode, licenseType, quantity]
+                    properties:
+                      productCode:
+                        type: string
+                      licenseType:
+                        type: string
+                      quantity:
+                        type: integer
+                        minimum: 1
+                successUrl:
+                  type: string
+                  format: uri
+                cancelUrl:
+                  type: string
+                  format: uri
+      responses:
+        "201":
+          description: Checkout session created
+        "401":
+          description: Unauthorized
+  /v1/payments/webhooks/provider:
+    post:
+      summary: Payment provider webhook endpoint
+      operationId: receivePaymentWebhook
+      responses:
+        "200":
+          description: Accepted
+        "400":
+          description: Signature verification failed
+  /v1/account/licenses:
+    get:
+      summary: List authenticated user licenses
+      operationId: listMyLicenses
+      responses:
+        "200":
+          description: Licenses list
+        "401":
+          description: Unauthorized
+  /v1/downloads/releases:
+    get:
+      summary: List available releases for authenticated user entitlements
+      operationId: listEntitledReleases
+      responses:
+        "200":
+          description: Release list
+        "401":
+          description: Unauthorized
+  /v1/support/requests:
+    post:
+      summary: Submit a support request
+      operationId: createSupportRequest
+      responses:
+        "201":
+          description: Created
+        "429":
+          description: Rate limit exceeded
+  /v1/admin/users:
+    get:
+      summary: Admin list users
+      operationId: adminListUsers
+      responses:
+        "200":
+          description: Admin user list
+        "403":
+          description: Forbidden
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: ia_session
+security:
+  - sessionCookie: []

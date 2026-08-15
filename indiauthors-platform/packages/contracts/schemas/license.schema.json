@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://indiauthors.com/schemas/license.schema.json",
+  "title": "License",
+  "type": "object",
+  "required": [
+    "id",
+    "userId",
+    "productCode",
+    "licenseType",
+    "status",
+    "purchaseDate",
+    "allowedDevices",
+    "versionAccess"
+  ],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "userId": { "type": "string", "format": "uuid" },
+    "productCode": { "type": "string", "minLength": 1 },
+    "licenseType": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["active", "suspended", "expired", "revoked", "cancelled"]
+    },
+    "purchaseDate": { "type": "string", "format": "date-time" },
+    "activationDate": { "type": ["string", "null"], "format": "date-time" },
+    "expiryDate": { "type": ["string", "null"], "format": "date-time" },
+    "allowedDevices": { "type": "integer", "minimum": 1 },
+    "versionAccess": {
+      "type": "object",
+      "required": ["minVersion", "maxVersion"],
+      "properties": {
+        "minVersion": { "type": "string", "minLength": 1 },
+        "maxVersion": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

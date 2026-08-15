@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://indiauthors.com/schemas/order.schema.json",
+  "title": "Order",
+  "type": "object",
+  "required": [
+    "id",
+    "userId",
+    "status",
+    "currency",
+    "lineItems",
+    "subtotalAmount",
+    "totalAmount",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "userId": { "type": "string", "format": "uuid" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending_payment",
+        "payment_processing",
+        "paid",
+        "payment_failed",
+        "cancelled",
+        "refunded"
+      ]
+    },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "lineItems": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["productCode", "licenseType", "unitAmount", "quantity"],
+        "properties": {
+          "productCode": { "type": "string", "minLength": 1 },
+          "licenseType": { "type": "string", "minLength": 1 },
+          "unitAmount": { "type": "integer", "minimum": 0 },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "subtotalAmount": { "type": "integer", "minimum": 0 },
+    "discountAmount": { "type": "integer", "minimum": 0, "default": 0 },
+    "taxAmount": { "type": "integer", "minimum": 0, "default": 0 },
+    "totalAmount": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "paidAt": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "additionalProperties": false
+}

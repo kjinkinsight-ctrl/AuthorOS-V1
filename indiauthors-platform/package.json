@@ -1,0 +1,14 @@
+{
+  "name": "indiauthors-platform",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Standalone website and platform services for indiauthors.com",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "check:contracts": "node ./tools/check-contracts.mjs",
+    "check:w00": "node ./tools/check-w00.mjs"
+  }
+}

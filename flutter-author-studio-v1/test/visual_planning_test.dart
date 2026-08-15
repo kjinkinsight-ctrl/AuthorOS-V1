@@ -47,6 +47,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final currentProject = project();
+    final initialPlanning =
+        await const VisualPlanningStore().load(currentProject);
+    final filteredScene = initialPlanning.scenes.firstWhere(
+      (scene) =>
+          scene.status == SceneStatus.outlining && scene.pov == 'Protagonist',
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -96,7 +102,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('arc-filter')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Main Plot').last);
+    await tester.tap(find.text(filteredScene.arc).last);
     await tester.pumpAndSettle();
     expect(find.text('1 of 6 scenes'), findsOneWidget);
   });

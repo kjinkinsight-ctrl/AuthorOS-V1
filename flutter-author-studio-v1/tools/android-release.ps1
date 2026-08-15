@@ -1,8 +1,8 @@
 param(
     [string]$KeyStorePath = "",
     [string]$KeyAlias = "authorstudio-release",
-    [string]$StorePassword = "change-me",
-    [string]$KeyPassword = "change-me",
+    [string]$StorePassword = "",
+    [string]$KeyPassword = "",
     [string]$DisplayName = "Author Studio",
     [string]$Organization = "Author Studio",
     [string]$Country = "AU"
@@ -15,6 +15,21 @@ if ([string]::IsNullOrWhiteSpace($KeyStorePath)) {
 
 $androidDir = Join-Path $projectRoot "android"
 $keyPropertiesPath = Join-Path $androidDir "key.properties"
+
+if ([string]::IsNullOrWhiteSpace($StorePassword)) {
+    $secureStorePassword = Read-Host "Keystore password" -AsSecureString
+    $StorePassword = [System.Net.NetworkCredential]::new("", $secureStorePassword).Password
+}
+if ([string]::IsNullOrWhiteSpace($KeyPassword)) {
+    $secureKeyPassword = Read-Host "Key password" -AsSecureString
+    $KeyPassword = [System.Net.NetworkCredential]::new("", $secureKeyPassword).Password
+}
+if ($StorePassword.Length -lt 6 -or $KeyPassword.Length -lt 6) {
+    throw "Android signing passwords must be at least 6 characters."
+}
+if ($StorePassword -eq "change-me" -or $KeyPassword -eq "change-me") {
+    throw "Placeholder signing passwords are not allowed."
+}
 
 New-Item -ItemType Directory -Force -Path $androidDir | Out-Null
 $keystoreDir = Split-Path $KeyStorePath -Parent

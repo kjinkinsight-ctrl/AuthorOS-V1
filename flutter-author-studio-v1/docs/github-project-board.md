@@ -2,16 +2,25 @@
 
 This project is already structured around a clear product roadmap. The fastest way to make the GitHub dashboard useful is to start with a small, launch-focused backlog and keep the board organized around execution, not feature sprawl.
 
-## Recommended starting point
+## Verified milestone status
 
-Start with Phase 1 and Phase 2 work only:
+Status reflects the repository as validated locally on 2026-08-16. A merged pull request is not sufficient evidence by itself; move work to Done only when its changes are present on `main` and its acceptance check passes.
 
-1. Foundation and launch scope
-2. Manuscript workflow stability
-3. Core project persistence and backup safety
-4. Release-readiness validation
+| Milestone | Status | Verified outcome | Remaining gate |
+| --- | --- | --- | --- |
+| M1: Launch foundation | Complete in code | MVP scope, onboarding, starter projects, metadata, and local project creation | Manual first-run smoke test on Android |
+| M2: Writing workflow stability | Complete in code | Manuscript persistence, chapters, notes, reading rhythm, autosave settings, backup recovery, and automated tests | Long-session and restart smoke test on Android |
+| M3: Planning and continuity | Complete in code | Planning board, filters, overlays, timeline, continuity, Story Codex, and impact tracing | Manual usability pass |
+| M4: Release readiness | In progress | PDF export, backup verification, launcher icon, sync infrastructure, and release tooling | Live Supabase test, store assets, signed build, and release QA |
+| M5: Play Store launch | Blocked | Store copy and launch checklist drafted | Privacy URL, compliance forms, Play Console app, testing track, and rollout |
 
-This keeps the board aligned with the actual product goal: shipping a dependable writing tool before broad feature expansion.
+## Current priorities
+
+1. Run the full automated QA gate and preserve its result on the release PR.
+2. Validate project restart, autosave, backup recovery, and PDF export on an Android release build.
+3. Test Supabase authentication, RLS, offline queueing, and conflict behavior against the production-bound project.
+4. Produce screenshots, the 1024x500 feature graphic, privacy policy, data-safety answers, and release notes.
+5. Generate the production keystore, build the signed AAB, and upload it to an internal testing track.
 
 ## Board columns
 
@@ -81,7 +90,7 @@ Create a project board with these columns:
 - Move cards to "Done" only after validation is complete.
 - Keep backlog items small enough to estimate quickly.
 
-## Suggested GitHub milestone sequence
+## GitHub milestone sequence
 
 - M1: Launch foundation
 - M2: Writing workflow stability
@@ -91,13 +100,9 @@ Create a project board with these columns:
 
 This structure matches the roadmap already written in the project README and keeps the board practical for a Flutter app in a growing MVP stage.
 
-## Recommended first sprint
+## Required evidence for Done
 
-Start with these four cards:
-
-1. Finalize initial app scope and positioning
-2. Validate onboarding and first-run experience
-3. Stabilize project persistence and backup reliability
-4. Review manuscript editing workflow and usability gaps
-
-These four tasks create the most leverage with the least risk and set the stage for the rest of the board.
+- Code work: the change is present on `main`, `flutter analyze` passes, and relevant tests pass.
+- UX work: record the tested device, workflow, and result in the issue or pull request.
+- Release work: attach the artifact or Play Console result and record version name and build number.
+- External work: link the final policy, asset, form, or console configuration rather than closing a planning-only pull request.

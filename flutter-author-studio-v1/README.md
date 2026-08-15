@@ -14,35 +14,37 @@ The app is designed to give authors a streamlined environment for:
 
 ## Current project status
 
-This repository is an active Flutter build with a growing MVP foundation. The app already includes onboarding, project setup, writing-space navigation, planning tools, export workflows, backup health checks, and Supabase-ready hooks.
+The local-first MVP feature set is implemented through planning and continuity. Static analysis is clean, and automated tests cover onboarding, persistence, writing, planning, export, backup, themes, and sync. Public release remains blocked on manual device QA, production signing, store assets, privacy and compliance details, and Google Play testing-track validation.
+
+See [MVP_SCOPE.md](MVP_SCOPE.md) for the release boundary and [docs/github-project-board.md](docs/github-project-board.md) for verified milestone status.
 
 ## Build roadmap
 
-### Phase 1: Foundations
-- confirm launch scope and audience
-- finalize app metadata and store positioning
-- verify project onboarding and first-run UX
-- ensure the app loads and saves projects reliably
+### M1: Launch foundation — complete in code
+- launch scope and audience documented
+- app metadata and initial store positioning drafted
+- onboarding and first-run widget flows covered by automated tests
+- project creation and local persistence implemented
 
-### Phase 2: Core writing workflow
-- stabilize manuscript, chapter, and note flows
-- validate project persistence and local data safety
-- improve empty states and recovery patterns
+### M2: Core writing workflow — complete in code
+- manuscript, chapter, and note flows implemented
+- project persistence, autosave settings, and local data safety covered
+- empty-state and recovery paths implemented
 
-### Phase 3: Creative planning
-- refine visual planning board and scene editing
-- verify timeline and continuity tools
-- tune filters, structure overlays, and narrative insights
+### M3: Planning and continuity — complete in code
+- visual planning board and scene workflow implemented
+- timeline, continuity, Story Codex, and impact tracing implemented
+- filters and structure overlays covered by automated tests
 
-### Phase 4: Release readiness
-- finalize PDF export and backup/restore workflows
-- validate cloud and local sync boundaries
-- complete app icon, screenshots, and quality assurance
+### M4: Release readiness — in progress
+- PDF export and backup/recovery workflows implemented and tested
+- local sync boundary implemented; live Supabase validation remains
+- launcher icon configured; screenshots, feature graphic, and manual QA remain
 
-### Phase 5: Google Play launch
-- sign Android app bundle
-- prepare privacy policy, release notes, and testing tracks
-- publish to internal, closed, or production rollout
+### M5: Google Play launch — blocked on external setup
+- generate and protect the production signing keystore
+- prepare privacy policy, release notes, screenshots, and compliance forms
+- upload a signed AAB and validate an internal or closed testing track
 
 ## Local development
 
@@ -56,8 +58,10 @@ flutter run
 ## Android release validation
 
 ```bash
-flutter build appbundle --release
+powershell -ExecutionPolicy Bypass -File tools/android-release.ps1
 ```
+
+The release script prompts for signing passwords when they are not supplied. Do not commit the generated keystore or `android/key.properties`.
 
 ## Key project areas
 

@@ -111,7 +111,7 @@ void main() {
     expect(find.text('Secure device sessions'), findsOneWidget);
   });
 
-  testWidgets('saved starter projects do not auto-load on startup',
+  testWidgets('saved starter projects remain available after startup checks',
       (tester) async {
     SharedPreferences.setMockInitialValues({
       'author_studio.starter_project':
@@ -122,10 +122,11 @@ void main() {
     const store = OnboardingStore();
     final loaded = await store.loadProject();
 
-    expect(loaded, isNull);
+    expect(loaded, isNotNull);
+    expect(loaded!.title, 'Hidden Draft');
 
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool('author_studio.onboarding_complete'), isFalse);
-    expect(prefs.getString('author_studio.starter_project'), isNull);
+    expect(prefs.getBool('author_studio.onboarding_complete'), isTrue);
+    expect(prefs.getString('author_studio.starter_project'), isNotNull);
   });
 }

@@ -100,7 +100,7 @@ class StoryTemplateLibrary {
     StoryTemplate(
       name: 'Romance',
       description: 'Character chemistry, emotional stakes, and satisfying arc.',
-      sceneSuggestions: const [
+      sceneSuggestions: [
         'The Meet-Cute',
         'First Spark',
         'Competing Feelings',
@@ -108,12 +108,12 @@ class StoryTemplateLibrary {
         'The Climax of Trust',
         'The Happy Ending',
       ],
-      arcNames: const [
+      arcNames: [
         'Romantic Tension',
         'Emotional Growth',
         'Relationship Arc'
       ],
-      beatChecklist: const [
+      beatChecklist: [
         'Meet-cute',
         'Obstacles and chemistry',
         'False hope',
@@ -123,7 +123,7 @@ class StoryTemplateLibrary {
         'The choice to stay',
         'Happy ending',
       ],
-      chapterBlueprint: const [
+      chapterBlueprint: [
         'Chapter 1 - The Spark',
         'Chapter 2 - The Friction',
         'Chapter 3 - The Connection',
@@ -133,7 +133,7 @@ class StoryTemplateLibrary {
     StoryTemplate(
       name: 'Thriller',
       description: 'Escalating pressure, hidden motives, and hard choices.',
-      sceneSuggestions: const [
+      sceneSuggestions: [
         'The Signal',
         'The False Lead',
         'The Chase Begins',
@@ -141,8 +141,8 @@ class StoryTemplateLibrary {
         'The Counterplay',
         'The Final Confrontation',
       ],
-      arcNames: const ['Main Plot', 'Pressure Arc', 'Counter-Intelligence'],
-      beatChecklist: const [
+      arcNames: ['Main Plot', 'Pressure Arc', 'Counter-Intelligence'],
+      beatChecklist: [
         'Opening signal',
         'False lead',
         'Escalation',
@@ -152,7 +152,7 @@ class StoryTemplateLibrary {
         'Final confrontation',
         'Resolution',
       ],
-      chapterBlueprint: const [
+      chapterBlueprint: [
         'Chapter 1 - The Signal',
         'Chapter 2 - The Pattern',
         'Chapter 3 - The Fracture',
@@ -162,7 +162,7 @@ class StoryTemplateLibrary {
     StoryTemplate(
       name: 'Fantasy',
       description: 'Worldbuilding, mythic stakes, and a growing power arc.',
-      sceneSuggestions: const [
+      sceneSuggestions: [
         'The Call to the Realm',
         'The Hidden Rule',
         'The Trial',
@@ -170,8 +170,8 @@ class StoryTemplateLibrary {
         'The Betrayal',
         'The Final Threshold',
       ],
-      arcNames: const ['World Arc', 'Power Arc', 'Mythic Thread'],
-      beatChecklist: const [
+      arcNames: ['World Arc', 'Power Arc', 'Mythic Thread'],
+      beatChecklist: [
         'The world opens',
         'The hidden rule',
         'The first test',
@@ -180,7 +180,7 @@ class StoryTemplateLibrary {
         'The final threshold',
         'The altered ending',
       ],
-      chapterBlueprint: const [
+      chapterBlueprint: [
         'Chapter 1 - The Realm Awakes',
         'Chapter 2 - The Cost of Magic',
         'Chapter 3 - The Claiming',
@@ -190,7 +190,7 @@ class StoryTemplateLibrary {
     StoryTemplate(
       name: 'Mystery',
       description: 'Clues, red herrings, and the slow reveal of truth.',
-      sceneSuggestions: const [
+      sceneSuggestions: [
         'The Missing Link',
         'The Case Opens',
         'The False Solution',
@@ -198,13 +198,13 @@ class StoryTemplateLibrary {
         'The Confrontation',
         'The Reveal',
       ],
-      arcNames: const [
+      arcNames: [
         'Case Arc',
         'Truth Arc',
         'False Solution',
         'Suspect Thread'
       ],
-      beatChecklist: const [
+      beatChecklist: [
         'The crime',
         'The clue trail',
         'False solution',
@@ -213,7 +213,7 @@ class StoryTemplateLibrary {
         'Counterplay',
         'Final account',
       ],
-      chapterBlueprint: const [
+      chapterBlueprint: [
         'Chapter 1 - The Case',
         'Chapter 2 - The Clues',
         'Chapter 3 - The Suspect',
@@ -223,7 +223,7 @@ class StoryTemplateLibrary {
     StoryTemplate(
       name: 'Literary Fiction',
       description: 'Atmosphere, emotional depth, and layered meaning.',
-      sceneSuggestions: const [
+      sceneSuggestions: [
         'The Small Shift',
         'The Memory Surface',
         'The Unspoken Tension',
@@ -231,8 +231,8 @@ class StoryTemplateLibrary {
         'The Final Choice',
         'The Last Light',
       ],
-      arcNames: const ['Character Arc', 'Memory Thread', 'Emotional Current'],
-      beatChecklist: const [
+      arcNames: ['Character Arc', 'Memory Thread', 'Emotional Current'],
+      beatChecklist: [
         'The emotional undercurrent',
         'The memory break',
         'The quiet fracture',
@@ -241,7 +241,7 @@ class StoryTemplateLibrary {
         'The final act of honesty',
         'The afterimage',
       ],
-      chapterBlueprint: const [
+      chapterBlueprint: [
         'Chapter 1 - The Shift',
         'Chapter 2 - The Memory',
         'Chapter 3 - The Reckoning',
@@ -566,14 +566,24 @@ class OnboardingStore {
   static const _completeKey = 'author_studio.onboarding_complete';
 
   Future<StarterProject?> loadProject() async {
-    final preferences = await SharedPreferences.getInstance();
-
-    if (preferences.getBool(_completeKey) ?? false) {
-      await preferences.remove(_projectKey);
-      await preferences.setBool(_completeKey, false);
+    if (AppSupabase.isSignedIn) {
+      final cloudProject = await AppSupabase.loadCurrentProject();
+      if (cloudProject != null) {
+        return cloudProject;
+      }
     }
 
-    return null;
+    final preferences = await SharedPreferences.getInstance();
+    final savedProject = preferences.getString(_projectKey);
+    if (savedProject == null || savedProject.isEmpty) {
+      return null;
+    }
+
+    final decoded = jsonDecode(savedProject);
+    if (decoded is! Map) {
+      return null;
+    }
+    return StarterProject.fromJson(Map<String, dynamic>.from(decoded));
   }
 
   Future<void> saveProject(StarterProject project) async {
@@ -852,7 +862,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: selectedTemplate,
+            initialValue: selectedTemplate,
             decoration: const InputDecoration(
               labelText: 'Story template',
               border: OutlineInputBorder(),
@@ -897,7 +907,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
           ),
           const SizedBox(height: 18),
           DropdownButtonFormField<String>(
-            value: selectedTemplate,
+            initialValue: selectedTemplate,
             decoration: const InputDecoration(
               labelText: 'Structure template',
               border: OutlineInputBorder(),
@@ -986,7 +996,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
           ),
         ),
         const SizedBox(height: 12),
-        _ContinuityWorkflowStep(
+        const _ContinuityWorkflowStep(
           icon: Icons.fact_check_outlined,
           title: 'Run continuity checks',
           description:
@@ -1009,10 +1019,10 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
+                  const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'Start a 15-minute writing sprint',
                           maxLines: 2,
@@ -1170,11 +1180,6 @@ class _StarterKitPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final normalizedTemplateName = templateName?.trim() ?? '';
-    final template =
-        normalizedTemplateName.isEmpty || normalizedTemplateName == 'Classic'
-            ? null
-            : StoryTemplateLibrary.templateFor(normalizedTemplateName);
     final items = projectType == 'Screenplay'
         ? const [
             (Icons.account_tree_outlined, 'Three-act screen structure'),

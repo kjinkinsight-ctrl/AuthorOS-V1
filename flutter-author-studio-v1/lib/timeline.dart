@@ -328,7 +328,7 @@ class TimelineStore {
             StoryTemplateLibrary.templateFor(project.templateName) != null
         ? StoryTemplateLibrary.templateFor(project.templateName)
         : null;
-    final defaultSceneName = 'Opening Catalyst';
+    const defaultSceneName = 'Opening Catalyst';
     final firstCharacter = project.characterSheets.isEmpty
         ? ''
         : project.characterSheets.first.name;

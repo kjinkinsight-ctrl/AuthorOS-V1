@@ -107,7 +107,9 @@ void main() {
     );
 
     await tester.pumpAndSettle();
-    expect(find.textContaining('AuthorOS'), findsWidgets);
+    await tester.tap(find.text('Dashboard'));
+    await tester.pumpAndSettle();
+    expect(find.text('AUTHOROS'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

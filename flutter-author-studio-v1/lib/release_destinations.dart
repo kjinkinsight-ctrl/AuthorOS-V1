@@ -470,15 +470,15 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                               const Icon(Icons.search, color: Colors.white60),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Colors.white10),
+                            borderSide: const BorderSide(color: Colors.white10),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Colors.white10),
+                            borderSide: const BorderSide(color: Colors.white10),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Color(0xFFC59B6D)),
+                            borderSide: const BorderSide(color: Color(0xFFC59B6D)),
                           ),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
@@ -543,10 +543,10 @@ class _SearchStudioViewState extends State<SearchStudioView> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white10),
             ),
-            child: Wrap(
+            child: const Wrap(
               spacing: 10,
               runSpacing: 10,
-              children: const [
+              children: [
                 _SearchFilterPill(label: 'All Projects'),
                 _SearchFilterPill(label: 'Current Project'),
                 _SearchFilterPill(label: 'Relevance'),
@@ -1059,26 +1059,6 @@ class _ChapterStudioViewState extends State<ChapterStudioView> {
     await _persist();
   }
 
-  Future<void> _linkChapter(int fromIndex, int toIndex) async {
-    if (fromIndex < 0 ||
-        toIndex < 0 ||
-        fromIndex >= chapters.length ||
-        toIndex >= chapters.length ||
-        fromIndex == toIndex) {
-      return;
-    }
-    final current = chapters[fromIndex].linkedChapterIds;
-    if (current.contains(chapters[toIndex].title)) {
-      return;
-    }
-    setState(() {
-      chapters[fromIndex] = chapters[fromIndex].copyWith(
-        linkedChapterIds: [...current, chapters[toIndex].title],
-      );
-    });
-    await _persist();
-  }
-
   Future<void> _removeChapter(int index) async {
     if (index < 0 || index >= chapters.length) {
       return;
@@ -1172,12 +1152,12 @@ class _ChapterStudioViewState extends State<ChapterStudioView> {
             ),
             const SizedBox(height: 18),
             if (chapters.isEmpty)
-              Card(
+              const Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text(
                         'No chapters yet',
                         style: TextStyle(
@@ -1257,8 +1237,8 @@ class _ChapterStudioViewState extends State<ChapterStudioView> {
                       margin: const EdgeInsets.only(bottom: 12),
                       color: const Color(0xFF111827).withValues(alpha: 0.7),
                       child: ListTile(
-                        leading: CircleAvatar(
-                          child: const Icon(Icons.archive_outlined),
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.archive_outlined),
                         ),
                         title: Text(
                           chapters[index].title,
@@ -1762,9 +1742,9 @@ class _StoryCodexViewState extends State<StoryCodexView> {
                 ],
                 if (entry.visibleRelationships(entries).isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  Text(
+                  const Text(
                     'Relationships',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -1778,9 +1758,9 @@ class _StoryCodexViewState extends State<StoryCodexView> {
                 ],
                 if (entry.visibleMentions(entries).isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  Text(
+                  const Text(
                     'Mentioned in',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
                     ),
                   ),

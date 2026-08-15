@@ -399,11 +399,15 @@ class ProfileSetupScreen extends StatefulWidget {
     required this.onLogin,
     required this.onCreateProfile,
     required this.onReset,
+    this.existingProfileName,
+    this.existingProfileEmail,
   });
 
   final Future<void> Function() onLogin;
   final void Function(String name, String email) onCreateProfile;
   final Future<void> Function() onReset;
+  final String? existingProfileName;
+  final String? existingProfileEmail;
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
@@ -413,6 +417,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   bool showCreateProfile = false;
+
+  bool get hasExistingProfile =>
+      (widget.existingProfileName?.trim().isNotEmpty ?? false);
 
   @override
   void dispose() {
@@ -467,7 +474,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(
+                      const SizedBox(
                         width: 360,
                         child: _BrandPanel(
                           title: 'Indie Author OS',
@@ -652,7 +659,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                             const SizedBox(width: 12),
                                             const Expanded(
                                               child: Text(
-                                                'Welcome back',
+                                                'Login / Profile Selection',
                                                 style: TextStyle(
                                                   fontSize: 20,
                                                   fontWeight: FontWeight.w700,
@@ -664,7 +671,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                         ),
                                         const SizedBox(height: 18),
                                         const Text(
-                                          'Your writing studio is ready.',
+                                          'Choose how you want to enter AuthorOS.',
                                           style: TextStyle(
                                             fontSize: 29,
                                             fontWeight: FontWeight.w800,
@@ -672,29 +679,88 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                           ),
                                         ),
                                         const SizedBox(height: 10),
-                                        const Text(
-                                          'Choose how you want to continue:',
-                                          style: TextStyle(
+                                        Text(
+                                          hasExistingProfile
+                                              ? 'Select a profile, then continue to your workspace.'
+                                              : 'No profile is selected yet. Create a profile to begin.',
+                                          style: const TextStyle(
                                             fontSize: 16,
                                             color: Colors.white70,
                                           ),
                                         ),
                                         const SizedBox(height: 24),
-                                        FilledButton.icon(
-                                          onPressed: () async =>
-                                              widget.onLogin(),
-                                          style: FilledButton.styleFrom(
-                                            minimumSize:
-                                                const Size.fromHeight(54),
-                                            backgroundColor: Colors.white,
-                                            foregroundColor: Colors.black,
+                                        if (hasExistingProfile) ...[
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.all(14),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white10,
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color: Colors.white24,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const CircleAvatar(
+                                                  radius: 20,
+                                                  backgroundColor: Colors.white24,
+                                                  child: Icon(
+                                                    Icons.person_outline,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        widget.existingProfileName!,
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                      if (widget.existingProfileEmail !=
+                                                              null &&
+                                                          widget.existingProfileEmail!
+                                                              .trim()
+                                                              .isNotEmpty)
+                                                        Text(
+                                                          widget
+                                                              .existingProfileEmail!,
+                                                          style:
+                                                              const TextStyle(
+                                                            color: Colors.white70,
+                                                          ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                          icon: const Icon(
-                                              Icons.g_mobiledata_rounded),
-                                          label: const Text(
-                                              'Continue with Google'),
-                                        ),
-                                        const SizedBox(height: 12),
+                                          const SizedBox(height: 12),
+                                          FilledButton.icon(
+                                            onPressed: () async =>
+                                                widget.onLogin(),
+                                            style: FilledButton.styleFrom(
+                                              minimumSize:
+                                                  const Size.fromHeight(54),
+                                              backgroundColor: Colors.white,
+                                              foregroundColor: Colors.black,
+                                            ),
+                                            icon: const Icon(
+                                                Icons.login_rounded),
+                                            label: const Text(
+                                                'Continue with selected profile'),
+                                          ),
+                                          const SizedBox(height: 12),
+                                        ],
                                         OutlinedButton.icon(
                                           onPressed: () => setState(
                                               () => showCreateProfile = true),
@@ -711,23 +777,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                               Icons.person_add_alt_1_rounded),
                                           label:
                                               const Text('Create new profile'),
-                                        ),
-                                        const SizedBox(height: 18),
-                                        TextButton(
-                                          onPressed: () async =>
-                                              widget.onCreateProfile(
-                                            'Guest Writer',
-                                            'guest@authorstudio.app',
-                                          ),
-                                          style: TextButton.styleFrom(
-                                            minimumSize:
-                                                const Size.fromHeight(44),
-                                          ),
-                                          child: const Text(
-                                            'Continue as guest',
-                                            style:
-                                                TextStyle(color: Colors.white),
-                                          ),
                                         ),
                                         const SizedBox(height: 8),
                                         TextButton(
@@ -824,7 +873,7 @@ class _BrandPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Wrap(
+          const Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
@@ -850,8 +899,8 @@ class _FeatureChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final brandPink = const Color(0xFFE8B6C4);
-    final brandPurple = const Color(0xFFC8A7E0);
+    const brandPink = Color(0xFFE8B6C4);
+    const brandPurple = Color(0xFFC8A7E0);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -885,12 +934,16 @@ class _FeatureChip extends StatelessWidget {
 
 class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   static const _profileCompleteKey = 'author_studio.profile_setup_complete';
+  static const _profileNameKey = 'author_studio.profile.name';
+  static const _profileEmailKey = 'author_studio.profile.email';
 
   StarterProject? project;
   bool loading = true;
   bool profileComplete = false;
   bool openFirstDraft = false;
   bool startSprint = false;
+  String? existingProfileName;
+  String? existingProfileEmail;
 
   @override
   void initState() {
@@ -900,16 +953,19 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
 
   Future<void> _loadStartupState() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_profileCompleteKey);
-    await prefs.remove('author_studio.profile.name');
-    await prefs.remove('author_studio.profile.email');
-    await OnboardingStore.clearProjectState();
+    final savedProject = await widget.store.loadProject();
+    final storedName = (prefs.getString(_profileNameKey) ?? '').trim();
+    final storedEmail = (prefs.getString(_profileEmailKey) ?? '').trim();
     if (!mounted) {
       return;
     }
     setState(() {
-      project = null;
+      project = savedProject;
+      existingProfileName = storedName.isEmpty ? null : storedName;
+      existingProfileEmail = storedEmail.isEmpty ? null : storedEmail;
       profileComplete = false;
+      openFirstDraft = false;
+      startSprint = false;
       loading = false;
     });
   }
@@ -917,13 +973,15 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   Future<void> _completeProfile(String name, String email) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_profileCompleteKey, true);
-    await prefs.setString('author_studio.profile.name', name);
-    await prefs.setString('author_studio.profile.email', email);
+    await prefs.setString(_profileNameKey, name);
+    await prefs.setString(_profileEmailKey, email);
     if (!mounted) {
       return;
     }
     setState(() {
       profileComplete = true;
+      existingProfileName = name;
+      existingProfileEmail = email;
     });
   }
 
@@ -972,8 +1030,8 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   Future<void> _resetStartupState() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_profileCompleteKey);
-    await prefs.remove('author_studio.profile.name');
-    await prefs.remove('author_studio.profile.email');
+    await prefs.remove(_profileNameKey);
+    await prefs.remove(_profileEmailKey);
     await OnboardingStore.clearProjectState();
     if (!mounted) {
       return;
@@ -983,6 +1041,8 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       profileComplete = false;
       openFirstDraft = false;
       startSprint = false;
+      existingProfileName = null;
+      existingProfileEmail = null;
     });
   }
 
@@ -999,6 +1059,8 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
         onLogin: _login,
         onCreateProfile: _completeProfile,
         onReset: _resetStartupState,
+        existingProfileName: existingProfileName,
+        existingProfileEmail: existingProfileEmail,
       );
     }
 
@@ -2542,10 +2604,10 @@ class _ResearchSidebar extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.push_pin_rounded,
                         size: 14,
-                        color: const Color(0xFFC59B6D),
+                        color: Color(0xFFC59B6D),
                       ),
                       const SizedBox(width: 6),
                       Expanded(

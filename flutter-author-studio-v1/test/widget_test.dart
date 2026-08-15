@@ -121,7 +121,7 @@ void main() {
     expect(timeline.events.last.plotline, 'Pressure Arc');
   });
 
-  test('onboarding store clears saved project state after a completed start',
+  test('onboarding store restores saved project state for post-login use',
       () async {
     const store = OnboardingStore();
     final project = NovelStarterKit.create(
@@ -134,7 +134,9 @@ void main() {
     await store.saveProject(project);
     final restored = await store.loadProject();
 
-    expect(restored, isNull);
+    expect(restored, isNotNull);
+    expect(restored!.id, project.id);
+    expect(restored.title, project.title);
     expect(await SharedPreferences.getInstance(), isNotNull);
   });
 
@@ -224,9 +226,10 @@ void main() {
     await tester.pumpWidget(const AuthorStudioApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('Login / Profile Selection'), findsOneWidget);
     expect(find.text('Create new profile'), findsOneWidget);
     expect(find.text('Reset app state'), findsOneWidget);
+    expect(find.text('Continue with selected profile'), findsNothing);
     expect(find.text('Start your writing workspace'), findsNothing);
   });
 
@@ -243,7 +246,8 @@ void main() {
     await tester.pumpWidget(const AuthorStudioApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('Continue with selected profile'), findsOneWidget);
+    expect(find.text('Old Name'), findsOneWidget);
     expect(find.text('Create new profile'), findsOneWidget);
     expect(find.text('Start your writing workspace'), findsNothing);
   });
@@ -304,15 +308,15 @@ void main() {
 
   test('story codex entry keeps aliases, references, and relationship metadata',
       () {
-    final entry = StoryCodexEntry(
+    const entry = StoryCodexEntry(
       id: 'char-1',
       title: 'Mara Voss',
       type: StoryCodexType.character,
-      aliases: const ['Mara', 'The River Witch'],
+      aliases: ['Mara', 'The River Witch'],
       summary: 'A cartographer with a dangerous memory.',
-      tags: const ['protagonist', 'magic'],
-      relationships: const {'mentor': 'Edrin Vale', 'rival': 'Joss Quill'},
-      mentions: const ['scene-1', 'scene-7', 'chapter-3'],
+      tags: ['protagonist', 'magic'],
+      relationships: {'mentor': 'Edrin Vale', 'rival': 'Joss Quill'},
+      mentions: ['scene-1', 'scene-7', 'chapter-3'],
     );
 
     final json = entry.toJson();
@@ -422,7 +426,7 @@ void main() {
       ),
     ];
 
-    final warnings = ContinuityAnalyzer().analyze(
+    final warnings = const ContinuityAnalyzer().analyze(
       [
         const ContinuityEventSnapshot(
           id: 'event-1',

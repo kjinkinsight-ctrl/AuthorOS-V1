@@ -486,7 +486,7 @@ class _PlanningFilter<T> extends StatelessWidget {
       width: 190,
       child: DropdownButtonFormField<T?>(
         key: fieldKey,
-        value: value,
+        initialValue: value,
         isExpanded: true,
         decoration: InputDecoration(
           labelText: label,

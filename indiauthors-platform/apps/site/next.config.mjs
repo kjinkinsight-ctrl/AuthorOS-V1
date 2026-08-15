@@ -1,10 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
-  reactStrictMode: true,
-  experimental: {
-    optimizePackageImports: ["react", "react-dom"]
-  }
+  reactStrictMode: true
 };
 
 export default nextConfig;

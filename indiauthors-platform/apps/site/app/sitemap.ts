@@ -4,7 +4,15 @@ import { siteConfig } from "../content/site";
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
 
-  const routes = ["/", "/authoros", "/explore", "/pricing", "/account"];
+  const routes = [
+    "/",
+    "/authoros",
+    "/explore",
+    "/features",
+    "/roadmap",
+    "/pricing",
+    "/account"
+  ];
 
   return routes.map((route) => ({
     url: `${siteConfig.baseUrl}${route}`,

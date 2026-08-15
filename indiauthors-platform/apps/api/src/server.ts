@@ -3,6 +3,7 @@ import { z } from "zod";
 import { registerSecurityPlugins } from "./plugins/security.js";
 import { registerCatalogRoutes } from "./routes/catalog.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerProductDiscoveryRoutes } from "./routes/product-discovery.js";
 
 const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(4000),
@@ -20,6 +21,7 @@ async function buildServer() {
   await registerSecurityPlugins(app);
   await registerHealthRoutes(app);
   await registerCatalogRoutes(app);
+  await registerProductDiscoveryRoutes(app);
 
   app.get("/", async () => {
     return {

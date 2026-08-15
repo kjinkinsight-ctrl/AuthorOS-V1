@@ -52,6 +52,28 @@ paths:
                 $ref: "#/components/schemas/CatalogProduct"
         "404":
           description: Product not found
+  /v1/features/categories:
+    get:
+      summary: List AuthorOS feature categories
+      operationId: listFeatureCategories
+      responses:
+        "200":
+          description: Feature categories
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureCategoriesResponse"
+  /v1/roadmap/items:
+    get:
+      summary: List roadmap items grouped by delivery state
+      operationId: listRoadmapItems
+      responses:
+        "200":
+          description: Roadmap items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadmapItemsResponse"
   /v1/checkout/sessions:
     post:
       summary: Create checkout session with payment provider
@@ -198,5 +220,64 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CatalogProduct"
+    FeatureCategory:
+      type: object
+      required:
+        - id
+        - title
+        - availability
+        - description
+        - capabilities
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        availability:
+          type: string
+          enum: [available, planned]
+        description:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+    FeatureCategoriesResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeatureCategory"
+    RoadmapItem:
+      type: object
+      required:
+        - id
+        - lane
+        - title
+        - summary
+        - updatedAt
+      properties:
+        id:
+          type: string
+        lane:
+          type: string
+          enum: [completed, current, in_development, planned, future_ideas]
+        title:
+          type: string
+        summary:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    RoadmapItemsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoadmapItem"
 security:
   - sessionCookie: []

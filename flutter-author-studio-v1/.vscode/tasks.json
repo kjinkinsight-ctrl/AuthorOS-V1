@@ -1,0 +1,87 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Uninstall Indie Author OS",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"C:\\AuthorOS\\flutter-author-studio-v1\\tools\\uninstall-author-studio.ps1"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build, install, and open Indie Author OS",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"C:\\AuthorOS\\flutter-author-studio-v1\\tools\\build-and-install.ps1"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "Launch Indie Author OS",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"Set-Location 'C:\\AuthorOS\\flutter-author-studio-v1'; C:\\AuthorOS\\tools\\flutter\\bin\\flutter.bat clean; C:\\AuthorOS\\tools\\flutter\\bin\\flutter.bat pub get; C:\\AuthorOS\\tools\\flutter\\bin\\flutter.bat run -d windows"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "Hot reload Indie Author OS",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"Set-Location 'C:\\AuthorOS\\flutter-author-studio-v1'; C:\\AuthorOS\\tools\\flutter\\bin\\flutter.bat attach -d windows --debug-port 0"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Flutter onboarding tests",
+			"type": "shell",
+			"command": "C:\\AuthorOS\\tools\\flutter\\bin\\flutter.bat",
+			"args": [
+				"test",
+				"test/widget_test.dart",
+				"--reporter",
+				"expanded",
+				"--timeout",
+				"30s"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
+}

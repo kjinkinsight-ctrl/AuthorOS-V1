@@ -1,0 +1,48 @@
+name: author_studio_v1
+description: AuthorOS Ink & Insight rebuilt in Flutter and Dart.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  file_selector: ^1.1.0
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  package_info_plus: ^8.1.1
+  pdf: ^3.13.0
+  shared_preferences: ^2.5.5
+  supabase_flutter: ^2.8.1
+
+dev_dependencies:
+  flutter_launcher_icons: ^0.14.3
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/author-studio-logo.png
+    - assets/fonts/Inter-400.ttf
+    - assets/fonts/Inter-700.ttf
+    - assets/fonts/Merriweather-400.ttf
+    - assets/fonts/Merriweather-700.ttf
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/author-studio-logo.png"
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/author-studio-logo.png"
+    background_color: "#f4dfe7"
+    theme_color: "#f4dfe7"
+  windows:
+    generate: true
+    image_path: "assets/author-studio-logo.png"
+    icon_size: 48

@@ -1,0 +1,5797 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'backup_health.dart';
+import 'continuity.dart';
+import 'impact_trace.dart';
+import 'manuscript_export.dart';
+import 'manuscript_store.dart';
+import 'onboarding.dart';
+import 'reading_rhythm.dart';
+import 'release_destinations.dart';
+import 'supabase_service.dart';
+import 'timeline.dart';
+import 'visual_planning.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppSupabase.initialize();
+  runApp(const AuthorStudioApp());
+}
+
+class AppThemePreset {
+  const AppThemePreset({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.brightness,
+    required this.backgroundColor,
+    required this.surfaceColor,
+    required this.accentColor,
+  });
+
+  final String id;
+  final String name;
+  final String description;
+  final Brightness brightness;
+  final Color backgroundColor;
+  final Color surfaceColor;
+  final Color accentColor;
+
+  static const List<AppThemePreset> values = [
+    AppThemePreset(
+      id: 'obsidian',
+      name: 'Obsidian',
+      description:
+          'Sophisticated dark writing environment with warm literary accents.',
+      brightness: Brightness.dark,
+      backgroundColor: Color(0xFF101A2C),
+      surfaceColor: Color(0xFF1A2638),
+      accentColor: Color(0xFFB78551),
+    ),
+    AppThemePreset(
+      id: 'midnight',
+      name: 'Midnight',
+      description:
+          'Deep blue-black environment for focused late-night writing.',
+      brightness: Brightness.dark,
+      backgroundColor: Color(0xFF0E1524),
+      surfaceColor: Color(0xFF1A2437),
+      accentColor: Color(0xFF8AA7D9),
+    ),
+    AppThemePreset(
+      id: 'forest',
+      name: 'Forest',
+      description:
+          'Deep green literary environment with natural calm contrast.',
+      brightness: Brightness.dark,
+      backgroundColor: Color(0xFF12221D),
+      surfaceColor: Color(0xFF1A332D),
+      accentColor: Color(0xFF7FB89A),
+    ),
+    AppThemePreset(
+      id: 'burgundy',
+      name: 'Burgundy',
+      description:
+          'Dramatic dark wine atmosphere with luxurious literary tones.',
+      brightness: Brightness.dark,
+      backgroundColor: Color(0xFF1A1115),
+      surfaceColor: Color(0xFF2A1C23),
+      accentColor: Color(0xFFCB8D7A),
+    ),
+    AppThemePreset(
+      id: 'plum',
+      name: 'Plum',
+      description:
+          'Deep violet creative environment with atmospheric contrast.',
+      brightness: Brightness.dark,
+      backgroundColor: Color(0xFF1A1325),
+      surfaceColor: Color(0xFF2B203C),
+      accentColor: Color(0xFFBE9DE8),
+    ),
+    AppThemePreset(
+      id: 'ocean',
+      name: 'Ocean',
+      description: 'Deep blue and teal environment that feels modern and calm.',
+      brightness: Brightness.dark,
+      backgroundColor: Color(0xFF0D2128),
+      surfaceColor: Color(0xFF1A3842),
+      accentColor: Color(0xFF5AC4BA),
+    ),
+    AppThemePreset(
+      id: 'paper',
+      name: 'Paper',
+      description:
+          'Warm manuscript-like light environment built for long sessions.',
+      brightness: Brightness.light,
+      backgroundColor: Color(0xFFEDE2D5),
+      surfaceColor: Color(0xFFF8F3EC),
+      accentColor: Color(0xFFB87A46),
+    ),
+    AppThemePreset(
+      id: 'slate',
+      name: 'Slate',
+      description: 'Clean light modern theme with cool professional balance.',
+      brightness: Brightness.light,
+      backgroundColor: Color(0xFFE9EEF4),
+      surfaceColor: Color(0xFFF6F8FB),
+      accentColor: Color(0xFF5A7CC7),
+    ),
+  ];
+
+  static AppThemePreset byId(String? id) =>
+      values.firstWhere((theme) => theme.id == (id ?? 'paper'),
+          orElse: () => values.first);
+}
+
+class AppThemeAccent {
+  const AppThemeAccent({
+    required this.id,
+    required this.label,
+    required this.color,
+  });
+
+  final String id;
+  final String label;
+  final Color color;
+
+  static const List<AppThemeAccent> values = [
+    AppThemeAccent(
+        id: 'default', label: 'Theme Default', color: Color(0x00000000)),
+    AppThemeAccent(id: 'amber', label: 'Amber', color: Color(0xFFB78551)),
+    AppThemeAccent(id: 'teal', label: 'Teal', color: Color(0xFF5AC4BA)),
+    AppThemeAccent(id: 'crimson', label: 'Crimson', color: Color(0xFFCA6C7A)),
+    AppThemeAccent(id: 'cobalt', label: 'Cobalt', color: Color(0xFF5A7CC7)),
+    AppThemeAccent(id: 'olive', label: 'Olive', color: Color(0xFF7C9B5A)),
+    AppThemeAccent(id: 'coral', label: 'Coral', color: Color(0xFFE28B6F)),
+    AppThemeAccent(id: 'slate', label: 'Slate', color: Color(0xFF798DA7)),
+  ];
+
+  static AppThemeAccent byId(String? id) =>
+      values.firstWhere((accent) => accent.id == (id ?? 'default'),
+          orElse: () => values.first);
+}
+
+class AppThemeSelection {
+  const AppThemeSelection({
+    required this.themeId,
+    required this.accentId,
+  });
+
+  final String themeId;
+  final String accentId;
+
+  Color get resolvedAccentColor {
+    final accent = AppThemeAccent.byId(accentId);
+    if (accent.id == 'default') {
+      return AppThemePreset.byId(themeId).accentColor;
+    }
+    return accent.color;
+  }
+}
+
+class AuthorProfileSummary {
+  const AuthorProfileSummary({
+    required this.name,
+    required this.focus,
+    required this.bio,
+    required this.avatarPath,
+    required this.publicProfile,
+  });
+
+  final String name;
+  final String focus;
+  final String bio;
+  final String avatarPath;
+  final bool publicProfile;
+
+  static const defaultName = 'Ari Rowan';
+  static const defaultFocus = 'Fantasy romance and literary thrillers';
+  static const defaultBio =
+      'I write character-led stories with strong atmosphere, sharp stakes, and hopeful endings.';
+
+  static Future<AuthorProfileSummary> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    return AuthorProfileSummary(
+      name: prefs.getString('author_studio.profile.name') ?? defaultName,
+      focus: prefs.getString('author_studio.profile.focus') ?? defaultFocus,
+      bio: prefs.getString('author_studio.profile.bio') ?? defaultBio,
+      avatarPath: prefs.getString('author_studio.profile.avatar_path') ?? '',
+      publicProfile: prefs.getBool('author_studio.profile.public') ?? true,
+    );
+  }
+
+  String get initials => name.trim().isEmpty
+      ? 'A'
+      : name.trim().split(RegExp(r'\s+')).first[0].toUpperCase();
+}
+
+class AuthorStudioApp extends StatefulWidget {
+  const AuthorStudioApp({super.key, this.store = const OnboardingStore()});
+
+  final OnboardingStore store;
+
+  @override
+  State<AuthorStudioApp> createState() => _AuthorStudioAppState();
+}
+
+class _AuthorStudioAppState extends State<AuthorStudioApp> {
+  bool _loadingTheme = true;
+  String _themeId = 'paper';
+  String _accentId = 'default';
+
+  static const _themePreferenceKey = 'author_studio.theme_id';
+  static const _accentPreferenceKey = 'author_studio.accent_id';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThemeSelection();
+  }
+
+  Future<void> _loadThemeSelection() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _themeId = prefs.getString(_themePreferenceKey) ?? _themeId;
+      _accentId = prefs.getString(_accentPreferenceKey) ?? _accentId;
+      _loadingTheme = false;
+    });
+  }
+
+  Future<void> _saveThemeSelection() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themePreferenceKey, _themeId);
+    await prefs.setString(_accentPreferenceKey, _accentId);
+  }
+
+  void _updateThemeSelection(AppThemeSelection selection) {
+    setState(() {
+      _themeId = AppThemePreset.byId(selection.themeId).id;
+      _accentId = AppThemeAccent.byId(selection.accentId).id;
+    });
+    _saveThemeSelection();
+  }
+
+  void _handleThemeChanged(String themeId, String accentId) {
+    _updateThemeSelection(
+      AppThemeSelection(themeId: themeId, accentId: accentId),
+    );
+  }
+
+  ThemeData _buildThemeData() {
+    final preset = AppThemePreset.byId(_themeId);
+    final accent = AppThemeSelection(themeId: _themeId, accentId: _accentId)
+        .resolvedAccentColor;
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: accent,
+      brightness: preset.brightness,
+      surface: preset.surfaceColor,
+    );
+
+    final surfaceContainerColor = preset.brightness == Brightness.dark
+        ? const Color(0xFF1D2A39)
+        : const Color(0xFFF3E9DF);
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: preset.brightness,
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: preset.backgroundColor,
+      appBarTheme: const AppBarTheme(
+        centerTitle: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      cardTheme: CardThemeData(
+        color: preset.surfaceColor,
+        surfaceTintColor: colorScheme.surfaceTint,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        elevation: 0,
+      ),
+      dividerTheme: DividerThemeData(
+        color: colorScheme.outlineVariant,
+        thickness: 1,
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: surfaceContainerColor,
+        selectedColor: colorScheme.primaryContainer,
+        side: BorderSide(color: colorScheme.outlineVariant),
+        labelStyle: TextStyle(
+          color: colorScheme.onSurface,
+          fontWeight: FontWeight.w600,
+        ),
+        secondaryLabelStyle: TextStyle(
+          color: colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: colorScheme.primary,
+          foregroundColor: colorScheme.onPrimary,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadingTheme) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Indie Author OS',
+        theme: _buildThemeData(),
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    final themeData = _buildThemeData();
+
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Indie Author OS',
+      theme: themeData,
+      home: _OnboardingBootstrap(
+        store: widget.store,
+        themeId: _themeId,
+        accentId: _accentId,
+        onThemeChanged: _handleThemeChanged,
+      ),
+    );
+  }
+}
+
+class _OnboardingBootstrap extends StatefulWidget {
+  const _OnboardingBootstrap({
+    required this.store,
+    required this.themeId,
+    required this.accentId,
+    required this.onThemeChanged,
+  });
+
+  final OnboardingStore store;
+  final String themeId;
+  final String accentId;
+  final void Function(String themeId, String accentId) onThemeChanged;
+
+  @override
+  State<_OnboardingBootstrap> createState() => _OnboardingBootstrapState();
+}
+
+class ProfileSetupScreen extends StatefulWidget {
+  const ProfileSetupScreen({
+    super.key,
+    required this.onLogin,
+    required this.onCreateProfile,
+    required this.onReset,
+  });
+
+  final Future<void> Function() onLogin;
+  final void Function(String name, String email) onCreateProfile;
+  final Future<void> Function() onReset;
+
+  @override
+  State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
+}
+
+class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  bool showCreateProfile = false;
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    super.dispose();
+  }
+
+  void _submitProfile() {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    widget.onCreateProfile(
+      name.isEmpty ? 'Writer' : name,
+      email.isEmpty ? 'writer@authorstudio.app' : email,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              'assets/author-studio-logo.png',
+              fit: BoxFit.cover,
+              color: Colors.black.withValues(alpha: 0.24),
+              colorBlendMode: BlendMode.darken,
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.72),
+                    Colors.black.withValues(alpha: 0.34),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 880),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: 360,
+                        child: _BrandPanel(
+                          title: 'Indie Author OS',
+                          valueProp:
+                              'Ink & insight for your writing practice: draft, structure, and sharpen your story.',
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      SizedBox(
+                        width: 360,
+                        child: Card(
+                          elevation: 0,
+                          color: Colors.black.withValues(alpha: 0.3),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(28),
+                            side: const BorderSide(
+                              color: Colors.white24,
+                              width: 1,
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: SingleChildScrollView(
+                              child: showCreateProfile
+                                  ? Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              width: 48,
+                                              height: 48,
+                                              decoration: BoxDecoration(
+                                                color: Colors.white12,
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
+                                              ),
+                                              child: const Icon(
+                                                Icons.person_add_alt_1_rounded,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 14),
+                                            const Expanded(
+                                              child: Text(
+                                                'Create new profile',
+                                                style: TextStyle(
+                                                  fontSize: 22,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                          'Set up your writing identity before you start the workspace.',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.white70,
+                                            height: 1.5,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        TextField(
+                                          key: const Key('profile-name-field'),
+                                          controller: nameController,
+                                          style: const TextStyle(
+                                              color: Colors.white),
+                                          decoration: InputDecoration(
+                                            labelText: 'Display name',
+                                            hintText: 'Ari Rowan',
+                                            labelStyle: const TextStyle(
+                                                color: Colors.white70),
+                                            hintStyle: const TextStyle(
+                                                color: Colors.white38),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: const BorderSide(
+                                                  color: Colors.white24),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: const BorderSide(
+                                                  color: Colors.white),
+                                            ),
+                                            fillColor: Colors.white
+                                                .withValues(alpha: 0.04),
+                                            filled: true,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        TextField(
+                                          key: const Key('profile-email-field'),
+                                          controller: emailController,
+                                          keyboardType:
+                                              TextInputType.emailAddress,
+                                          style: const TextStyle(
+                                              color: Colors.white),
+                                          decoration: InputDecoration(
+                                            labelText: 'Email',
+                                            hintText: 'you@example.com',
+                                            labelStyle: const TextStyle(
+                                                color: Colors.white70),
+                                            hintStyle: const TextStyle(
+                                                color: Colors.white38),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: const BorderSide(
+                                                  color: Colors.white24),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: const BorderSide(
+                                                  color: Colors.white),
+                                            ),
+                                            fillColor: Colors.white
+                                                .withValues(alpha: 0.04),
+                                            filled: true,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        Wrap(
+                                          alignment: WrapAlignment.spaceBetween,
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          runSpacing: 12,
+                                          spacing: 12,
+                                          children: [
+                                            TextButton(
+                                              onPressed: () => setState(() =>
+                                                  showCreateProfile = false),
+                                              child: const Text(
+                                                'Back',
+                                                style: TextStyle(
+                                                    color: Colors.white),
+                                              ),
+                                            ),
+                                            FilledButton(
+                                              onPressed: _submitProfile,
+                                              style: FilledButton.styleFrom(
+                                                minimumSize:
+                                                    const Size(220, 48),
+                                                backgroundColor: Colors.white,
+                                                foregroundColor: Colors.black,
+                                              ),
+                                              child: const Text(
+                                                  'Continue to workspace setup'),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    )
+                                  : Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              width: 52,
+                                              height: 52,
+                                              decoration: BoxDecoration(
+                                                color: Colors.white12,
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                              ),
+                                              child: const Icon(
+                                                Icons.auto_stories_rounded,
+                                                size: 28,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            const Expanded(
+                                              child: Text(
+                                                'Welcome back',
+                                                style: TextStyle(
+                                                  fontSize: 20,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 18),
+                                        const Text(
+                                          'Your writing studio is ready.',
+                                          style: TextStyle(
+                                            fontSize: 29,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        const Text(
+                                          'Choose how you want to continue:',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.white70,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        FilledButton.icon(
+                                          onPressed: () async =>
+                                              widget.onLogin(),
+                                          style: FilledButton.styleFrom(
+                                            minimumSize:
+                                                const Size.fromHeight(54),
+                                            backgroundColor: Colors.white,
+                                            foregroundColor: Colors.black,
+                                          ),
+                                          icon: const Icon(
+                                              Icons.g_mobiledata_rounded),
+                                          label: const Text(
+                                              'Continue with Google'),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        OutlinedButton.icon(
+                                          onPressed: () => setState(
+                                              () => showCreateProfile = true),
+                                          style: OutlinedButton.styleFrom(
+                                            minimumSize:
+                                                const Size.fromHeight(54),
+                                            side: const BorderSide(
+                                              color: Colors.white70,
+                                              width: 1.2,
+                                            ),
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          icon: const Icon(
+                                              Icons.person_add_alt_1_rounded),
+                                          label:
+                                              const Text('Create new profile'),
+                                        ),
+                                        const SizedBox(height: 18),
+                                        TextButton(
+                                          onPressed: () async =>
+                                              widget.onCreateProfile(
+                                            'Guest Writer',
+                                            'guest@authorstudio.app',
+                                          ),
+                                          style: TextButton.styleFrom(
+                                            minimumSize:
+                                                const Size.fromHeight(44),
+                                          ),
+                                          child: const Text(
+                                            'Continue as guest',
+                                            style:
+                                                TextStyle(color: Colors.white),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        TextButton(
+                                          onPressed: () async =>
+                                              widget.onReset(),
+                                          style: TextButton.styleFrom(
+                                            minimumSize:
+                                                const Size.fromHeight(32),
+                                          ),
+                                          child: const Text(
+                                            'Reset app state',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              decoration:
+                                                  TextDecoration.underline,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BrandPanel extends StatelessWidget {
+  const _BrandPanel({required this.title, required this.valueProp});
+
+  final String title;
+  final String valueProp;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220),
+              child: Image.asset(
+                'assets/author-studio-logo.png',
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    color: Colors.white24,
+                  ),
+                  child: const Icon(
+                    Icons.auto_stories_rounded,
+                    size: 32,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            valueProp,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: Colors.white70,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _FeatureChip(icon: Icons.timeline_rounded, label: 'Plan the arc'),
+              _FeatureChip(
+                  icon: Icons.menu_book_rounded, label: 'Draft scenes'),
+              _FeatureChip(
+                  icon: Icons.analytics_outlined, label: 'Track continuity'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeatureChip extends StatelessWidget {
+  const _FeatureChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final brandPink = const Color(0xFFE8B6C4);
+    final brandPurple = const Color(0xFFC8A7E0);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            brandPink.withValues(alpha: 0.2),
+            brandPurple.withValues(alpha: 0.18),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: colorScheme.primary),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
+  static const _profileCompleteKey = 'author_studio.profile_setup_complete';
+
+  StarterProject? project;
+  bool loading = true;
+  bool profileComplete = false;
+  bool openFirstDraft = false;
+  bool startSprint = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStartupState();
+  }
+
+  Future<void> _loadStartupState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_profileCompleteKey);
+    await prefs.remove('author_studio.profile.name');
+    await prefs.remove('author_studio.profile.email');
+    await OnboardingStore.clearProjectState();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      project = null;
+      profileComplete = false;
+      loading = false;
+    });
+  }
+
+  Future<void> _completeProfile(String name, String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_profileCompleteKey, true);
+    await prefs.setString('author_studio.profile.name', name);
+    await prefs.setString('author_studio.profile.email', email);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      profileComplete = true;
+    });
+  }
+
+  Future<void> _login() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (AppSupabase.hasCredentials) {
+      try {
+        final signedIn = await AppSupabase.signInWithGoogle();
+        if (signedIn) {
+          await prefs.setBool(_profileCompleteKey, true);
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            profileComplete = true;
+          });
+          return;
+        }
+      } catch (_) {
+        // Fall back to local persistence if Supabase sign-in fails or is unavailable.
+      }
+    }
+
+    await prefs.setBool(_profileCompleteKey, true);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      profileComplete = true;
+    });
+  }
+
+  Future<void> _completeOnboarding(OnboardingResult result) async {
+    await widget.store.saveProject(result.project);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      project = result.project;
+      openFirstDraft = true;
+      startSprint = result.startSprint;
+    });
+  }
+
+  Future<void> _resetStartupState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_profileCompleteKey);
+    await prefs.remove('author_studio.profile.name');
+    await prefs.remove('author_studio.profile.email');
+    await OnboardingStore.clearProjectState();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      project = null;
+      profileComplete = false;
+      openFirstDraft = false;
+      startSprint = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!profileComplete) {
+      return ProfileSetupScreen(
+        onLogin: _login,
+        onCreateProfile: _completeProfile,
+        onReset: _resetStartupState,
+      );
+    }
+
+    final currentProject = project;
+    if (currentProject == null) {
+      return FirstRunProjectWizard(onComplete: _completeOnboarding);
+    }
+
+    return AuthorStudioShell(
+      project: currentProject,
+      openFirstDraft: openFirstDraft,
+      startSprint: startSprint,
+      themeId: widget.themeId,
+      accentId: widget.accentId,
+      onThemeChanged: widget.onThemeChanged,
+      onLogout: _resetStartupState,
+    );
+  }
+}
+
+enum StudioSection {
+  dashboard,
+  search,
+  statistics,
+  backup,
+  projects,
+  ideas,
+  manuscript,
+  chapters,
+  characters,
+  world,
+  plot,
+  timeline,
+  notes,
+  settings,
+}
+
+extension StudioSectionData on StudioSection {
+  String get label => switch (this) {
+        StudioSection.dashboard => 'Dashboard',
+        StudioSection.search => 'Search',
+        StudioSection.statistics => 'Statistics',
+        StudioSection.backup => 'Backup',
+        StudioSection.projects => 'Projects',
+        StudioSection.ideas => 'Ideas',
+        StudioSection.manuscript => 'Manuscript',
+        StudioSection.chapters => 'Chapters',
+        StudioSection.characters => 'Characters',
+        StudioSection.world => 'World',
+        StudioSection.plot => 'Plot',
+        StudioSection.timeline => 'Timeline',
+        StudioSection.notes => 'Notes',
+        StudioSection.settings => 'Settings',
+      };
+
+  IconData get icon => switch (this) {
+        StudioSection.dashboard => Icons.space_dashboard_outlined,
+        StudioSection.search => Icons.search_outlined,
+        StudioSection.statistics => Icons.bar_chart_outlined,
+        StudioSection.backup => Icons.backup_outlined,
+        StudioSection.projects => Icons.folder_copy_outlined,
+        StudioSection.ideas => Icons.lightbulb_outline,
+        StudioSection.manuscript => Icons.menu_book_outlined,
+        StudioSection.chapters => Icons.chrome_reader_mode_outlined,
+        StudioSection.characters => Icons.groups_outlined,
+        StudioSection.world => Icons.public_outlined,
+        StudioSection.plot => Icons.route_outlined,
+        StudioSection.timeline => Icons.timeline_outlined,
+        StudioSection.notes => Icons.sticky_note_2_outlined,
+        StudioSection.settings => Icons.settings_outlined,
+      };
+}
+
+Future<void> _defaultLogout() async {}
+
+class AuthorStudioShell extends StatefulWidget {
+  const AuthorStudioShell({
+    super.key,
+    required this.project,
+    this.openFirstDraft = false,
+    this.startSprint = false,
+    required this.themeId,
+    required this.accentId,
+    required this.onThemeChanged,
+    this.onLogout = _defaultLogout,
+  });
+
+  final StarterProject project;
+  final bool openFirstDraft;
+  final bool startSprint;
+  final String themeId;
+  final String accentId;
+  final void Function(String themeId, String accentId) onThemeChanged;
+  final Future<void> Function() onLogout;
+
+  @override
+  State<AuthorStudioShell> createState() => _AuthorStudioShellState();
+}
+
+class _AuthorStudioShellState extends State<AuthorStudioShell> {
+  int selectedIndex = 0;
+  bool focusModeEnabled = false;
+
+  static const workspaceSections = <StudioSection>[
+    StudioSection.dashboard,
+    StudioSection.search,
+    StudioSection.statistics,
+    StudioSection.backup,
+    StudioSection.projects,
+    StudioSection.ideas,
+    StudioSection.manuscript,
+  ];
+
+  static const storySections = <StudioSection>[
+    StudioSection.chapters,
+    StudioSection.characters,
+    StudioSection.world,
+    StudioSection.plot,
+    StudioSection.timeline,
+    StudioSection.notes,
+  ];
+
+  static const sections = <StudioSection>[
+    ...workspaceSections,
+    ...storySections,
+    StudioSection.settings,
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    selectedIndex = sections.indexOf(StudioSection.manuscript);
+  }
+
+  void _selectSection(StudioSection section) {
+    final index = sections.indexOf(section);
+    if (index >= 0) {
+      setState(() => selectedIndex = index);
+    }
+  }
+
+  void _toggleFocusMode() {
+    setState(() => focusModeEnabled = !focusModeEnabled);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 980;
+        final currentSection = sections[selectedIndex];
+        final theme = Theme.of(context);
+
+        final content = AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: _SectionView(
+            key: ValueKey(currentSection),
+            section: currentSection,
+            project: widget.project,
+            startSprint: widget.openFirstDraft && widget.startSprint,
+            onNavigate: _selectSection,
+            themeId: widget.themeId,
+            accentId: widget.accentId,
+            onThemeChanged: widget.onThemeChanged,
+            onLogout: widget.onLogout,
+            minimalFocusMode:
+                focusModeEnabled && currentSection == StudioSection.manuscript,
+          ),
+        );
+
+        if (focusModeEnabled) {
+          return Scaffold(
+            body: SafeArea(
+              child: CustomScrollView(
+                slivers: [
+                  SliverAppBar(
+                    automaticallyImplyLeading: false,
+                    pinned: true,
+                    floating: true,
+                    snap: true,
+                    expandedHeight: 88,
+                    toolbarHeight: 72,
+                    backgroundColor: theme.scaffoldBackgroundColor.withValues(
+                      alpha: 0.96,
+                    ),
+                    surfaceTintColor: Colors.transparent,
+                    titleSpacing: 0,
+                    title: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              currentSection.label,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          _HeaderActionButton(
+                            key: const Key('focus-mode-toggle'),
+                            icon: Icons.fullscreen_exit_rounded,
+                            label: 'Exit focus',
+                            tooltip: 'Toggle focus mode',
+                            onPressed: _toggleFocusMode,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
+                    sliver: SliverToBoxAdapter(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1000),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface.withValues(
+                                alpha: 0.26,
+                              ),
+                              borderRadius: BorderRadius.circular(26),
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                            child: content,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Scaffold(
+          body: SafeArea(
+            child: Row(
+              children: [
+                if (isWide)
+                  _DesktopNavigation(
+                    sections: sections,
+                    selectedIndex: selectedIndex,
+                    onSelected: (index) =>
+                        setState(() => selectedIndex = index),
+                  ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 0, 18, 18),
+                    child: Column(
+                      children: [
+                        _TopBar(
+                          section: currentSection,
+                          onNavigate: _selectSection,
+                          focusMode: false,
+                          onToggleFocus: _toggleFocusMode,
+                        ),
+                        Expanded(
+                          child: Container(
+                            margin: const EdgeInsets.fromLTRB(12, 0, 0, 0),
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface.withValues(
+                                alpha: 0.38,
+                              ),
+                              borderRadius: BorderRadius.circular(30),
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                            child: content,
+                          ),
+                        ),
+                        if (!isWide)
+                          _MobileNavigation(
+                            sections: sections,
+                            selectedIndex: selectedIndex,
+                            onSelected: (index) =>
+                                setState(() => selectedIndex = index),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({
+    required this.section,
+    required this.onNavigate,
+    required this.focusMode,
+    required this.onToggleFocus,
+  });
+
+  final StudioSection section;
+  final ValueChanged<StudioSection> onNavigate;
+  final bool focusMode;
+  final VoidCallback onToggleFocus;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final actionButtons = <Widget>[
+      _HeaderActionButton(
+        icon: Icons.search_rounded,
+        label: 'Search',
+        shortcut: 'Ctrl+K',
+        tooltip: 'Open search',
+        onPressed: () => onNavigate(StudioSection.search),
+      ),
+      _HeaderActionButton(
+        icon: Icons.notifications_none_rounded,
+        label: 'Alerts',
+        badge: '3',
+        tooltip: 'Review project alerts',
+        onPressed: () => onNavigate(StudioSection.backup),
+      ),
+      _HeaderActionButton(
+        icon: Icons.palette_outlined,
+        label: 'Theme',
+        tooltip: 'Open theme settings',
+        onPressed: () => onNavigate(StudioSection.settings),
+      ),
+      _HeaderActionButton(
+        icon: Icons.person_outline_rounded,
+        label: 'Profile',
+        tooltip: 'Open profile settings',
+        onPressed: () => onNavigate(StudioSection.settings),
+      ),
+      _HeaderActionButton(
+        key: const Key('focus-mode-toggle'),
+        icon: focusMode
+            ? Icons.fullscreen_exit_rounded
+            : Icons.fullscreen_rounded,
+        label: focusMode ? 'Exit focus' : 'Focus',
+        tooltip: 'Toggle focus mode',
+        onPressed: onToggleFocus,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 20, 12),
+      child: Row(
+        children: [
+          const _AppMark(),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Indie Author OS',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  focusMode
+                      ? 'Focused drafting mode'
+                      : 'Write with structure, continuity, and momentum',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 10,
+              runSpacing: 10,
+              children: focusMode
+                  ? [
+                      _HeaderActionButton(
+                        icon: Icons.palette_outlined,
+                        label: 'Theme',
+                        tooltip: 'Open theme settings',
+                        onPressed: () => onNavigate(StudioSection.settings),
+                      ),
+                      _HeaderActionButton(
+                        key: const Key('focus-mode-toggle'),
+                        icon: Icons.fullscreen_exit_rounded,
+                        label: 'Exit focus',
+                        tooltip: 'Toggle focus mode',
+                        onPressed: onToggleFocus,
+                      ),
+                    ]
+                  : actionButtons,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderActionButton extends StatelessWidget {
+  const _HeaderActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.shortcut,
+    this.badge,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? shortcut;
+  final String? badge;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (shortcut != null) ...[
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        shortcut!,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (badge != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 18,
+                      height: 18,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        badge!,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onPrimary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppMark extends StatelessWidget {
+  const _AppMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: Colors.white,
+      ),
+      padding: const EdgeInsets.all(6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.asset(
+          'assets/author-studio-logo.png',
+          fit: BoxFit.contain,
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopNavigation extends StatelessWidget {
+  const _DesktopNavigation({
+    required this.sections,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<StudioSection> sections;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  static const workspaceSections = <StudioSection>[
+    StudioSection.dashboard,
+    StudioSection.search,
+    StudioSection.statistics,
+    StudioSection.backup,
+    StudioSection.projects,
+    StudioSection.ideas,
+    StudioSection.manuscript,
+  ];
+
+  static const storySections = <StudioSection>[
+    StudioSection.chapters,
+    StudioSection.characters,
+    StudioSection.world,
+    StudioSection.plot,
+    StudioSection.timeline,
+    StudioSection.notes,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: 280,
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'WORKSPACE',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Indie Author OS',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              children: [
+                _NavigationGroup(
+                  label: 'WORKSPACE',
+                  items: workspaceSections,
+                  selectedIndex: selectedIndex,
+                  onSelected: onSelected,
+                  sections: sections,
+                ),
+                const SizedBox(height: 16),
+                _NavigationGroup(
+                  label: 'STORY',
+                  items: storySections,
+                  selectedIndex: selectedIndex,
+                  onSelected: onSelected,
+                  sections: sections,
+                ),
+                const SizedBox(height: 16),
+                _NavigationTile(
+                  section: StudioSection.settings,
+                  isSelected:
+                      selectedIndex == sections.indexOf(StudioSection.settings),
+                  onTap: () =>
+                      onSelected(sections.indexOf(StudioSection.settings)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavigationGroup extends StatelessWidget {
+  const _NavigationGroup({
+    required this.label,
+    required this.items,
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.sections,
+  });
+
+  final String label;
+  final List<StudioSection> items;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final List<StudioSection> sections;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
+          child: Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        ...items.map((section) {
+          final sectionIndex = sections.indexOf(section);
+          return _NavigationTile(
+            section: section,
+            isSelected: sectionIndex == selectedIndex,
+            onTap: () => onSelected(sectionIndex),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _NavigationTile extends StatelessWidget {
+  const _NavigationTile({
+    required this.section,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final StudioSection section;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Material(
+        color: isSelected
+            ? theme.colorScheme.primaryContainer
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            child: Row(
+              children: [
+                Icon(
+                  section.icon,
+                  color: isSelected
+                      ? theme.colorScheme.onPrimaryContainer
+                      : theme.colorScheme.onSurface,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    section.label,
+                    style: TextStyle(
+                      color: isSelected
+                          ? theme.colorScheme.onPrimaryContainer
+                          : theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileNavigation extends StatelessWidget {
+  const _MobileNavigation({
+    required this.sections,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<StudioSection> sections;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      height: 88,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141822),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        itemCount: sections.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final section = sections[index];
+          final isSelected = index == selectedIndex;
+
+          return ChoiceChip(
+            selected: isSelected,
+            onSelected: (_) => onSelected(index),
+            label: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  section.icon,
+                  size: 18,
+                  color: isSelected ? const Color(0xFF0F1115) : Colors.white70,
+                ),
+                const SizedBox(width: 8),
+                Text(section.label),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1A1F2B),
+            selectedColor: const Color(0xFFC59B6D),
+            labelStyle: TextStyle(
+              color: isSelected ? const Color(0xFF0F1115) : Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+            side: const BorderSide(color: Colors.white10),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SectionView extends StatelessWidget {
+  const _SectionView({
+    super.key,
+    required this.section,
+    required this.project,
+    required this.startSprint,
+    required this.onNavigate,
+    required this.themeId,
+    required this.accentId,
+    required this.onThemeChanged,
+    this.onLogout,
+    this.minimalFocusMode = false,
+  });
+
+  final StudioSection section;
+  final StarterProject project;
+  final bool startSprint;
+  final ValueChanged<StudioSection> onNavigate;
+  final String themeId;
+  final String accentId;
+  final void Function(String themeId, String accentId) onThemeChanged;
+  final Future<void> Function()? onLogout;
+  final bool minimalFocusMode;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      key: PageStorageKey(section),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      child: switch (section) {
+        StudioSection.dashboard => _DashboardView(
+            project: project,
+            onNavigate: onNavigate,
+          ),
+        StudioSection.search => SearchStudioView(project: project),
+        StudioSection.statistics => StatisticsStudioView(project: project),
+        StudioSection.backup => const BackupHealthView(),
+        StudioSection.projects => const _ProjectsStudioView(),
+        StudioSection.ideas => const RecordStudioView(
+            collection: 'ideas',
+            title: 'Ideas',
+            subtitle: 'Capture concepts, prompts, and story fragments.',
+            categories: ['Concept', 'Scene', 'Dialogue', 'Research'],
+          ),
+        StudioSection.manuscript => _FocusModeView(
+            project: project,
+            startSprint: startSprint,
+            minimalMode: minimalFocusMode,
+          ),
+        StudioSection.chapters => ChapterStudioView(project: project),
+        StudioSection.characters => CharacterBoardView(project: project),
+        StudioSection.world => StoryCodexView(projectId: project.id),
+        StudioSection.plot => VisualPlanningView(project: project),
+        StudioSection.timeline => _TimelineStudioView(project: project),
+        StudioSection.notes => const _NotesStudioView(),
+        StudioSection.settings => SettingsStudioView(
+            themeId: themeId,
+            accentId: accentId,
+            onThemeChanged: onThemeChanged,
+            onLogout: onLogout ?? () async {},
+          ),
+      },
+    );
+  }
+}
+
+class _FocusModeView extends StatefulWidget {
+  const _FocusModeView({
+    required this.project,
+    required this.startSprint,
+    this.minimalMode = false,
+  });
+
+  final StarterProject project;
+  final bool startSprint;
+  final bool minimalMode;
+
+  @override
+  State<_FocusModeView> createState() => _FocusModeViewState();
+}
+
+class ProjectResearchStore {
+  const ProjectResearchStore({required this.projectId});
+
+  final String projectId;
+
+  String get _key => 'author_studio.research_panel.$projectId';
+
+  Future<Map<ResearchTab, List<ResearchReference>>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = prefs.getString(_key);
+    if (encoded == null || encoded.isEmpty) {
+      return {};
+    }
+
+    try {
+      final decoded = jsonDecode(encoded) as Map<String, dynamic>;
+      final result = <ResearchTab, List<ResearchReference>>{};
+      for (final entry in decoded.entries) {
+        final tab = ResearchTab.values.firstWhere(
+          (value) => value.name == entry.key,
+          orElse: () => ResearchTab.research,
+        );
+        final items = (entry.value as List)
+            .map((value) => ResearchReference.fromJson(
+                Map<String, dynamic>.from(value as Map)))
+            .toList();
+        result[tab] = items;
+      }
+      return result;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> save(
+      Map<ResearchTab, List<ResearchReference>> references) async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = <String, List<Map<String, String>>>{};
+    for (final entry in references.entries) {
+      payload[entry.key.name] =
+          entry.value.map((reference) => reference.toJson()).toList();
+    }
+    await prefs.setString(_key, jsonEncode(payload));
+  }
+}
+
+class _FocusModeViewState extends State<_FocusModeView>
+    with WidgetsBindingObserver {
+  late final TextEditingController controller;
+  Timer? sprintTimer;
+  Timer? saveTimer;
+  int sprintSeconds = 15 * 60;
+  ReadingRhythmPreset rhythm = ReadingRhythmPreset.standard;
+  bool loadingDraft = true;
+  bool draftSaved = true;
+  ResearchTab selectedResearchTab = ResearchTab.research;
+
+  static const Map<ResearchTab, List<ResearchReference>>
+      _defaultResearchReferences = {
+    ResearchTab.research: [
+      ResearchReference(
+        title: 'The old bridge district',
+        detail: 'Rain-soaked stone arches, brass lanterns, and river fog.',
+        tag: 'World',
+      ),
+      ResearchReference(
+        title: 'Ashfall chapter notes',
+        detail: 'See chapter 3 for pressure before the reveal.',
+        tag: 'Scene',
+      ),
+    ],
+    ResearchTab.notes: [
+      ResearchReference(
+        title: 'Character thread: Mara',
+        detail: 'Keeps returning to the river path when she lies.',
+        tag: 'Character',
+      ),
+      ResearchReference(
+        title: 'Timeline check',
+        detail: 'The first crossing must happen before the harvest feast.',
+        tag: 'Timeline',
+      ),
+    ],
+    ResearchTab.timeline: [
+      ResearchReference(
+        title: 'Opening scene',
+        detail: 'Day 1 — storm breaks and the gate opens.',
+        tag: 'Scene',
+      ),
+      ResearchReference(
+        title: 'Midpoint turn',
+        detail: 'Night 8 — the city learns the true cost of the vault.',
+        tag: 'Event',
+      ),
+    ],
+  };
+
+  Map<ResearchTab, List<ResearchReference>> _references = {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    controller = TextEditingController();
+    controller.addListener(_scheduleDraftSave);
+    _loadDraft();
+    _loadReadingRhythm();
+    _loadResearchReferences();
+    if (widget.startSprint) {
+      sprintTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || sprintSeconds == 0) {
+          sprintTimer?.cancel();
+          return;
+        }
+        setState(() => sprintSeconds -= 1);
+      });
+    }
+  }
+
+  Future<void> _loadDraft() async {
+    final manuscript = await const ManuscriptStore().load(widget.project.id);
+    if (!mounted) {
+      return;
+    }
+    controller.text = manuscript;
+    setState(() {
+      loadingDraft = false;
+      draftSaved = true;
+    });
+  }
+
+  void _scheduleDraftSave() {
+    if (loadingDraft) {
+      return;
+    }
+    saveTimer?.cancel();
+    if (draftSaved && mounted) {
+      setState(() => draftSaved = false);
+    }
+    saveTimer = Timer(const Duration(milliseconds: 700), _saveDraft);
+  }
+
+  Future<void> _saveDraft() async {
+    saveTimer?.cancel();
+    await const ManuscriptStore().save(widget.project.id, controller.text);
+    if (mounted) {
+      setState(() => draftSaved = true);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _saveDraft();
+    }
+  }
+
+  Future<void> _loadReadingRhythm() async {
+    final saved = await const ReadingRhythmStore().load(widget.project.id);
+    if (mounted) {
+      setState(() => rhythm = saved);
+    }
+  }
+
+  Future<void> _loadResearchReferences() async {
+    final store = ProjectResearchStore(projectId: widget.project.id);
+    final loaded = await store.load();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _references =
+          loaded.isEmpty ? Map.from(_defaultResearchReferences) : loaded;
+    });
+  }
+
+  Future<void> _saveResearchReferences() async {
+    await ProjectResearchStore(projectId: widget.project.id).save(_references);
+  }
+
+  Future<void> _openReferenceComposer() async {
+    final titleController = TextEditingController();
+    final detailController = TextEditingController();
+    final tagController = TextEditingController(text: 'Research');
+
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add reference'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(labelText: 'Title'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: detailController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(labelText: 'Details'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: tagController,
+                decoration: const InputDecoration(labelText: 'Tag'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (titleController.text.trim().isEmpty) {
+                return;
+              }
+              Navigator.pop(context, true);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (accepted != true) {
+      titleController.dispose();
+      detailController.dispose();
+      tagController.dispose();
+      return;
+    }
+
+    final nextReference = ResearchReference(
+      title: titleController.text.trim(),
+      detail: detailController.text.trim(),
+      tag: tagController.text.trim().isEmpty
+          ? 'Research'
+          : tagController.text.trim(),
+    );
+
+    setState(() {
+      final list = <ResearchReference>[
+        ...(_references[selectedResearchTab] ?? const <ResearchReference>[]),
+        nextReference,
+      ];
+      _references[selectedResearchTab] = list;
+    });
+    await _saveResearchReferences();
+
+    titleController.dispose();
+    detailController.dispose();
+    tagController.dispose();
+  }
+
+  void _selectReadingRhythm(ReadingRhythmPreset selected) {
+    setState(() => rhythm = selected);
+    const ReadingRhythmStore().save(widget.project.id, selected);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    sprintTimer?.cancel();
+    saveTimer?.cancel();
+    if (!loadingDraft && !draftSaved) {
+      const ManuscriptStore().save(widget.project.id, controller.text);
+    }
+    controller.removeListener(_scheduleDraftSave);
+    controller.dispose();
+    super.dispose();
+  }
+
+  String get sprintLabel {
+    final minutes = (sprintSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (sprintSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  int get wordCount {
+    final words = controller.text.trim().split(RegExp(r'\s+'));
+    return controller.text.trim().isEmpty ? 0 : words.length;
+  }
+
+  Future<void> _openExportDialog() async {
+    final path = await showDialog<String>(
+      context: context,
+      builder: (context) => ManuscriptExportDialog(
+        projectTitle: widget.project.title,
+        sceneTitle: widget.project.firstSceneTitle,
+        manuscript: controller.text,
+      ),
+    );
+    if (!mounted || path == null) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Exported PDF to $path')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final count = wordCount;
+
+        if (widget.minimalMode) {
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111827),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.project.title,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1A2438),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '$count words',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('manuscript-draft-field'),
+                      controller: controller,
+                      maxLines: 28,
+                      minLines: 22,
+                      keyboardType: TextInputType.multiline,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontFamily: 'monospace',
+                            fontSize: 18,
+                            height: 1.8,
+                            letterSpacing: 0.18,
+                            color: Colors.white,
+                          ),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Start drafting here...',
+                        hintStyle:
+                            Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                  fontFamily: 'monospace',
+                                  color: Colors.white54,
+                                  fontSize: 18,
+                                  height: 1.8,
+                                ),
+                        contentPadding: const EdgeInsets.all(8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        final editor = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _FocusHeader(
+              project: widget.project,
+              wordCount: count,
+              sprintLabel: widget.startSprint ? sprintLabel : null,
+              saveLabel: loadingDraft
+                  ? 'Loading'
+                  : draftSaved
+                      ? 'Saved'
+                      : 'Saving',
+              onExport: _openExportDialog,
+            ),
+            const SizedBox(height: 18),
+            Align(
+              alignment: Alignment.topCenter,
+              child: AnimatedContainer(
+                key: const Key('reading-rhythm-editor'),
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                width: double.infinity,
+                constraints: BoxConstraints(maxWidth: rhythm.editorWidth),
+                padding: EdgeInsets.all(rhythm.editorPadding),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141822),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.project.firstSceneTitle,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      widget.project.chapters.first.prompt,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white60,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Reading rhythm',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SegmentedButton<ReadingRhythmPreset>(
+                        key: const Key('reading-rhythm-control'),
+                        showSelectedIcon: false,
+                        segments: ReadingRhythmPreset.values
+                            .map(
+                              (preset) => ButtonSegment(
+                                value: preset,
+                                label: Text(preset.label),
+                              ),
+                            )
+                            .toList(),
+                        selected: {rhythm},
+                        onSelectionChanged: (selection) =>
+                            _selectReadingRhythm(selection.first),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        _ActionChip(label: 'Typewriter view'),
+                        _ActionChip(label: 'Scene lock'),
+                        _ActionChip(label: 'Calm theme'),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    TextField(
+                      key: const Key('manuscript-draft-field'),
+                      controller: controller,
+                      maxLines: 22,
+                      minLines: 18,
+                      keyboardType: TextInputType.multiline,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontFamily: 'monospace',
+                            fontSize: rhythm.fontSize,
+                            height: rhythm.lineHeight,
+                            letterSpacing: 0.15,
+                            color: Colors.white,
+                          ),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Start drafting here...',
+                        hintStyle:
+                            Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                  fontFamily: 'monospace',
+                                  color: Colors.white54,
+                                  fontSize: rhythm.fontSize,
+                                  height: rhythm.lineHeight,
+                                ),
+                        contentPadding:
+                            const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+
+        final sidebar = _ResearchSidebar(
+          selectedTab: selectedResearchTab,
+          references: _references[selectedResearchTab] ?? const [],
+          onTabChanged: (tab) => setState(() => selectedResearchTab = tab),
+          onAddReference: _openReferenceComposer,
+        );
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 980;
+            if (isWide) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: editor),
+                  const SizedBox(width: 18),
+                  SizedBox(
+                    width: 320,
+                    child: sidebar,
+                  ),
+                ],
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                editor,
+                const SizedBox(height: 18),
+                sidebar,
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+enum ResearchTab { research, notes, timeline }
+
+class ResearchReference {
+  const ResearchReference({
+    required this.title,
+    required this.detail,
+    required this.tag,
+  });
+
+  final String title;
+  final String detail;
+  final String tag;
+
+  Map<String, String> toJson() => {
+        'title': title,
+        'detail': detail,
+        'tag': tag,
+      };
+
+  factory ResearchReference.fromJson(Map<String, dynamic> json) =>
+      ResearchReference(
+        title: json['title'] as String? ?? 'Untitled reference',
+        detail: json['detail'] as String? ?? '',
+        tag: json['tag'] as String? ?? 'Research',
+      );
+}
+
+class _ResearchSidebar extends StatelessWidget {
+  const _ResearchSidebar({
+    required this.selectedTab,
+    required this.references,
+    required this.onTabChanged,
+    required this.onAddReference,
+  });
+
+  final ResearchTab selectedTab;
+  final List<ResearchReference> references;
+  final ValueChanged<ResearchTab> onTabChanged;
+  final VoidCallback onAddReference;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141822),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Research',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Research workspace',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white60,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onAddReference,
+                icon: const Icon(Icons.push_pin_outlined, size: 16),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<ResearchTab>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                  value: ResearchTab.research, label: Text('Research')),
+              ButtonSegment(value: ResearchTab.notes, label: Text('Notes')),
+              ButtonSegment(
+                  value: ResearchTab.timeline, label: Text('Timeline')),
+            ],
+            selected: {selectedTab},
+            onSelectionChanged: (value) => onTabChanged(value.first),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Pinned references',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Colors.white70,
+                ),
+          ),
+          const SizedBox(height: 10),
+          ...references.map(
+            (reference) => Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1F2B),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.push_pin_rounded,
+                        size: 14,
+                        color: const Color(0xFFC59B6D),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          reference.title,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    reference.detail,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.white70,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C3546),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      reference.tag,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: Colors.white70,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FocusHeader extends StatelessWidget {
+  const _FocusHeader({
+    required this.project,
+    required this.wordCount,
+    required this.sprintLabel,
+    required this.saveLabel,
+    required this.onExport,
+  });
+
+  final StarterProject project;
+  final int wordCount;
+  final String? sprintLabel;
+  final String saveLabel;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                project.title,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${project.chapters.first.title} · ${project.genre} ${project.projectType}',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white70,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        _MetricChip(label: 'Words', value: wordCount.toString()),
+        const SizedBox(width: 10),
+        _MetricChip(label: 'Goal', value: project.wordGoal.toString()),
+        const SizedBox(width: 10),
+        _MetricChip(label: 'Draft', value: saveLabel),
+        if (sprintLabel != null) ...[
+          const SizedBox(width: 10),
+          _MetricChip(label: 'Sprint', value: sprintLabel!),
+        ],
+        const SizedBox(width: 10),
+        IconButton.filledTonal(
+          key: const Key('open-export-dialog'),
+          tooltip: 'Export manuscript',
+          onPressed: onExport,
+          icon: const Icon(Icons.ios_share_outlined),
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1F2B),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Colors.white60,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineStudioView extends StatefulWidget {
+  const _TimelineStudioView({required this.project});
+
+  final StarterProject project;
+
+  @override
+  State<_TimelineStudioView> createState() => _TimelineStudioViewState();
+}
+
+class _TimelineStudioViewState extends State<_TimelineStudioView> {
+  static const eventPageSize = 30;
+  final List<String> eventStatuses = const [
+    'Planned',
+    'Established',
+    'Completed',
+    'Archived',
+  ];
+
+  final List<String> importanceLevels = const [
+    'Low',
+    'Medium',
+    'High',
+    'Critical',
+  ];
+
+  final List<String> eventTypes = const [
+    'Historical',
+    'Plot',
+    'Character',
+    'Political',
+    'War',
+    'Discovery',
+    'Relationship',
+    'World',
+    'Personal',
+    'Custom',
+  ];
+
+  final List<TimelineEvent> events = [];
+  final List<TimelineEra> eras = [];
+  final List<TimelineSequence> sequences = [];
+  final TextEditingController searchController = TextEditingController();
+
+  bool isLoading = true;
+  String statusFilter = 'All';
+  String typeFilter = 'All';
+  String eraFilter = 'All';
+  String sequenceFilter = 'All';
+  String sortMode = 'chronological';
+  String selectedEventId = '';
+  int visibleEventCount = eventPageSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTimeline();
+  }
+
+  Future<void> _loadTimeline() async {
+    final timeline = await const TimelineStore().load(widget.project);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      eras.addAll(timeline.eras);
+      sequences.addAll(timeline.sequences);
+      events.addAll(timeline.events);
+      selectedEventId = events.isEmpty ? '' : events.first.id;
+      isLoading = false;
+    });
+  }
+
+  Future<void> _saveTimeline() => const TimelineStore().save(
+        widget.project.id,
+        TimelineState(eras: eras, sequences: sequences, events: events),
+      );
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  List<TimelineEvent> get filteredEvents {
+    final query = searchController.text.trim().toLowerCase();
+
+    final base = events.where((event) {
+      if (statusFilter != 'All' && event.status != statusFilter) {
+        return false;
+      }
+      if (typeFilter != 'All' && event.type != typeFilter) {
+        return false;
+      }
+      if (eraFilter != 'All' && event.eraId != eraFilter) {
+        return false;
+      }
+      if (sequenceFilter != 'All' && event.sequenceId != sequenceFilter) {
+        return false;
+      }
+
+      if (query.isEmpty) {
+        return true;
+      }
+
+      final haystack = '${event.title} ${event.description} ${event.dateLabel}'
+          .toLowerCase();
+      return haystack.contains(query);
+    }).toList();
+
+    int importanceRank(String level) {
+      switch (level) {
+        case 'Critical':
+          return 4;
+        case 'High':
+          return 3;
+        case 'Medium':
+          return 2;
+        default:
+          return 1;
+      }
+    }
+
+    switch (sortMode) {
+      case 'updated-desc':
+        base.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      case 'created-desc':
+        base.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      case 'title-asc':
+        base.sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+      case 'title-desc':
+        base.sort(
+            (a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
+      case 'importance-desc':
+        base.sort((a, b) => importanceRank(b.importance)
+            .compareTo(importanceRank(a.importance)));
+      case 'order-asc':
+        base.sort((a, b) => a.order.compareTo(b.order));
+      default:
+        base.sort((a, b) => a.order.compareTo(b.order));
+    }
+
+    return base;
+  }
+
+  TimelineEvent? get selectedEvent {
+    if (selectedEventId.isEmpty) {
+      return null;
+    }
+    for (final event in events) {
+      if (event.id == selectedEventId) {
+        return event;
+      }
+    }
+    return null;
+  }
+
+  int get plannedCount =>
+      events.where((event) => event.status == 'Planned').length;
+  int get completedCount =>
+      events.where((event) => event.status == 'Completed').length;
+  List<ContinuityEventSnapshot> get continuityEvents => events
+      .map((event) => ContinuityEventSnapshot(
+            id: event.id,
+            title: event.title,
+            startDay: event.startDay,
+            endDay: event.endDay,
+            order: event.order,
+            pov: event.pov,
+            plotline: event.plotline,
+            presentCharacters: event.presentCharacters,
+            dateLabel: event.dateLabel,
+            type: event.type,
+            location: event.location,
+            travelDaysFromPrevious: event.travelDaysFromPrevious,
+          ))
+      .toList();
+  List<ContinuityWarning> get continuityWarnings {
+    final projectCharacters = widget.project.characterSheets
+        .map((character) => character.name)
+        .toList();
+    final codexCharacters = StoryCodexReferenceIndex.characterNames(
+      StoryCodexStore.defaultEntries,
+    );
+    final codexLocations = StoryCodexReferenceIndex.locationNames(
+      StoryCodexStore.defaultEntries,
+    );
+
+    return const ContinuityAnalyzer().analyze(
+      continuityEvents,
+      knownCharacters: {
+        ...projectCharacters,
+        ...codexCharacters,
+      },
+      knownLocations: codexLocations,
+    );
+  }
+
+  int get warningCount => continuityWarnings.length;
+
+  ImpactTraceResult? get selectedImpactTrace {
+    final selected = selectedEvent;
+    if (selected == null) {
+      return null;
+    }
+
+    final entities = <TraceEntity>[];
+    final links = <TraceLink>[];
+    final entityIds = <String>{};
+    void addEntity(TraceEntity entity) {
+      if (entityIds.add(entity.id)) {
+        entities.add(entity);
+      }
+    }
+
+    for (final event in events) {
+      final sceneId = 'scene:${event.id}';
+      addEntity(TraceEntity(
+          id: sceneId, label: event.title, type: TraceEntityType.scene));
+      for (final character in event.presentCharacters) {
+        final characterId = 'character:$character';
+        addEntity(TraceEntity(
+            id: characterId,
+            label: character,
+            type: TraceEntityType.character));
+        links.add(TraceLink(
+            sourceId: sceneId, targetId: characterId, label: 'features'));
+      }
+      if (event.plotline.isNotEmpty) {
+        final plotlineId = 'plotline:${event.plotline}';
+        addEntity(TraceEntity(
+            id: plotlineId,
+            label: event.plotline,
+            type: TraceEntityType.plotline));
+        links.add(TraceLink(
+            sourceId: sceneId, targetId: plotlineId, label: 'advances'));
+      }
+      if (event.linkedNote.isNotEmpty) {
+        final noteId = 'note:${event.linkedNote}';
+        addEntity(TraceEntity(
+            id: noteId, label: event.linkedNote, type: TraceEntityType.note));
+        links.add(TraceLink(
+            sourceId: sceneId, targetId: noteId, label: 'references'));
+      }
+      if (event.plotBeat.isNotEmpty) {
+        final beatId = 'beat:${event.plotBeat}';
+        addEntity(TraceEntity(
+            id: beatId, label: event.plotBeat, type: TraceEntityType.plotBeat));
+        links.add(
+            TraceLink(sourceId: sceneId, targetId: beatId, label: 'fulfills'));
+      }
+    }
+
+    return const ImpactTraceAnalyzer().trace(
+      sourceId: 'scene:${selected.id}',
+      entities: entities,
+      links: links,
+    );
+  }
+
+  String getEraLabel(String eraId) {
+    if (eraId.isEmpty) {
+      return 'Unassigned';
+    }
+    final era =
+        eras.where((item) => item.id == eraId).cast<TimelineEra?>().firstWhere(
+              (item) => item != null,
+              orElse: () => null,
+            );
+    return era?.title ?? 'Missing era reference';
+  }
+
+  String getSequenceLabel(String sequenceId) {
+    if (sequenceId.isEmpty) {
+      return 'Unassigned';
+    }
+    final sequence = sequences
+        .where((item) => item.id == sequenceId)
+        .cast<TimelineSequence?>()
+        .firstWhere((item) => item != null, orElse: () => null);
+    return sequence?.title ?? 'Missing sequence reference';
+  }
+
+  Future<void> openEraEditor({TimelineEra? existing}) async {
+    final titleController = TextEditingController(text: existing?.title ?? '');
+    final descriptionController =
+        TextEditingController(text: existing?.description ?? '');
+    var nextStatus = existing?.status ?? 'Planned';
+
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: Text(existing == null ? 'Add Era' : 'Edit Era'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: nextStatus,
+                  items: eventStatuses
+                      .map((value) =>
+                          DropdownMenuItem(value: value, child: Text(value)))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setModalState(() => nextStatus = value);
+                    }
+                  },
+                  decoration: const InputDecoration(labelText: 'Status'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descriptionController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Description'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (save == true) {
+      setState(() {
+        final now = DateTime.now();
+        if (existing == null) {
+          eras.add(
+            TimelineEra(
+              id: 'era_${now.microsecondsSinceEpoch}',
+              title: titleController.text.trim(),
+              status: nextStatus,
+              description: descriptionController.text.trim(),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+        } else {
+          final index = eras.indexWhere((era) => era.id == existing.id);
+          if (index >= 0) {
+            eras[index] = eras[index].copyWith(
+              title: titleController.text.trim(),
+              status: nextStatus,
+              description: descriptionController.text.trim(),
+              updatedAt: now,
+            );
+          }
+        }
+      });
+      await _saveTimeline();
+    }
+
+    titleController.dispose();
+    descriptionController.dispose();
+  }
+
+  Future<void> openSequenceEditor({TimelineSequence? existing}) async {
+    final titleController = TextEditingController(text: existing?.title ?? '');
+    final descriptionController =
+        TextEditingController(text: existing?.description ?? '');
+    var nextStatus = existing?.status ?? 'Planned';
+    var nextEraId = existing?.eraId ?? (eras.isNotEmpty ? eras.first.id : '');
+
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: Text(existing == null ? 'Add Sequence' : 'Edit Sequence'),
+          content: SizedBox(
+            width: 430,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: nextEraId.isEmpty ? null : nextEraId,
+                  items: eras
+                      .map((era) => DropdownMenuItem(
+                          value: era.id, child: Text(era.title)))
+                      .toList(),
+                  onChanged: (value) {
+                    setModalState(() => nextEraId = value ?? '');
+                  },
+                  decoration: const InputDecoration(labelText: 'Era'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: nextStatus,
+                  items: eventStatuses
+                      .map((value) =>
+                          DropdownMenuItem(value: value, child: Text(value)))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setModalState(() => nextStatus = value);
+                    }
+                  },
+                  decoration: const InputDecoration(labelText: 'Status'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descriptionController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Description'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (save == true) {
+      setState(() {
+        final now = DateTime.now();
+        if (existing == null) {
+          sequences.add(
+            TimelineSequence(
+              id: 'seq_${now.microsecondsSinceEpoch}',
+              title: titleController.text.trim(),
+              status: nextStatus,
+              description: descriptionController.text.trim(),
+              eraId: nextEraId,
+              order: sequences.length + 1,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+        } else {
+          final index =
+              sequences.indexWhere((sequence) => sequence.id == existing.id);
+          if (index >= 0) {
+            sequences[index] = sequences[index].copyWith(
+              title: titleController.text.trim(),
+              status: nextStatus,
+              description: descriptionController.text.trim(),
+              eraId: nextEraId,
+              updatedAt: now,
+            );
+          }
+        }
+      });
+      await _saveTimeline();
+    }
+
+    titleController.dispose();
+    descriptionController.dispose();
+  }
+
+  void deleteEra(TimelineEra era) {
+    setState(() {
+      eras.removeWhere((item) => item.id == era.id);
+      for (var i = 0; i < sequences.length; i++) {
+        if (sequences[i].eraId == era.id) {
+          sequences[i] =
+              sequences[i].copyWith(eraId: '', updatedAt: DateTime.now());
+        }
+      }
+      for (var i = 0; i < events.length; i++) {
+        if (events[i].eraId == era.id) {
+          events[i] = events[i].copyWith(eraId: '', updatedAt: DateTime.now());
+        }
+      }
+    });
+    unawaited(_saveTimeline());
+  }
+
+  void deleteSequence(TimelineSequence sequence) {
+    setState(() {
+      sequences.removeWhere((item) => item.id == sequence.id);
+      for (var i = 0; i < events.length; i++) {
+        if (events[i].sequenceId == sequence.id) {
+          events[i] =
+              events[i].copyWith(sequenceId: '', updatedAt: DateTime.now());
+        }
+      }
+    });
+    unawaited(_saveTimeline());
+  }
+
+  Future<void> openEventEditor({TimelineEvent? existing}) async {
+    final titleController = TextEditingController(text: existing?.title ?? '');
+    final descriptionController =
+        TextEditingController(text: existing?.description ?? '');
+    final dateController =
+        TextEditingController(text: existing?.dateLabel ?? '');
+    final startDayController =
+        TextEditingController(text: (existing?.startDay ?? 1).toString());
+    final endDayController =
+        TextEditingController(text: (existing?.endDay ?? 1).toString());
+    final plotlineController =
+        TextEditingController(text: existing?.plotline ?? 'Main Plot');
+    final locationController =
+        TextEditingController(text: existing?.location ?? '');
+    final travelDaysController = TextEditingController(
+        text: (existing?.travelDaysFromPrevious ?? 0).toString());
+    final linkedNoteController =
+        TextEditingController(text: existing?.linkedNote ?? '');
+    var nextPlotBeat = existing?.plotBeat ?? '';
+    var nextPov = existing?.pov ?? '';
+    final nextPresentCharacters = <String>{
+      ...?existing?.presentCharacters,
+    };
+    var nextStatus = existing?.status ?? 'Planned';
+    var nextImportance = existing?.importance ?? 'Medium';
+    var nextType = existing?.type ?? 'Plot';
+    var nextEraId = existing?.eraId ?? '';
+    var nextSequenceId = existing?.sequenceId ?? '';
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              title: Text(existing == null
+                  ? 'Add Timeline Event'
+                  : 'Edit Timeline Event'),
+              content: SizedBox(
+                width: 460,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: titleController,
+                        decoration: const InputDecoration(labelText: 'Title'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: dateController,
+                        decoration:
+                            const InputDecoration(labelText: 'Date Label'),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: startDayController,
+                              keyboardType: TextInputType.number,
+                              decoration:
+                                  const InputDecoration(labelText: 'Start Day'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: endDayController,
+                              keyboardType: TextInputType.number,
+                              decoration:
+                                  const InputDecoration(labelText: 'End Day'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: nextPov.isEmpty ? null : nextPov,
+                        isExpanded: true,
+                        items: [
+                          const DropdownMenuItem(
+                              value: '', child: Text('Unassigned')),
+                          ...widget.project.characterSheets
+                              .map((character) => DropdownMenuItem(
+                                    value: character.name,
+                                    child: Text(character.name),
+                                  )),
+                        ],
+                        onChanged: (value) =>
+                            setModalState(() => nextPov = value ?? ''),
+                        decoration: const InputDecoration(labelText: 'POV'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: plotlineController,
+                        decoration:
+                            const InputDecoration(labelText: 'Plotline'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: locationController,
+                        decoration:
+                            const InputDecoration(labelText: 'Location'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: travelDaysController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Travel days required from prior location',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: linkedNoteController,
+                        decoration:
+                            const InputDecoration(labelText: 'Linked note'),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            nextPlotBeat.isEmpty ? null : nextPlotBeat,
+                        isExpanded: true,
+                        items: [
+                          const DropdownMenuItem(
+                              value: '', child: Text('Unassigned')),
+                          ...widget.project.beatChecklist.map((beat) =>
+                              DropdownMenuItem(value: beat, child: Text(beat))),
+                        ],
+                        onChanged: (value) =>
+                            setModalState(() => nextPlotBeat = value ?? ''),
+                        decoration: const InputDecoration(
+                            labelText: 'Linked plot beat'),
+                      ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('Characters present',
+                            style: Theme.of(context).textTheme.labelLarge),
+                      ),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: widget.project.characterSheets
+                              .map((character) => FilterChip(
+                                    label: Text(character.name),
+                                    selected: nextPresentCharacters
+                                        .contains(character.name),
+                                    onSelected: (selected) {
+                                      setModalState(() {
+                                        if (selected) {
+                                          nextPresentCharacters
+                                              .add(character.name);
+                                        } else {
+                                          nextPresentCharacters
+                                              .remove(character.name);
+                                        }
+                                      });
+                                    },
+                                  ))
+                              .toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: nextStatus,
+                        items: eventStatuses
+                            .map((value) => DropdownMenuItem(
+                                value: value, child: Text(value)))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setModalState(() => nextStatus = value);
+                          }
+                        },
+                        decoration: const InputDecoration(labelText: 'Status'),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: nextImportance,
+                        items: importanceLevels
+                            .map((value) => DropdownMenuItem(
+                                value: value, child: Text(value)))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setModalState(() => nextImportance = value);
+                          }
+                        },
+                        decoration:
+                            const InputDecoration(labelText: 'Importance'),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: nextType,
+                        items: eventTypes
+                            .map((value) => DropdownMenuItem(
+                                value: value, child: Text(value)))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setModalState(() => nextType = value);
+                          }
+                        },
+                        decoration: const InputDecoration(labelText: 'Type'),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: nextEraId.isEmpty ? null : nextEraId,
+                        items: [
+                          const DropdownMenuItem(
+                              value: '', child: Text('Unassigned')),
+                          ...eras.map((era) => DropdownMenuItem(
+                              value: era.id, child: Text(era.title))),
+                        ],
+                        onChanged: (value) {
+                          setModalState(() {
+                            nextEraId = value ?? '';
+                            if (nextEraId.isNotEmpty &&
+                                nextSequenceId.isNotEmpty &&
+                                sequences.any((item) =>
+                                    item.id == nextSequenceId &&
+                                    item.eraId != nextEraId)) {
+                              nextSequenceId = '';
+                            }
+                          });
+                        },
+                        decoration: const InputDecoration(labelText: 'Era'),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            nextSequenceId.isEmpty ? null : nextSequenceId,
+                        items: [
+                          const DropdownMenuItem(
+                              value: '', child: Text('Unassigned')),
+                          ...sequences
+                              .where((sequence) =>
+                                  nextEraId.isEmpty ||
+                                  sequence.eraId == nextEraId)
+                              .map(
+                                (sequence) => DropdownMenuItem(
+                                  value: sequence.id,
+                                  child: Text(sequence.title),
+                                ),
+                              ),
+                        ],
+                        onChanged: (value) {
+                          setModalState(() => nextSequenceId = value ?? '');
+                        },
+                        decoration:
+                            const InputDecoration(labelText: 'Sequence'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: descriptionController,
+                        maxLines: 4,
+                        decoration:
+                            const InputDecoration(labelText: 'Description'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    if (titleController.text.trim().isEmpty) {
+                      return;
+                    }
+                    Navigator.of(context).pop(true);
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != true) {
+      titleController.dispose();
+      descriptionController.dispose();
+      dateController.dispose();
+      startDayController.dispose();
+      endDayController.dispose();
+      plotlineController.dispose();
+      locationController.dispose();
+      travelDaysController.dispose();
+      linkedNoteController.dispose();
+      return;
+    }
+
+    setState(() {
+      final now = DateTime.now();
+
+      if (existing == null) {
+        final event = TimelineEvent(
+          id: 'event_${now.microsecondsSinceEpoch}',
+          title: titleController.text.trim(),
+          description: descriptionController.text.trim(),
+          dateLabel: dateController.text.trim(),
+          startDay: int.tryParse(startDayController.text.trim()) ?? 1,
+          endDay: int.tryParse(endDayController.text.trim()) ?? 1,
+          pov: nextPov,
+          plotline: plotlineController.text.trim(),
+          presentCharacters: nextPresentCharacters.toList()..sort(),
+          location: locationController.text.trim(),
+          travelDaysFromPrevious:
+              int.tryParse(travelDaysController.text.trim()) ?? 0,
+          linkedNote: linkedNoteController.text.trim(),
+          plotBeat: nextPlotBeat,
+          status: nextStatus,
+          importance: nextImportance,
+          type: nextType,
+          eraId: nextEraId,
+          sequenceId: nextSequenceId,
+          order: events.length + 1,
+          createdAt: now,
+          updatedAt: now,
+        );
+        events.add(event);
+        selectedEventId = event.id;
+      } else {
+        final index = events.indexWhere((event) => event.id == existing.id);
+        if (index >= 0) {
+          events[index] = events[index].copyWith(
+            title: titleController.text.trim(),
+            description: descriptionController.text.trim(),
+            dateLabel: dateController.text.trim(),
+            startDay: int.tryParse(startDayController.text.trim()) ?? 1,
+            endDay: int.tryParse(endDayController.text.trim()) ?? 1,
+            pov: nextPov,
+            plotline: plotlineController.text.trim(),
+            presentCharacters: nextPresentCharacters.toList()..sort(),
+            location: locationController.text.trim(),
+            travelDaysFromPrevious:
+                int.tryParse(travelDaysController.text.trim()) ?? 0,
+            linkedNote: linkedNoteController.text.trim(),
+            plotBeat: nextPlotBeat,
+            status: nextStatus,
+            importance: nextImportance,
+            type: nextType,
+            eraId: nextEraId,
+            sequenceId: nextSequenceId,
+            updatedAt: now,
+          );
+        }
+      }
+    });
+    await _saveTimeline();
+
+    titleController.dispose();
+    descriptionController.dispose();
+    dateController.dispose();
+    startDayController.dispose();
+    endDayController.dispose();
+    plotlineController.dispose();
+    locationController.dispose();
+    travelDaysController.dispose();
+    linkedNoteController.dispose();
+  }
+
+  void deleteEvent(TimelineEvent event) {
+    setState(() {
+      events.removeWhere((item) => item.id == event.id);
+      if (selectedEventId == event.id) {
+        selectedEventId = events.isNotEmpty ? events.first.id : '';
+      }
+    });
+    unawaited(_saveTimeline());
+  }
+
+  void moveEvent(TimelineEvent event, int delta) {
+    final index = events.indexWhere((item) => item.id == event.id);
+    final nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= events.length) {
+      return;
+    }
+
+    setState(() {
+      final item = events.removeAt(index);
+      events.insert(nextIndex, item);
+      for (var i = 0; i < events.length; i++) {
+        events[i] = events[i].copyWith(order: i + 1, updatedAt: DateTime.now());
+      }
+    });
+    unawaited(_saveTimeline());
+  }
+
+  String formatTime(DateTime value) {
+    final hh = value.hour.toString().padLeft(2, '0');
+    final mm = value.minute.toString().padLeft(2, '0');
+    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} $hh:$mm';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final matchingEvents = filteredEvents;
+    final currentEvents = matchingEvents.take(visibleEventCount).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Timeline Studio',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Build chronology with dates, status, and importance tracking.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: () => openEventEditor(),
+              icon: const Icon(Icons.add),
+              label: const Text('Add Event'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => openEraEditor(),
+              icon: const Icon(Icons.account_tree_outlined),
+              label: const Text('Add Era'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => openSequenceEditor(),
+              icon: const Icon(Icons.linear_scale_outlined),
+              label: const Text('Add Sequence'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _MetricChip(label: 'Events', value: events.length.toString()),
+            _MetricChip(label: 'Eras', value: eras.length.toString()),
+            _MetricChip(label: 'Sequences', value: sequences.length.toString()),
+            _MetricChip(label: 'Planned', value: plannedCount.toString()),
+            _MetricChip(label: 'Completed', value: completedCount.toString()),
+            _MetricChip(label: 'Warnings', value: warningCount.toString()),
+          ],
+        ),
+        const SizedBox(height: 16),
+        ContinuityTimelinePanel(
+          events: continuityEvents,
+          warnings: continuityWarnings,
+          selectedEventId: selectedEventId,
+          onEventSelected: (eventId) =>
+              setState(() => selectedEventId = eventId),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141822),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 260,
+                child: TextField(
+                  controller: searchController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Search',
+                    isDense: true,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  initialValue: statusFilter,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Status', isDense: true),
+                  items: ['All', ...eventStatuses]
+                      .map((value) =>
+                          DropdownMenuItem(value: value, child: Text(value)))
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => statusFilter = value ?? 'All'),
+                ),
+              ),
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  initialValue: typeFilter,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Type', isDense: true),
+                  items: ['All', ...eventTypes]
+                      .map((value) =>
+                          DropdownMenuItem(value: value, child: Text(value)))
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => typeFilter = value ?? 'All'),
+                ),
+              ),
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  initialValue: eraFilter,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Era', isDense: true),
+                  items: [
+                    const DropdownMenuItem(value: 'All', child: Text('All')),
+                    ...eras.map(
+                      (era) => DropdownMenuItem(
+                          value: era.id, child: Text(era.title)),
+                    ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => eraFilter = value ?? 'All'),
+                ),
+              ),
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  initialValue: sequenceFilter,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Sequence',
+                    isDense: true,
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: 'All', child: Text('All')),
+                    ...sequences
+                        .where((sequence) =>
+                            eraFilter == 'All' || sequence.eraId == eraFilter)
+                        .map(
+                          (sequence) => DropdownMenuItem(
+                            value: sequence.id,
+                            child: Text(sequence.title),
+                          ),
+                        ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => sequenceFilter = value ?? 'All'),
+                ),
+              ),
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  initialValue: sortMode,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Sort', isDense: true),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'chronological', child: Text('Chronological')),
+                    DropdownMenuItem(
+                        value: 'updated-desc', child: Text('Recently updated')),
+                    DropdownMenuItem(
+                        value: 'created-desc', child: Text('Recently created')),
+                    DropdownMenuItem(
+                        value: 'title-asc', child: Text('Title A-Z')),
+                    DropdownMenuItem(
+                        value: 'title-desc', child: Text('Title Z-A')),
+                    DropdownMenuItem(
+                        value: 'importance-desc', child: Text('Importance')),
+                    DropdownMenuItem(
+                        value: 'order-asc', child: Text('Manual order')),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => sortMode = value ?? 'chronological'),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    statusFilter = 'All';
+                    typeFilter = 'All';
+                    eraFilter = 'All';
+                    sequenceFilter = 'All';
+                    sortMode = 'chronological';
+                    searchController.clear();
+                  });
+                },
+                child: const Text('Clear filters'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                children: [
+                  for (final event in currentEvents)
+                    Card(
+                      child: ListTile(
+                        onTap: () => setState(() => selectedEventId = event.id),
+                        title: Text(event.title),
+                        subtitle: Text(
+                            '${event.dateLabel.isEmpty ? 'Day ${event.startDay}-${event.endDay}' : event.dateLabel} | ${event.status} | ${event.type} | ${event.importance}\nPOV: ${event.pov.isEmpty ? 'Unassigned' : event.pov} | Plotline: ${event.plotline.isEmpty ? 'Unassigned' : event.plotline}\nEra: ${getEraLabel(event.eraId)} | Sequence: ${getSequenceLabel(event.sequenceId)}'),
+                        trailing: Wrap(
+                          spacing: 6,
+                          children: [
+                            IconButton(
+                              tooltip: 'Move up',
+                              onPressed: () => moveEvent(event, -1),
+                              icon: const Icon(Icons.arrow_upward),
+                            ),
+                            IconButton(
+                              tooltip: 'Move down',
+                              onPressed: () => moveEvent(event, 1),
+                              icon: const Icon(Icons.arrow_downward),
+                            ),
+                            IconButton(
+                              tooltip: 'Edit',
+                              onPressed: () => openEventEditor(existing: event),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            IconButton(
+                              tooltip: event.status == 'Archived'
+                                  ? 'Restore'
+                                  : 'Archive',
+                              onPressed: () {
+                                setState(() {
+                                  final index = events.indexWhere(
+                                      (item) => item.id == event.id);
+                                  if (index >= 0) {
+                                    final status = event.status == 'Archived'
+                                        ? 'Planned'
+                                        : 'Archived';
+                                    events[index] = event.copyWith(
+                                        status: status,
+                                        updatedAt: DateTime.now());
+                                  }
+                                });
+                                unawaited(_saveTimeline());
+                              },
+                              icon: Icon(event.status == 'Archived'
+                                  ? Icons.unarchive_outlined
+                                  : Icons.archive_outlined),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete',
+                              onPressed: () => deleteEvent(event),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (currentEvents.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          'No timeline events match current filters.',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(color: Colors.white70),
+                        ),
+                      ),
+                    ),
+                  if (matchingEvents.length > visibleEventCount)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: OutlinedButton.icon(
+                        key: const Key('load-more-primary-timeline-events'),
+                        onPressed: () =>
+                            setState(() => visibleEventCount += eventPageSize),
+                        icon: const Icon(Icons.expand_more),
+                        label: Text(
+                          'Load ${matchingEvents.length - visibleEventCount > eventPageSize ? eventPageSize : matchingEvents.length - visibleEventCount} more events',
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              flex: 2,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: selectedEvent == null
+                      ? const Text('Select an event to inspect details.')
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              selectedEvent!.title,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                                'Date: ${selectedEvent!.dateLabel.isEmpty ? 'Unknown' : selectedEvent!.dateLabel}'),
+                            Text('Status: ${selectedEvent!.status}'),
+                            Text('Type: ${selectedEvent!.type}'),
+                            Text('Importance: ${selectedEvent!.importance}'),
+                            Text(
+                                'POV: ${selectedEvent!.pov.isEmpty ? 'Unassigned' : selectedEvent!.pov}'),
+                            Text(
+                                'Plotline: ${selectedEvent!.plotline.isEmpty ? 'Unassigned' : selectedEvent!.plotline}'),
+                            Text(
+                                'Present: ${selectedEvent!.presentCharacters.isEmpty ? 'No characters marked' : selectedEvent!.presentCharacters.join(', ')}'),
+                            Text(
+                                'Location: ${selectedEvent!.location.isEmpty ? 'Unassigned' : selectedEvent!.location}'),
+                            Text(
+                                'Travel required: ${selectedEvent!.travelDaysFromPrevious} days'),
+                            Text(
+                                'Linked note: ${selectedEvent!.linkedNote.isEmpty ? 'None' : selectedEvent!.linkedNote}'),
+                            Text(
+                                'Plot beat: ${selectedEvent!.plotBeat.isEmpty ? 'Unassigned' : selectedEvent!.plotBeat}'),
+                            Text('Era: ${getEraLabel(selectedEvent!.eraId)}'),
+                            Text(
+                                'Sequence: ${getSequenceLabel(selectedEvent!.sequenceId)}'),
+                            Text('Order: ${selectedEvent!.order}'),
+                            const SizedBox(height: 10),
+                            Text(
+                              selectedEvent!.description.isEmpty
+                                  ? 'No description yet.'
+                                  : selectedEvent!.description,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: Colors.white70,
+                                  ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Updated ${formatTime(selectedEvent!.updatedAt)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Colors.white54,
+                                  ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (selectedImpactTrace != null)
+                              ImpactTracePanel(result: selectedImpactTrace!),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Eras and Sequences',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                for (final era in eras)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1F2B),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${era.title} (${era.status})',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Edit era',
+                                onPressed: () => openEraEditor(existing: era),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                              IconButton(
+                                tooltip: 'Delete era',
+                                onPressed: () => deleteEra(era),
+                                icon: const Icon(Icons.delete_outline),
+                              ),
+                            ],
+                          ),
+                          if (era.description.isNotEmpty)
+                            Text(
+                              era.description,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: Colors.white70),
+                            ),
+                          const SizedBox(height: 8),
+                          for (final sequence in sequences
+                              .where((sequence) => sequence.eraId == era.id))
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                      '• ${sequence.title} (${sequence.status})'),
+                                ),
+                                IconButton(
+                                  tooltip: 'Edit sequence',
+                                  onPressed: () =>
+                                      openSequenceEditor(existing: sequence),
+                                  icon:
+                                      const Icon(Icons.edit_outlined, size: 18),
+                                ),
+                                IconButton(
+                                  tooltip: 'Delete sequence',
+                                  onPressed: () => deleteSequence(sequence),
+                                  icon: const Icon(Icons.delete_outline,
+                                      size: 18),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (eras.isEmpty)
+                  Text(
+                    'No eras yet. Add an era to group sequence and event chronology.',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: Colors.white70),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProjectRecord {
+  const _ProjectRecord({
+    required this.id,
+    required this.title,
+    required this.template,
+    required this.status,
+    required this.goalWords,
+    required this.currentWords,
+    required this.description,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String template;
+  final String status;
+  final int goalWords;
+  final int currentWords;
+  final String description;
+  final DateTime updatedAt;
+
+  _ProjectRecord copyWith({
+    String? title,
+    String? template,
+    String? status,
+    int? goalWords,
+    int? currentWords,
+    String? description,
+    DateTime? updatedAt,
+  }) {
+    return _ProjectRecord(
+      id: id,
+      title: title ?? this.title,
+      template: template ?? this.template,
+      status: status ?? this.status,
+      goalWords: goalWords ?? this.goalWords,
+      currentWords: currentWords ?? this.currentWords,
+      description: description ?? this.description,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class _ProjectsStudioView extends StatefulWidget {
+  const _ProjectsStudioView();
+
+  @override
+  State<_ProjectsStudioView> createState() => _ProjectsStudioViewState();
+}
+
+class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
+  final List<String> templates = const [
+    'Novel',
+    'Memoir',
+    'Short Story',
+    'Screenplay',
+    'Series Planning',
+  ];
+
+  final List<_ProjectRecord> projects = [];
+  final TextEditingController searchController = TextEditingController();
+
+  String templateFilter = 'All';
+  String statusFilter = 'All';
+  String selectedProjectId = '';
+  String authorName = 'Ari Rowan';
+  String authorFocus = 'Fantasy romance and literary thrillers';
+  String authorBio =
+      'I write character-led stories with strong atmosphere, sharp stakes, and hopeful endings.';
+  String avatarPath = '';
+  bool publicProfile = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAuthorProfile();
+    projects.addAll([
+      _ProjectRecord(
+        id: 'project_1',
+        title: 'Ash and Lanterns',
+        template: 'Novel',
+        status: 'Active',
+        goalWords: 90000,
+        currentWords: 18420,
+        description: 'Fantasy novel draft with three-act structure starter.',
+        updatedAt: DateTime.now().subtract(const Duration(hours: 5)),
+      ),
+      _ProjectRecord(
+        id: 'project_2',
+        title: 'City of Quiet Bridges',
+        template: 'Series Planning',
+        status: 'Active',
+        goalWords: 120000,
+        currentWords: 42000,
+        description: 'Series bible and book one outline.',
+        updatedAt: DateTime.now().subtract(const Duration(days: 1)),
+      ),
+    ]);
+    selectedProjectId = projects.first.id;
+  }
+
+  Future<void> _loadAuthorProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      authorName = prefs.getString('author_studio.profile.name') ?? authorName;
+      authorFocus =
+          prefs.getString('author_studio.profile.focus') ?? authorFocus;
+      authorBio = prefs.getString('author_studio.profile.bio') ?? authorBio;
+      avatarPath =
+          prefs.getString('author_studio.profile.avatar_path') ?? avatarPath;
+      publicProfile =
+          prefs.getBool('author_studio.profile.public') ?? publicProfile;
+    });
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  List<_ProjectRecord> get filteredProjects {
+    final query = searchController.text.trim().toLowerCase();
+    return projects.where((project) {
+      if (templateFilter != 'All' && project.template != templateFilter) {
+        return false;
+      }
+      if (statusFilter != 'All' && project.status != statusFilter) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
+      return ('${project.title} ${project.description}'.toLowerCase())
+          .contains(query);
+    }).toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  _ProjectRecord? get selectedProject {
+    for (final project in projects) {
+      if (project.id == selectedProjectId) {
+        return project;
+      }
+    }
+    return null;
+  }
+
+  String templateStarterText(String template) {
+    switch (template) {
+      case 'Novel':
+        return 'Creates act structure, chapter placeholders, character sheets, and beat checklist.';
+      case 'Memoir':
+        return 'Creates memory timeline, voice notes area, and chapter reflection prompts.';
+      case 'Short Story':
+        return 'Creates compact arc scaffold, scene beats, and revision checklist.';
+      case 'Screenplay':
+        return 'Creates act breaks, slugline prompts, and dialogue pacing checklist.';
+      default:
+        return 'Creates multi-book map, shared world entries, and arc tracking.';
+    }
+  }
+
+  Future<void> openProjectEditor({_ProjectRecord? existing}) async {
+    final titleController = TextEditingController(text: existing?.title ?? '');
+    final descriptionController =
+        TextEditingController(text: existing?.description ?? '');
+    final goalController = TextEditingController(
+      text: existing?.goalWords.toString() ?? '90000',
+    );
+    var template = existing?.template ?? templates.first;
+    var status = existing?.status ?? 'Active';
+
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: Text(existing == null ? 'Create Project' : 'Edit Project'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    decoration:
+                        const InputDecoration(labelText: 'Project Title'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: template,
+                    items: templates
+                        .map((value) =>
+                            DropdownMenuItem(value: value, child: Text(value)))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setModalState(() => template = value);
+                      }
+                    },
+                    decoration: const InputDecoration(labelText: 'Template'),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      templateStarterText(template),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: Colors.white60),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: goalController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Word Goal'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: status,
+                    items: const [
+                      DropdownMenuItem(value: 'Active', child: Text('Active')),
+                      DropdownMenuItem(
+                          value: 'Archived', child: Text('Archived')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setModalState(() => status = value);
+                      }
+                    },
+                    decoration: const InputDecoration(labelText: 'Status'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descriptionController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (save == true) {
+      setState(() {
+        final now = DateTime.now();
+        final goal = int.tryParse(goalController.text.trim()) ?? 0;
+        if (existing == null) {
+          final project = _ProjectRecord(
+            id: 'project_${now.microsecondsSinceEpoch}',
+            title: titleController.text.trim(),
+            template: template,
+            status: status,
+            goalWords: goal,
+            currentWords: 0,
+            description: descriptionController.text.trim(),
+            updatedAt: now,
+          );
+          projects.add(project);
+          selectedProjectId = project.id;
+        } else {
+          final index =
+              projects.indexWhere((project) => project.id == existing.id);
+          if (index >= 0) {
+            projects[index] = projects[index].copyWith(
+              title: titleController.text.trim(),
+              template: template,
+              status: status,
+              goalWords: goal,
+              description: descriptionController.text.trim(),
+              updatedAt: now,
+            );
+          }
+        }
+      });
+    }
+
+    titleController.dispose();
+    descriptionController.dispose();
+    goalController.dispose();
+  }
+
+  void deleteProject(_ProjectRecord project) {
+    setState(() {
+      projects.removeWhere((item) => item.id == project.id);
+      if (selectedProjectId == project.id) {
+        selectedProjectId = projects.isNotEmpty ? projects.first.id : '';
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleProjects = filteredProjects;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.6),
+                      width: 2,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: avatarPath.isNotEmpty
+                      ? Image.file(
+                          File(avatarPath),
+                          fit: BoxFit.cover,
+                          width: 72,
+                          height: 72,
+                        )
+                      : Container(
+                          alignment: Alignment.center,
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          child: Text(
+                            authorName.isNotEmpty
+                                ? authorName[0].toUpperCase()
+                                : 'A',
+                            style: const TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              authorName,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: publicProfile
+                                  ? Colors.green.withValues(alpha: 0.14)
+                                  : Colors.orange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              publicProfile
+                                  ? 'Public profile'
+                                  : 'Private profile',
+                              style: TextStyle(
+                                color: publicProfile
+                                    ? Colors.greenAccent
+                                    : Colors.orangeAccent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        authorFocus,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white70,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        authorBio,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.white60,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Projects Studio',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Template-aware project creation and project hub workflows.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: () => openProjectEditor(),
+              icon: const Icon(Icons.add),
+              label: const Text('New Project'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            SizedBox(
+              width: 280,
+              child: TextField(
+                controller: searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                    labelText: 'Search projects', isDense: true),
+              ),
+            ),
+            SizedBox(
+              width: 190,
+              child: DropdownButtonFormField<String>(
+                initialValue: templateFilter,
+                decoration:
+                    const InputDecoration(labelText: 'Template', isDense: true),
+                items: ['All', ...templates]
+                    .map((value) =>
+                        DropdownMenuItem(value: value, child: Text(value)))
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => templateFilter = value ?? 'All'),
+              ),
+            ),
+            SizedBox(
+              width: 170,
+              child: DropdownButtonFormField<String>(
+                initialValue: statusFilter,
+                decoration:
+                    const InputDecoration(labelText: 'Status', isDense: true),
+                items: const [
+                  DropdownMenuItem(value: 'All', child: Text('All')),
+                  DropdownMenuItem(value: 'Active', child: Text('Active')),
+                  DropdownMenuItem(value: 'Archived', child: Text('Archived')),
+                ],
+                onChanged: (value) =>
+                    setState(() => statusFilter = value ?? 'All'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                children: [
+                  for (final project in visibleProjects)
+                    Card(
+                      child: ListTile(
+                        onTap: () =>
+                            setState(() => selectedProjectId = project.id),
+                        title: Text(project.title),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                '${project.template} | ${project.status} | Goal ${project.goalWords}'),
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                'Author: $authorName',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        trailing: Wrap(
+                          spacing: 6,
+                          children: [
+                            IconButton(
+                              tooltip: 'Edit',
+                              onPressed: () =>
+                                  openProjectEditor(existing: project),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            IconButton(
+                              tooltip: project.status == 'Archived'
+                                  ? 'Restore'
+                                  : 'Archive',
+                              onPressed: () {
+                                setState(() {
+                                  final index = projects.indexWhere(
+                                      (item) => item.id == project.id);
+                                  if (index >= 0) {
+                                    projects[index] = projects[index].copyWith(
+                                      status: project.status == 'Archived'
+                                          ? 'Active'
+                                          : 'Archived',
+                                      updatedAt: DateTime.now(),
+                                    );
+                                  }
+                                });
+                              },
+                              icon: Icon(project.status == 'Archived'
+                                  ? Icons.unarchive_outlined
+                                  : Icons.archive_outlined),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete',
+                              onPressed: () => deleteProject(project),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (visibleProjects.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          'No projects match your filters.',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(color: Colors.white70),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              flex: 2,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: selectedProject == null
+                      ? const Text('Select a project to inspect details.')
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              selectedProject!.title,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text('Template: ${selectedProject!.template}'),
+                            Text('Status: ${selectedProject!.status}'),
+                            Text('Word Goal: ${selectedProject!.goalWords}'),
+                            Text(
+                                'Current Words: ${selectedProject!.currentWords}'),
+                            const SizedBox(height: 8),
+                            LinearProgressIndicator(
+                              value: selectedProject!.goalWords == 0
+                                  ? 0
+                                  : (selectedProject!.currentWords /
+                                          selectedProject!.goalWords)
+                                      .clamp(0, 1),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              selectedProject!.description.isEmpty
+                                  ? 'No description yet.'
+                                  : selectedProject!.description,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(color: Colors.white70),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              templateStarterText(selectedProject!.template),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: Colors.white54),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _NoteRecord {
+  const _NoteRecord({
+    required this.id,
+    required this.title,
+    required this.content,
+    required this.type,
+    required this.status,
+    required this.pinned,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String content;
+  final String type;
+  final String status;
+  final bool pinned;
+  final DateTime updatedAt;
+
+  _NoteRecord copyWith({
+    String? title,
+    String? content,
+    String? type,
+    String? status,
+    bool? pinned,
+    DateTime? updatedAt,
+  }) {
+    return _NoteRecord(
+      id: id,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      type: type ?? this.type,
+      status: status ?? this.status,
+      pinned: pinned ?? this.pinned,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class _NotesStudioView extends StatefulWidget {
+  const _NotesStudioView();
+
+  @override
+  State<_NotesStudioView> createState() => _NotesStudioViewState();
+}
+
+class _NotesStudioViewState extends State<_NotesStudioView> {
+  final List<String> noteTypes = const [
+    'Idea',
+    'Research',
+    'Reference',
+    'Revision',
+    'Checklist',
+  ];
+
+  final List<_NoteRecord> notes = [];
+  final TextEditingController searchController = TextEditingController();
+
+  String typeFilter = 'All';
+  String statusFilter = 'All';
+  String sortMode = 'updated-desc';
+  String selectedNoteId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    notes.addAll([
+      _NoteRecord(
+        id: 'note_1',
+        title: 'Bridge district sensory notes',
+        content: 'Fog, brass railings, rainwater echoes, narrow alleys.',
+        type: 'Research',
+        status: 'Active',
+        pinned: true,
+        updatedAt: DateTime.now().subtract(const Duration(hours: 2)),
+      ),
+      _NoteRecord(
+        id: 'note_2',
+        title: 'Chapter 3 rewrite prompt',
+        content: 'Raise tension before reveal and trim exposition.',
+        type: 'Revision',
+        status: 'Active',
+        pinned: false,
+        updatedAt: DateTime.now().subtract(const Duration(hours: 9)),
+      ),
+    ]);
+    selectedNoteId = notes.first.id;
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  List<_NoteRecord> get filteredNotes {
+    final query = searchController.text.trim().toLowerCase();
+    final base = notes.where((note) {
+      if (typeFilter != 'All' && note.type != typeFilter) {
+        return false;
+      }
+      if (statusFilter != 'All' && note.status != statusFilter) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
+      return ('${note.title} ${note.content}'.toLowerCase()).contains(query);
+    }).toList();
+
+    switch (sortMode) {
+      case 'title-asc':
+        base.sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+      case 'title-desc':
+        base.sort(
+            (a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
+      case 'updated-asc':
+        base.sort((a, b) => a.updatedAt.compareTo(b.updatedAt));
+      default:
+        base.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    }
+
+    base.sort((a, b) {
+      if (a.pinned == b.pinned) {
+        return 0;
+      }
+      return a.pinned ? -1 : 1;
+    });
+
+    return base;
+  }
+
+  _NoteRecord? get selectedNote {
+    for (final note in notes) {
+      if (note.id == selectedNoteId) {
+        return note;
+      }
+    }
+    return null;
+  }
+
+  Future<void> openNoteEditor({_NoteRecord? existing}) async {
+    final titleController = TextEditingController(text: existing?.title ?? '');
+    final contentController =
+        TextEditingController(text: existing?.content ?? '');
+    var type = existing?.type ?? noteTypes.first;
+    var status = existing?.status ?? 'Active';
+    var pinned = existing?.pinned ?? false;
+
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: Text(existing == null ? 'Add Note' : 'Edit Note'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: type,
+                  items: noteTypes
+                      .map((value) =>
+                          DropdownMenuItem(value: value, child: Text(value)))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setModalState(() => type = value);
+                    }
+                  },
+                  decoration: const InputDecoration(labelText: 'Type'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: status,
+                  items: const [
+                    DropdownMenuItem(value: 'Active', child: Text('Active')),
+                    DropdownMenuItem(
+                        value: 'Archived', child: Text('Archived')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setModalState(() => status = value);
+                    }
+                  },
+                  decoration: const InputDecoration(labelText: 'Status'),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  value: pinned,
+                  onChanged: (value) => setModalState(() => pinned = value),
+                  title: const Text('Pinned'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: contentController,
+                  maxLines: 5,
+                  decoration: const InputDecoration(labelText: 'Content'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (save == true) {
+      setState(() {
+        final now = DateTime.now();
+        if (existing == null) {
+          final note = _NoteRecord(
+            id: 'note_${now.microsecondsSinceEpoch}',
+            title: titleController.text.trim(),
+            content: contentController.text.trim(),
+            type: type,
+            status: status,
+            pinned: pinned,
+            updatedAt: now,
+          );
+          notes.add(note);
+          selectedNoteId = note.id;
+        } else {
+          final index = notes.indexWhere((note) => note.id == existing.id);
+          if (index >= 0) {
+            notes[index] = notes[index].copyWith(
+              title: titleController.text.trim(),
+              content: contentController.text.trim(),
+              type: type,
+              status: status,
+              pinned: pinned,
+              updatedAt: now,
+            );
+          }
+        }
+      });
+    }
+
+    titleController.dispose();
+    contentController.dispose();
+  }
+
+  void deleteNote(_NoteRecord note) {
+    setState(() {
+      notes.removeWhere((item) => item.id == note.id);
+      if (selectedNoteId == note.id) {
+        selectedNoteId = notes.isNotEmpty ? notes.first.id : '';
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleNotes = filteredNotes;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Notes Studio',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Capture, filter, and revise notes across your writing workspace.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: () => openNoteEditor(),
+              icon: const Icon(Icons.note_add_outlined),
+              label: const Text('Add Note'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            SizedBox(
+              width: 280,
+              child: TextField(
+                controller: searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                    labelText: 'Search notes', isDense: true),
+              ),
+            ),
+            SizedBox(
+              width: 180,
+              child: DropdownButtonFormField<String>(
+                initialValue: typeFilter,
+                decoration:
+                    const InputDecoration(labelText: 'Type', isDense: true),
+                items: ['All', ...noteTypes]
+                    .map((value) =>
+                        DropdownMenuItem(value: value, child: Text(value)))
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => typeFilter = value ?? 'All'),
+              ),
+            ),
+            SizedBox(
+              width: 180,
+              child: DropdownButtonFormField<String>(
+                initialValue: statusFilter,
+                decoration:
+                    const InputDecoration(labelText: 'Status', isDense: true),
+                items: const [
+                  DropdownMenuItem(value: 'All', child: Text('All')),
+                  DropdownMenuItem(value: 'Active', child: Text('Active')),
+                  DropdownMenuItem(value: 'Archived', child: Text('Archived')),
+                ],
+                onChanged: (value) =>
+                    setState(() => statusFilter = value ?? 'All'),
+              ),
+            ),
+            SizedBox(
+              width: 190,
+              child: DropdownButtonFormField<String>(
+                initialValue: sortMode,
+                decoration:
+                    const InputDecoration(labelText: 'Sort', isDense: true),
+                items: const [
+                  DropdownMenuItem(
+                      value: 'updated-desc', child: Text('Recently updated')),
+                  DropdownMenuItem(
+                      value: 'updated-asc', child: Text('Oldest updated')),
+                  DropdownMenuItem(
+                      value: 'title-asc', child: Text('Title A-Z')),
+                  DropdownMenuItem(
+                      value: 'title-desc', child: Text('Title Z-A')),
+                ],
+                onChanged: (value) =>
+                    setState(() => sortMode = value ?? 'updated-desc'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                children: [
+                  for (final note in visibleNotes)
+                    Card(
+                      child: ListTile(
+                        onTap: () => setState(() => selectedNoteId = note.id),
+                        leading: Icon(
+                          note.pinned
+                              ? Icons.push_pin
+                              : Icons.sticky_note_2_outlined,
+                          color: note.pinned
+                              ? const Color(0xFFC59B6D)
+                              : Colors.white70,
+                        ),
+                        title: Text(note.title),
+                        subtitle: Text('${note.type} | ${note.status}'),
+                        trailing: Wrap(
+                          spacing: 6,
+                          children: [
+                            IconButton(
+                              tooltip: note.pinned ? 'Unpin' : 'Pin',
+                              onPressed: () {
+                                setState(() {
+                                  final index = notes
+                                      .indexWhere((item) => item.id == note.id);
+                                  if (index >= 0) {
+                                    notes[index] = notes[index].copyWith(
+                                      pinned: !note.pinned,
+                                      updatedAt: DateTime.now(),
+                                    );
+                                  }
+                                });
+                              },
+                              icon: Icon(note.pinned
+                                  ? Icons.push_pin
+                                  : Icons.push_pin_outlined),
+                            ),
+                            IconButton(
+                              tooltip: 'Edit',
+                              onPressed: () => openNoteEditor(existing: note),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            IconButton(
+                              tooltip: note.status == 'Archived'
+                                  ? 'Restore'
+                                  : 'Archive',
+                              onPressed: () {
+                                setState(() {
+                                  final index = notes
+                                      .indexWhere((item) => item.id == note.id);
+                                  if (index >= 0) {
+                                    notes[index] = notes[index].copyWith(
+                                      status: note.status == 'Archived'
+                                          ? 'Active'
+                                          : 'Archived',
+                                      updatedAt: DateTime.now(),
+                                    );
+                                  }
+                                });
+                              },
+                              icon: Icon(
+                                note.status == 'Archived'
+                                    ? Icons.unarchive_outlined
+                                    : Icons.archive_outlined,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete',
+                              onPressed: () => deleteNote(note),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (visibleNotes.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          'No notes match your filters.',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(color: Colors.white70),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              flex: 2,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: selectedNote == null
+                      ? const Text('Select a note to inspect details.')
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              selectedNote!.title,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text('Type: ${selectedNote!.type}'),
+                            Text('Status: ${selectedNote!.status}'),
+                            Text(
+                                'Pinned: ${selectedNote!.pinned ? 'Yes' : 'No'}'),
+                            const SizedBox(height: 10),
+                            Text(
+                              selectedNote!.content.isEmpty
+                                  ? 'No note content yet.'
+                                  : selectedNote!.content,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(color: Colors.white70),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardView extends StatelessWidget {
+  const _DashboardView({
+    required this.project,
+    required this.onNavigate,
+  });
+
+  final StarterProject project;
+  final ValueChanged<StudioSection> onNavigate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    const cards = [
+      _DashboardInfoTile(
+        icon: '▣',
+        title: 'Projects',
+        body: 'Project-based organization and active story tracking.',
+        accent: true,
+        target: StudioSection.projects,
+      ),
+      _DashboardInfoTile(
+        icon: '▤',
+        title: 'Manuscript',
+        body: 'Drafting workspace and writing momentum controls.',
+        target: StudioSection.manuscript,
+      ),
+      _DashboardInfoTile(
+        icon: '◇',
+        title: 'Story',
+        body: 'Characters, chapters, and story beats in one connected system.',
+        target: StudioSection.chapters,
+      ),
+      _DashboardInfoTile(
+        icon: '✦',
+        title: 'Ideas',
+        body: '12 total · 5 draft · 4 developing · 3 ready',
+        target: StudioSection.ideas,
+      ),
+      _DashboardInfoTile(
+        icon: '⌕',
+        title: 'Universal Search',
+        body:
+            'Find projects, manuscript content, and story entities instantly.',
+        actionLabel: 'Open Search',
+        target: StudioSection.search,
+      ),
+      _DashboardInfoTile(
+        icon: '◫',
+        title: 'Statistics Studio',
+        body:
+            'Review manuscript, story, timeline, and notes analytics from canonical data.',
+        actionLabel: 'Open Statistics',
+        target: StudioSection.statistics,
+      ),
+      _DashboardInfoTile(
+        icon: '⛁',
+        title: 'Backup & Export',
+        body: 'Create full backups, exports, and safe import previews.',
+        actionLabel: 'Open Backup & Export',
+        target: StudioSection.backup,
+      ),
+    ];
+
+    final cardColumns = MediaQuery.of(context).size.width < 700
+        ? 1
+        : MediaQuery.of(context).size.width < 1100
+            ? 2
+            : 3;
+
+    return FutureBuilder<AuthorProfileSummary>(
+      future: AuthorProfileSummary.load(),
+      builder: (context, snapshot) {
+        final profile = snapshot.data ??
+            const AuthorProfileSummary(
+              name: AuthorProfileSummary.defaultName,
+              focus: AuthorProfileSummary.defaultFocus,
+              bio: AuthorProfileSummary.defaultBio,
+              avatarPath: '',
+              publicProfile: true,
+            );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF22283A), Color(0xFF131720)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'AUTHOROS',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: Colors.white70,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Ink & insight for your writing practice.',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 62,
+                          height: 62,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: theme.colorScheme.primary
+                                  .withValues(alpha: 0.7),
+                              width: 2,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: profile.avatarPath.isNotEmpty
+                              ? Image.file(
+                                  File(profile.avatarPath),
+                                  fit: BoxFit.cover,
+                                  width: 62,
+                                  height: 62,
+                                )
+                              : Container(
+                                  alignment: Alignment.center,
+                                  color: theme.colorScheme.primaryContainer,
+                                  child: Text(
+                                    profile.initials,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 24,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                profile.name,
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                profile.focus,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: Colors.white70,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(
+                                    profile.publicProfile
+                                        ? Icons.public_outlined
+                                        : Icons.lock_outline,
+                                    size: 16,
+                                    color: profile.publicProfile
+                                        ? Colors.greenAccent
+                                        : Colors.orangeAccent,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    profile.publicProfile
+                                        ? 'Public author identity'
+                                        : 'Private author identity',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: Text(
+                      'Welcome to the foundation of your authoring system.',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: Colors.white70,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            GridView.builder(
+              itemCount: cards.length,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: cardColumns,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                mainAxisExtent: cardColumns == 1 ? 220 : 286,
+              ),
+              itemBuilder: (context, index) =>
+                  cards[index].copyWith(onNavigate: onNavigate),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141822),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Recent Projects',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => onNavigate(StudioSection.projects),
+                        child: const Text('Open Story Library'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () => onNavigate(StudioSection.projects),
+                    borderRadius: BorderRadius.circular(18),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1F2B),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            alignment: Alignment.center,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFC59B6D),
+                              borderRadius:
+                                  BorderRadius.all(Radius.circular(16)),
+                            ),
+                            child: const Text(
+                              '✦',
+                              style: TextStyle(
+                                color: Color(0xFF0F1115),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 20,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  project.title,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${project.genre} • ${project.projectType} • ${project.wordGoal} word target',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141822),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'FOUNDATION',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: Colors.white70,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'AuthorOS is online.',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'The AuthorOS foundation is operational. Core services, persistence, navigation, modules and diagnostics are active.',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: Colors.white70,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2A2138),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: const Text(
+                      'READY',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DashboardInfoTile extends StatelessWidget {
+  const _DashboardInfoTile({
+    required this.icon,
+    required this.title,
+    required this.body,
+    this.actionLabel,
+    this.accent = false,
+    this.target,
+    this.onNavigate,
+  });
+
+  final String icon;
+  final String title;
+  final String body;
+  final String? actionLabel;
+  final bool accent;
+  final StudioSection? target;
+  final ValueChanged<StudioSection>? onNavigate;
+
+  _DashboardInfoTile copyWith({ValueChanged<StudioSection>? onNavigate}) {
+    return _DashboardInfoTile(
+      icon: icon,
+      title: title,
+      body: body,
+      actionLabel: actionLabel,
+      accent: accent,
+      target: target,
+      onNavigate: onNavigate ?? this.onNavigate,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final onTap = target == null || onNavigate == null
+        ? null
+        : () => onNavigate!(target!);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF141822),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color:
+                    accent ? const Color(0xFFC59B6D) : const Color(0xFF1D2230),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                icon,
+                style: TextStyle(
+                  color: accent ? const Color(0xFF0F1115) : Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Text(
+                  body,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white70,
+                        height: 1.45,
+                      ),
+                ),
+              ),
+            ),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () {
+                  final targetSection = target ?? StudioSection.projects;
+                  if (onNavigate != null) {
+                    onNavigate!(targetSection);
+                  }
+                },
+                child: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionChip extends StatelessWidget {
+  const _ActionChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text(label),
+      backgroundColor: const Color(0xFF1D2331),
+      side: const BorderSide(color: Colors.white12),
+      labelStyle: const TextStyle(color: Colors.white),
+    );
+  }
+}

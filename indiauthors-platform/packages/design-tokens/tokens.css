@@ -1,0 +1,33 @@
+:root {
+  --ia-font-display: "Fraunces", "Georgia", serif;
+  --ia-font-body: "Source Sans 3", "Segoe UI", sans-serif;
+
+  --ia-brand-ink: #0f2230;
+  --ia-brand-parchment: #f3eadb;
+  --ia-brand-copper: #b87333;
+  --ia-brand-moss: #365c4f;
+  --ia-brand-berry: #7a2e47;
+  --ia-brand-night: #0a1018;
+
+  --ia-surface-0: #fffdfa;
+  --ia-surface-1: #f6f1e8;
+  --ia-surface-2: #e9dece;
+  --ia-text-strong: #172635;
+  --ia-text-muted: #47586a;
+
+  --ia-radius-sm: 8px;
+  --ia-radius-md: 14px;
+  --ia-radius-lg: 24px;
+
+  --ia-space-1: 4px;
+  --ia-space-2: 8px;
+  --ia-space-3: 12px;
+  --ia-space-4: 16px;
+  --ia-space-5: 24px;
+  --ia-space-6: 32px;
+  --ia-space-7: 48px;
+  --ia-space-8: 72px;
+
+  --ia-shadow-soft: 0 10px 30px rgba(17, 35, 52, 0.12);
+  --ia-shadow-float: 0 18px 42px rgba(10, 16, 24, 0.2);
+}

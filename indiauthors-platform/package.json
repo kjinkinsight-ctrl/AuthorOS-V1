@@ -3,12 +3,20 @@
   "private": true,
   "version": "0.0.1",
   "description": "Standalone website and platform services for indiauthors.com",
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "npm@11.16.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
     "check:contracts": "node ./tools/check-contracts.mjs",
-    "check:w00": "node ./tools/check-w00.mjs"
+    "check:w00": "node ./tools/check-w00.mjs",
+    "dev:site": "npm run dev -w @indiauthors/site",
+    "dev:api": "npm run dev -w @indiauthors/api",
+    "build:site": "npm run build -w @indiauthors/site",
+    "build:api": "npm run build -w @indiauthors/api"
   }
 }

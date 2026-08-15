@@ -1,23 +1,21 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { buildPageMetadata } from "../lib/seo";
 
-export const metadata: Metadata = {
-  metadataBase: new URL("https://indiauthors.com"),
+export const metadata: Metadata = buildPageMetadata({
   title: "Indie Authors | AuthorOS for Independent Writers",
   description:
     "Indie Authors is the home of AuthorOS, a writing and story planning platform for independent authors.",
-  openGraph: {
-    title: "Indie Authors",
-    description:
-      "Explore AuthorOS, manage your account, licenses, and downloads.",
-    url: "https://indiauthors.com",
-    siteName: "Indie Authors",
-    type: "website"
-  },
-  alternates: {
-    canonical: "https://indiauthors.com"
-  }
-};
+  path: "/",
+  keywords: [
+    "author software",
+    "writing software",
+    "novel writing software",
+    "story planning software",
+    "indie author tools",
+    "AuthorOS"
+  ]
+});
 
 export default function RootLayout({
   children

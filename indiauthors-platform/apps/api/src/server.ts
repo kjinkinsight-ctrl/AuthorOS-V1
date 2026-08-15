@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { z } from "zod";
 import { registerSecurityPlugins } from "./plugins/security.js";
+import { registerCatalogRoutes } from "./routes/catalog.js";
 import { registerHealthRoutes } from "./routes/health.js";
 
 const envSchema = z.object({
@@ -18,6 +19,7 @@ async function buildServer() {
 
   await registerSecurityPlugins(app);
   await registerHealthRoutes(app);
+  await registerCatalogRoutes(app);
 
   app.get("/", async () => {
     return {

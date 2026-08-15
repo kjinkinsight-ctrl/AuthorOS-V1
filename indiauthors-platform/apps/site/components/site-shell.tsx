@@ -1,26 +1,27 @@
 import Link from "next/link";
+import { primaryNav, siteConfig } from "../content/site";
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="site-bg">
       <header className="topbar">
         <div className="container topbar-inner">
-          <p className="brand-eyebrow">Indie Authors</p>
+          <p className="brand-eyebrow">{siteConfig.brand}</p>
           <nav aria-label="Primary navigation">
             <ul className="topnav">
-              <li><Link href="/">Home</Link></li>
-              <li><Link href="/authoros">AuthorOS</Link></li>
-              <li><Link href="/explore">Explore</Link></li>
-              <li><Link href="/pricing">Pricing</Link></li>
-              <li><Link href="/account">Account</Link></li>
+              {primaryNav.map((item) => (
+                <li key={item.href}>
+                  <Link href={item.href}>{item.label}</Link>
+                </li>
+              ))}
             </ul>
           </nav>
         </div>
       </header>
       <main id="main-content" className="container">{children}</main>
       <footer className="footer container">
-        <p>Indie Authors</p>
-        <p>AuthorOS is a product by Indie Authors.</p>
+        <p>{siteConfig.brand}</p>
+        <p>{siteConfig.product} is a product by {siteConfig.brand}.</p>
       </footer>
     </div>
   );

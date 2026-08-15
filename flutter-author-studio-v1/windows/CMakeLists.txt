@@ -4,7 +4,7 @@ project(author_studio_v1 LANGUAGES CXX)
 
 # The name of the executable created for the application. Keep this aligned with
 # the generated target name used by Flutter's Windows runner.
-set(BINARY_NAME "author_studio_v1")
+set(BINARY_NAME "authoros")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

@@ -993,13 +993,6 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
         final signedIn = await AppSupabase.signInWithGoogle();
         if (signedIn) {
           await prefs.setBool(_profileCompleteKey, true);
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            profileComplete = true;
-          });
-          return;
         }
       } catch (_) {
         // Fall back to local persistence if Supabase sign-in fails or is unavailable.
@@ -1007,11 +1000,15 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     }
 
     await prefs.setBool(_profileCompleteKey, true);
+    final savedProject = await widget.store.loadProject();
     if (!mounted) {
       return;
     }
     setState(() {
       profileComplete = true;
+      project = savedProject;
+      openFirstDraft = false;
+      startSprint = false;
     });
   }
 
@@ -1046,6 +1043,25 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     });
   }
 
+  Future<void> _logoutToProfileSelection() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_profileCompleteKey);
+    await AppSupabase.signOut();
+    final storedName = (prefs.getString(_profileNameKey) ?? '').trim();
+    final storedEmail = (prefs.getString(_profileEmailKey) ?? '').trim();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      project = null;
+      profileComplete = false;
+      openFirstDraft = false;
+      startSprint = false;
+      existingProfileName = storedName.isEmpty ? null : storedName;
+      existingProfileEmail = storedEmail.isEmpty ? null : storedEmail;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -1076,7 +1092,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       themeId: widget.themeId,
       accentId: widget.accentId,
       onThemeChanged: widget.onThemeChanged,
-      onLogout: _resetStartupState,
+      onLogout: _logoutToProfileSelection,
     );
   }
 }

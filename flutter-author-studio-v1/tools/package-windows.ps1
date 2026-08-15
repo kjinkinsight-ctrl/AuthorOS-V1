@@ -9,11 +9,11 @@ $distDir = Join-Path $projectRoot 'dist'
 $packageDir = Join-Path $distDir "IndieAuthorOS-$Version-windows-x64"
 $archivePath = Join-Path $distDir "IndieAuthorOS-$Version-windows-x64.zip"
 
-if (-not (Test-Path (Join-Path $releaseDir 'author_studio_v1.exe'))) {
+if (-not (Test-Path (Join-Path $releaseDir 'authoros.exe'))) {
     throw "Release build not found. Run 'flutter build windows --release' first."
 }
 
-$exe = Get-Item (Join-Path $releaseDir 'author_studio_v1.exe')
+$exe = Get-Item (Join-Path $releaseDir 'authoros.exe')
 if ($exe.Length -le 0) {
     throw "Release executable is empty: $($exe.FullName)"
 }

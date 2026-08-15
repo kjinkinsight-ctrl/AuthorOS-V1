@@ -2551,6 +2551,9 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   static const _profileSecureSessionsKey =
       'author_studio.profile.secure_sessions';
   static const _profileSyncAlertsKey = 'author_studio.profile.sync_alerts';
+  static const _profileSectionId = 'profile';
+  static const _appearanceSectionId = 'appearance';
+  static const _accountSectionId = 'account';
   static const _themeOptions = <_ThemeOption>[
     _ThemeOption(
         id: 'obsidian',
@@ -2616,7 +2619,7 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   bool updateAvailable = false;
   String currentAppVersion = '1.0.0+1';
   String latestAppVersion = '1.0.0+1';
-  int _settingsPage = 0;
+  late final Map<String, bool> _expandedSections;
 
   late final TextEditingController _nameController;
   late final TextEditingController _focusController;
@@ -2631,7 +2634,11 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
     super.initState();
     selectedTheme = widget.themeId;
     selectedAccent = widget.accentId;
-    _settingsPage = 0;
+    _expandedSections = {
+      _profileSectionId: false,
+      _appearanceSectionId: false,
+      _accountSectionId: false,
+    };
     _nameController = TextEditingController(text: writerName);
     _focusController = TextEditingController(text: writingFocus);
     _bioController = TextEditingController(text: bio);
@@ -2704,7 +2711,7 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
     final checker = widget.versionChecker ??
         AppVersionChecker(
           latestVersionUrl:
-              'https://example.com/author-studio/latest-version.json',
+              'https://indiauthors.com/author-studio/latest-version.json',
         );
 
     final result = await checker.checkForUpdate(currentVersion: currentVersion);
@@ -2860,6 +2867,81 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Signed out of Supabase.')),
+    );
+  }
+
+  Future<void> _confirmAndLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log Out'),
+        content: const Text(
+          'Are you sure you want to log out?\n\nYour projects, manuscripts, chapters, and profile data will remain saved.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Log Out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await widget.onLogout();
+  }
+
+  void _toggleSection(String sectionId) {
+    setState(() {
+      _expandedSections[sectionId] = !(_expandedSections[sectionId] ?? false);
+    });
+  }
+
+  Widget _buildCollapsibleSection({
+    required String sectionId,
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) {
+    final expanded = _expandedSections[sectionId] ?? false;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Semantics(
+            button: true,
+            toggled: expanded,
+            child: ListTile(
+              onTap: () => _toggleSection(sectionId),
+              leading: Icon(icon),
+              title: Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              trailing: Icon(
+                expanded
+                    ? Icons.keyboard_arrow_down_rounded
+                    : Icons.keyboard_arrow_right_rounded,
+              ),
+            ),
+          ),
+          if (expanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: child,
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -3189,13 +3271,14 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: () async {
-                      await AppSupabase.signOut();
-                      await widget.onLogout();
-                    },
+                    onPressed: _confirmAndLogout,
                     icon: const Icon(Icons.logout_rounded),
                     label: const Text('Log out'),
                     style: FilledButton.styleFrom(
+                      backgroundColor:
+                          Theme.of(context).colorScheme.errorContainer,
+                      foregroundColor:
+                          Theme.of(context).colorScheme.onErrorContainer,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
                   ),
@@ -3490,50 +3573,26 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
         subtitle: 'Control writing preferences, login, and cloud sync.',
         child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: SegmentedButton<int>(
-                selected: {_settingsPage},
-                showSelectedIcon: false,
-                onSelectionChanged: (selection) {
-                  setState(() => _settingsPage = selection.first);
-                },
-                segments: const [
-                  ButtonSegment<int>(
-                    value: 0,
-                    label: Text('Profile'),
-                    icon: Icon(Icons.person_outline),
-                  ),
-                  ButtonSegment<int>(
-                    value: 1,
-                    label: Text('Account Security'),
-                    icon: Icon(Icons.shield_outlined),
-                  ),
-                  ButtonSegment<int>(
-                    value: 2,
-                    label: Text('Appearance'),
-                    icon: Icon(Icons.palette_outlined),
-                  ),
-                ],
-              ),
+            _buildCollapsibleSection(
+              sectionId: _profileSectionId,
+              title: 'Profile',
+              icon: Icons.person_outline,
+              child: _buildProfilePage(),
             ),
-            const SizedBox(height: 18),
-            if (_settingsPage == 0)
-              Column(
-                children: [
-                  _buildProfilePage(),
-                  const SizedBox(height: 12),
-                  _buildAppearancePage(),
-                ],
-              )
-            else if (_settingsPage == 1)
-              _buildAccountSecurityPage()
-            else
-              _buildAppearancePage(),
+            const SizedBox(height: 12),
+            _buildCollapsibleSection(
+              sectionId: _appearanceSectionId,
+              title: 'Appearance',
+              icon: Icons.palette_outlined,
+              child: _buildAppearancePage(),
+            ),
+            const SizedBox(height: 12),
+            _buildCollapsibleSection(
+              sectionId: _accountSectionId,
+              title: 'Account Security',
+              icon: Icons.shield_outlined,
+              child: _buildAccountSecurityPage(),
+            ),
           ],
         ),
       );

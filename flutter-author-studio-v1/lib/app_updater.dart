@@ -29,7 +29,7 @@ class AppVersionChecker {
   }) : _httpClient = httpClient ?? http.Client();
 
   static const _defaultLatestVersionUrl =
-      'https://example.com/author-studio/latest-version.json';
+      'https://indiauthors.com/author-studio/latest-version.json';
 
   final String latestVersionUrl;
   final http.Client _httpClient;

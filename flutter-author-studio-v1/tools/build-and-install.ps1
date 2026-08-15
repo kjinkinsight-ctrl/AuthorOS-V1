@@ -7,6 +7,6 @@ flutter build windows --release
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'package-windows.ps1')
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-author-studio.ps1') -CreateDesktopShortcut
 
-$installedExe = Join-Path $env:LOCALAPPDATA 'Programs\Indie Author OS\author_studio_v1.exe'
+$installedExe = Join-Path $env:LOCALAPPDATA 'Programs\Indie Author OS\authoros.exe'
 Start-Process $installedExe
 Write-Host "Updated and launched: $installedExe"

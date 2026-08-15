@@ -126,7 +126,12 @@ void main() {
     );
 
     await tester.pumpAndSettle();
-    expect(find.text('Profile'), findsWidgets);
+    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('Writer profile'), findsNothing);
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Writer profile'), findsOneWidget);
   });
 }

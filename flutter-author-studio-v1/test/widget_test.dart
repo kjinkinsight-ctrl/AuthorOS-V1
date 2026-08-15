@@ -214,6 +214,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Appearance'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Update available: 1.0.1+2'), findsOneWidget);
     expect(find.text('Update now'), findsOneWidget);
   });

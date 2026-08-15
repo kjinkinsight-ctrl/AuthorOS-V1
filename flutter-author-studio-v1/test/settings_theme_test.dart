@@ -37,6 +37,10 @@ void main() {
       ),
     );
 
+    expect(find.text('Obsidian'), findsNothing);
+    await tester.tap(find.text('Appearance'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Obsidian'), findsOneWidget);
     expect(find.text('Midnight'), findsOneWidget);
     expect(find.text('Paper'), findsOneWidget);
@@ -70,6 +74,9 @@ void main() {
       ),
     );
 
+    await tester.tap(find.text('Appearance'));
+    await tester.pumpAndSettle();
+
     final tealFinder = find.text('Teal');
     await tester.ensureVisible(tealFinder);
     await tester.tap(tealFinder);
@@ -79,7 +86,7 @@ void main() {
     expect(pickedAccent, 'teal');
   });
 
-  testWidgets('account security is exposed via a dedicated settings page',
+  testWidgets('account security controls are inside a collapsible section',
       (tester) async {
     SharedPreferences.setMockInitialValues({
       'author_studio.profile.name': 'Elara West',
@@ -103,12 +110,77 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Account Security'), findsOneWidget);
+    expect(find.text('Require re-auth for sensitive actions'), findsNothing);
     await tester.tap(find.text('Account Security'));
     await tester.pumpAndSettle();
 
     expect(find.text('Require re-auth for sensitive actions'), findsOneWidget);
     expect(find.text('Secure device sessions'), findsOneWidget);
+  });
+
+  testWidgets('logout asks for confirmation and cancel keeps session active',
+      (tester) async {
+    var logoutCalled = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsStudioView(
+          themeId: 'obsidian',
+          accentId: 'default',
+          onThemeChanged: (_, __) {},
+          onLogout: () async {
+            logoutCalled = true;
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Account Security'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Log out'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Log Out'), findsNWidgets(2));
+    expect(
+      find.text(
+          'Are you sure you want to log out?\n\nYour projects, manuscripts, chapters, and profile data will remain saved.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(logoutCalled, isFalse);
+    expect(find.text('Log Out'), findsNothing);
+  });
+
+  testWidgets('logout confirmation calls the real logout callback',
+      (tester) async {
+    var logoutCalled = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsStudioView(
+          themeId: 'obsidian',
+          accentId: 'default',
+          onThemeChanged: (_, __) {},
+          onLogout: () async {
+            logoutCalled = true;
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Account Security'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Log out'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Log Out'));
+    await tester.pumpAndSettle();
+
+    expect(logoutCalled, isTrue);
   });
 
   testWidgets('saved starter projects remain available after startup checks',

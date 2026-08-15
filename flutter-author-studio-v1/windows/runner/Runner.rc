@@ -94,7 +94,7 @@ BEGIN
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "Author Studio" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 AuthorOS. All rights reserved." "\0"
-            VALUE "OriginalFilename", "author_studio_v1.exe" "\0"
+            VALUE "OriginalFilename", "authoros.exe" "\0"
             VALUE "ProductName", "Author Studio" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

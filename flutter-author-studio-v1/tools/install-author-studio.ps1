@@ -5,10 +5,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $source = (Resolve-Path $SourceDirectory).Path
-$exeName = 'author_studio_v1.exe'
+$exeName = 'authoros.exe'
+$legacyExeName = 'author_studio_v1.exe'
 $sourceExe = Join-Path $source $exeName
 $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Indie Author OS'
 $installedExe = Join-Path $installRoot $exeName
+$legacyInstalledExe = Join-Path $installRoot $legacyExeName
 $startMenuRoot = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Indie Author OS'
 $startMenuShortcut = Join-Path $startMenuRoot 'Indie Author OS.lnk'
 
@@ -20,6 +22,9 @@ if ((Get-Item $sourceExe).Length -le 0) {
 }
 
 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+if (Test-Path $legacyInstalledExe) {
+    Remove-Item -Force $legacyInstalledExe
+}
 Copy-Item -Path (Join-Path $source '*') -Destination $installRoot -Recurse -Force
 New-Item -ItemType Directory -Force -Path $startMenuRoot | Out-Null
 

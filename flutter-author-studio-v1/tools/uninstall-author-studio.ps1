@@ -3,7 +3,7 @@ $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Author Studio'
 $startMenuRoot = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Author Studio'
 $desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Author Studio.lnk'
 
-Get-Process -Name author_studio_v1 -ErrorAction SilentlyContinue | Where-Object {
+Get-Process -Name authoros,author_studio_v1 -ErrorAction SilentlyContinue | Where-Object {
     $_.Path -like "$installRoot*"
 } | Stop-Process -Force
 

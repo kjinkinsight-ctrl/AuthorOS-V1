@@ -368,7 +368,27 @@ class _SearchStudioViewState extends State<SearchStudioView> {
   }
 
   Future<void> _load() async {
-    final manuscript = await const ManuscriptStore().load(widget.project.id);
+    final store = const ManuscriptStore();
+    final migratedChapters = await store.loadLegacyChapterSeeds(widget.project.id);
+    final chapterSeeds = migratedChapters.isNotEmpty
+        ? migratedChapters
+        : widget.project.chapters
+            .map(
+              (chapter) => ManuscriptChapterSeed(
+                title: chapter.title,
+                prompt: chapter.prompt,
+                status: chapter.status,
+                scenes: chapter.scenes,
+                linkedChapterIds: chapter.linkedChapterIds,
+              ),
+            )
+            .toList();
+    final manuscript = await store.loadStudio(
+      widget.project.id,
+      manuscriptTitle: widget.project.title,
+      defaultChapters: chapterSeeds,
+      firstSceneTitle: widget.project.firstSceneTitle,
+    );
     final stored = <StudioRecord>[];
     for (final collection in ['ideas', 'characters', 'world']) {
       stored.addAll(await StudioRecordStore(collection).load());
@@ -382,12 +402,22 @@ class _SearchStudioViewState extends State<SearchStudioView> {
         details: '${entry.summary} ${entry.aliases.join(', ')}',
       ),
     ));
-    stored.addAll(widget.project.chapters.asMap().entries.map(
-          (entry) => StudioRecord(
-            id: 'chapter-${entry.key}',
-            title: entry.value.title,
+    stored.addAll(manuscript.chapters.map(
+          (chapter) => StudioRecord(
+            id: chapter.id,
+            title: chapter.title,
             category: 'Chapter',
-            details: entry.value.prompt,
+            details: chapter.prompt,
+          ),
+        ));
+    stored.addAll(manuscript.chapters.expand(
+          (chapter) => chapter.scenes.map(
+            (scene) => StudioRecord(
+              id: scene.id,
+              title: scene.title,
+              category: 'Scene',
+              details: '${chapter.title}\n${scene.content}',
+            ),
           ),
         ));
     stored.addAll(widget.project.characterSheets.asMap().entries.map(
@@ -398,12 +428,13 @@ class _SearchStudioViewState extends State<SearchStudioView> {
             details: entry.value.role,
           ),
         ));
-    if (manuscript.isNotEmpty) {
+    final manuscriptText = manuscript.exportAsSingleText();
+    if (manuscriptText.isNotEmpty) {
       stored.add(StudioRecord(
         id: 'manuscript',
-        title: widget.project.firstSceneTitle,
+        title: manuscript.manuscriptTitle,
         category: 'Manuscript',
-        details: manuscript,
+        details: manuscriptText,
       ));
     }
     if (mounted) {
@@ -758,12 +789,30 @@ class _StatisticsStudioViewState extends State<StatisticsStudioView> {
   }
 
   Future<void> _load() async {
-    final manuscript = await const ManuscriptStore().load(widget.project.id);
+    final store = const ManuscriptStore();
+    final migratedChapters = await store.loadLegacyChapterSeeds(widget.project.id);
+    final chapterSeeds = migratedChapters.isNotEmpty
+        ? migratedChapters
+        : widget.project.chapters
+            .map(
+              (chapter) => ManuscriptChapterSeed(
+                title: chapter.title,
+                prompt: chapter.prompt,
+                status: chapter.status,
+                scenes: chapter.scenes,
+                linkedChapterIds: chapter.linkedChapterIds,
+              ),
+            )
+            .toList();
+    final manuscript = await store.loadStudio(
+      widget.project.id,
+      manuscriptTitle: widget.project.title,
+      defaultChapters: chapterSeeds,
+      firstSceneTitle: widget.project.firstSceneTitle,
+    );
     if (mounted) {
       setState(() {
-        words = manuscript.trim().isEmpty
-            ? 0
-            : manuscript.trim().split(RegExp(r'\s+')).length;
+        words = manuscript.wordCount;
       });
     }
   }

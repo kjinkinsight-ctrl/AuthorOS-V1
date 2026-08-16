@@ -6,6 +6,68 @@ info:
 servers:
   - url: https://api.indiauthors.com
 paths:
+  /v1/auth/config:
+    get:
+      summary: Get authentication configuration and capability status
+      operationId: getAuthConfig
+      responses:
+        "200":
+          description: Authentication configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthConfig"
+  /v1/auth/login/start:
+    post:
+      summary: Start provider login flow by obtaining provider authorization URL
+      operationId: startAuthLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [returnUrl]
+              properties:
+                returnUrl:
+                  type: string
+                  format: uri
+      responses:
+        "201":
+          description: Login flow started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizeUrl]
+                properties:
+                  authorizeUrl:
+                    type: string
+                    format: uri
+        "503":
+          description: Provider integration required
+  /v1/auth/logout:
+    post:
+      summary: Clear web session cookie
+      operationId: logout
+      responses:
+        "200":
+          description: Logged out
+  /v1/account/summary:
+    get:
+      summary: Get authenticated account summary
+      operationId: getAccountSummary
+      responses:
+        "200":
+          description: Account summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSummary"
+        "401":
+          description: Authentication required
+        "503":
+          description: Auth integration not configured
   /v1/health:
     get:
       summary: Service health check
@@ -279,5 +341,39 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RoadmapItem"
+    AuthCapabilities:
+      type: object
+      required: [register, login, logout, passwordRecovery, accountDashboard]
+      properties:
+        register:
+          type: boolean
+        login:
+          type: boolean
+        logout:
+          type: boolean
+        passwordRecovery:
+          type: boolean
+        accountDashboard:
+          type: boolean
+    AuthConfig:
+      type: object
+      required: [mode, provider, integrationReady, capabilities]
+      properties:
+        mode:
+          type: string
+          enum: [disabled, external_oidc]
+        provider:
+          type: string
+        integrationReady:
+          type: boolean
+        capabilities:
+          $ref: "#/components/schemas/AuthCapabilities"
+    AccountSummary:
+      type: object
+      properties:
+        error:
+          type: string
+        summary:
+          type: string
 security:
   - sessionCookie: []

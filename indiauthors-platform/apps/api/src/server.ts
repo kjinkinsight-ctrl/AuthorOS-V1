@@ -7,6 +7,7 @@ import { registerAccountRoutes } from "./routes/account.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCatalogRoutes } from "./routes/catalog.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerLicenseRoutes } from "./routes/licenses.js";
 import { registerProductDiscoveryRoutes } from "./routes/product-discovery.js";
 
 const envSchema = z.object({
@@ -28,6 +29,7 @@ async function buildServer() {
   await registerSecurityPlugins(app);
   await registerAuthRoutes(app, authEnv);
   await registerAccountRoutes(app, authEnv);
+  await registerLicenseRoutes(app, authEnv);
   await registerHealthRoutes(app);
   await registerCatalogRoutes(app);
   await registerProductDiscoveryRoutes(app);

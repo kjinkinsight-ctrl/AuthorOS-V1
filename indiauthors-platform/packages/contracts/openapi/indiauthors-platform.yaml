@@ -189,8 +189,61 @@ paths:
       responses:
         "200":
           description: Licenses list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountLicensesResponse"
         "401":
           description: Unauthorized
+  /v1/licenses/verify-entitlement:
+    post:
+      summary: Verify whether a user is entitled for a product version and device
+      operationId: verifyEntitlement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EntitlementVerifyRequest"
+      responses:
+        "200":
+          description: Entitlement result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntitlementVerifyResponse"
+        "400":
+          description: Invalid request
+  /v1/admin/licenses/{licenseId}/status:
+    post:
+      summary: Transition a license lifecycle status (admin)
+      operationId: transitionLicenseStatus
+      parameters:
+        - name: licenseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nextStatus]
+              properties:
+                nextStatus:
+                  $ref: "#/components/schemas/LicenseStatus"
+      responses:
+        "200":
+          description: Updated
+        "403":
+          description: Admin identity required
+        "404":
+          description: License not found
+        "409":
+          description: Invalid status transition
   /v1/downloads/releases:
     get:
       summary: List available releases for authenticated user entitlements
@@ -375,5 +428,101 @@ components:
           type: string
         summary:
           type: string
+    LicenseStatus:
+      type: string
+      enum: [active, suspended, expired, revoked, cancelled]
+    LicenseVersionAccess:
+      type: object
+      required: [minVersion, maxVersion]
+      properties:
+        minVersion:
+          type: string
+        maxVersion:
+          type: string
+          nullable: true
+    License:
+      type: object
+      required:
+        - id
+        - userId
+        - productCode
+        - licenseType
+        - status
+        - purchaseDate
+        - activationDate
+        - expiryDate
+        - allowedDevices
+        - versionAccess
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        productCode:
+          type: string
+        licenseType:
+          type: string
+        status:
+          $ref: "#/components/schemas/LicenseStatus"
+        purchaseDate:
+          type: string
+          format: date-time
+        activationDate:
+          type: string
+          format: date-time
+          nullable: true
+        expiryDate:
+          type: string
+          format: date-time
+          nullable: true
+        allowedDevices:
+          type: integer
+          minimum: 1
+        versionAccess:
+          $ref: "#/components/schemas/LicenseVersionAccess"
+        devices:
+          type: array
+          items:
+            type: string
+    AccountLicensesResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/License"
+    EntitlementVerifyRequest:
+      type: object
+      required: [userId, productCode, appVersion, deviceId]
+      properties:
+        userId:
+          type: string
+        productCode:
+          type: string
+        appVersion:
+          type: string
+        deviceId:
+          type: string
+    EntitlementVerifyResponse:
+      type: object
+      required: [entitled, reason, license]
+      properties:
+        entitled:
+          type: boolean
+        reason:
+          type: string
+          enum:
+            - ok
+            - license_not_found
+            - inactive_license
+            - expired_date
+            - version_out_of_range
+            - device_limit_reached
+        license:
+          allOf:
+            - $ref: "#/components/schemas/License"
+          nullable: true
 security:
   - sessionCookie: []

@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AuthEnv } from "../domain/auth.js";
+import { evaluatePurchaseEligibilityForLicense } from "../domain/billing.js";
 import {
   createSignedDownloadUrl,
-  downloadEnvSchema,
   findReleaseById,
   isReleaseWithinLicenseRange,
   listReleasesForProduct,
@@ -73,8 +73,26 @@ export async function registerDownloadRoutes(
       };
     }
 
+    const financiallyEligibleLicenses = licenses.filter((license) =>
+      evaluatePurchaseEligibilityForLicense(license.id).eligible
+    );
+
+    if (financiallyEligibleLicenses.length === 0) {
+      const firstHold = evaluatePurchaseEligibilityForLicense(licenses[0]!.id);
+      reply.status(403);
+      return {
+        error: "billing_hold",
+        reason: firstHold.reason,
+        summary:
+          "An active paid purchase and settled billing record are required for download eligibility."
+      };
+    }
+
     const releases = listReleasesForProduct(query.data.productCode, query.data.platform).filter(
-      (release) => licenses.some((license) => isReleaseWithinLicenseRange(release.version, license))
+      (release) =>
+        financiallyEligibleLicenses.some((license) =>
+          isReleaseWithinLicenseRange(release.version, license)
+        )
     );
 
     return {
@@ -136,6 +154,28 @@ export async function registerDownloadRoutes(
         error: "entitlement_denied",
         reason: entitlement.reason,
         license: entitlement.license
+      };
+    }
+
+    if (!entitlement.license) {
+      reply.status(403);
+      return {
+        error: "entitlement_denied",
+        reason: "license_not_found"
+      };
+    }
+
+    const purchaseEligibility = evaluatePurchaseEligibilityForLicense(
+      entitlement.license.id
+    );
+
+    if (!purchaseEligibility.eligible) {
+      reply.status(403);
+      return {
+        error: "billing_hold",
+        reason: purchaseEligibility.reason,
+        purchase: purchaseEligibility.purchase,
+        billingRecord: purchaseEligibility.billingRecord
       };
     }
 

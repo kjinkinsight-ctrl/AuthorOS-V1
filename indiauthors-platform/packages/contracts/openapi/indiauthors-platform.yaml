@@ -541,6 +541,191 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/License"
+    PurchaseStatus:
+      type: string
+      enum: [paid, pending, refunded, disputed, failed]
+    BillingRecordStatus:
+      type: string
+      enum: [issued, paid, refunded, void]
+    PurchaseLineItem:
+      type: object
+      required:
+        - productCode
+        - licenseType
+        - quantity
+        - unitAmountMinor
+        - lineTotalAmountMinor
+      properties:
+        productCode:
+          type: string
+        licenseType:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unitAmountMinor:
+          type: integer
+          minimum: 0
+        lineTotalAmountMinor:
+          type: integer
+          minimum: 0
+    PurchaseRecord:
+      type: object
+      required:
+        - id
+        - userId
+        - orderNumber
+        - paymentProvider
+        - paymentReference
+        - status
+        - currency
+        - subtotalAmountMinor
+        - taxAmountMinor
+        - totalAmountMinor
+        - purchasedAt
+        - lineItems
+        - licenseId
+        - invoiceNumber
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        orderNumber:
+          type: string
+        paymentProvider:
+          type: string
+        paymentReference:
+          type: string
+        status:
+          $ref: "#/components/schemas/PurchaseStatus"
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        subtotalAmountMinor:
+          type: integer
+          minimum: 0
+        taxAmountMinor:
+          type: integer
+          minimum: 0
+        totalAmountMinor:
+          type: integer
+          minimum: 0
+        purchasedAt:
+          type: string
+          format: date-time
+        lineItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseLineItem"
+        licenseId:
+          type: string
+          format: uuid
+        invoiceNumber:
+          type: string
+    BillingAddress:
+      type: object
+      required: [line1, line2, city, state, postalCode, countryCode]
+      properties:
+        line1:
+          type: string
+        line2:
+          type: string
+          nullable: true
+        city:
+          type: string
+        state:
+          type: string
+        postalCode:
+          type: string
+        countryCode:
+          type: string
+          minLength: 2
+          maxLength: 2
+    BillingRecord:
+      type: object
+      required:
+        - id
+        - userId
+        - purchaseId
+        - invoiceNumber
+        - status
+        - currency
+        - subtotalAmountMinor
+        - taxAmountMinor
+        - totalAmountMinor
+        - issuedAt
+        - paidAt
+        - buyerLegalName
+        - buyerTaxId
+        - billingAddress
+        - metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        purchaseId:
+          type: string
+          format: uuid
+        invoiceNumber:
+          type: string
+        status:
+          $ref: "#/components/schemas/BillingRecordStatus"
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        subtotalAmountMinor:
+          type: integer
+          minimum: 0
+        taxAmountMinor:
+          type: integer
+          minimum: 0
+        totalAmountMinor:
+          type: integer
+          minimum: 0
+        issuedAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        buyerLegalName:
+          type: string
+        buyerTaxId:
+          type: string
+          nullable: true
+        billingAddress:
+          $ref: "#/components/schemas/BillingAddress"
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    AccountPurchasesResponse:
+      type: object
+      required: [items, purchaseCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseRecord"
+        purchaseCount:
+          type: integer
+          minimum: 0
+    AccountBillingRecordsResponse:
+      type: object
+      required: [items, billingRecordCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillingRecord"
+        billingRecordCount:
+          type: integer
+          minimum: 0
     EntitlementVerifyRequest:
       type: object
       required: [userId, productCode, appVersion, deviceId]

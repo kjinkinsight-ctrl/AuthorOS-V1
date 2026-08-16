@@ -16,6 +16,37 @@ export type AccountSummaryResponse = {
   summary?: string;
 };
 
+export type AccountPurchasesResponse = {
+  items: Array<{
+    id: string;
+    orderNumber: string;
+    paymentProvider: string;
+    status: "paid" | "pending" | "refunded" | "disputed" | "failed";
+    currency: string;
+    totalAmountMinor: number;
+    purchasedAt: string;
+    invoiceNumber: string;
+  }>;
+  purchaseCount: number;
+  error?: string;
+  summary?: string;
+};
+
+export type AccountBillingRecordsResponse = {
+  items: Array<{
+    id: string;
+    invoiceNumber: string;
+    status: "issued" | "paid" | "refunded" | "void";
+    currency: string;
+    totalAmountMinor: number;
+    issuedAt: string;
+    buyerLegalName: string;
+  }>;
+  billingRecordCount: number;
+  error?: string;
+  summary?: string;
+};
+
 const defaultApiBaseUrl = "http://localhost:4000";
 
 function resolveApiBaseUrl() {
@@ -55,4 +86,36 @@ export async function fetchAccountSummary(): Promise<{
     status: response.status,
     data
   };
+}
+
+async function fetchAccountResource<T>(path: string): Promise<{
+  status: number;
+  data: T | null;
+}> {
+  const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
+
+  let data: T | null = null;
+  try {
+    data = (await response.json()) as T;
+  } catch {
+    data = null;
+  }
+
+  return {
+    status: response.status,
+    data
+  };
+}
+
+export async function fetchAccountPurchases() {
+  return fetchAccountResource<AccountPurchasesResponse>("/v1/account/purchases");
+}
+
+export async function fetchAccountBillingRecords() {
+  return fetchAccountResource<AccountBillingRecordsResponse>(
+    "/v1/account/billing-records"
+  );
 }

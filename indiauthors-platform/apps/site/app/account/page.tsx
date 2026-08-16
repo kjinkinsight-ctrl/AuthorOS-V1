@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import { SiteShell } from "../../components/site-shell";
 import { buildPageMetadata } from "../../lib/seo";
-import { fetchAccountSummary, fetchAuthConfig } from "../../lib/account";
+import {
+  fetchAccountBillingRecords,
+  fetchAccountPurchases,
+  fetchAccountSummary,
+  fetchAuthConfig
+} from "../../lib/account";
 
 export const metadata: Metadata = buildPageMetadata({
   title: "Account | Indie Authors",
@@ -16,8 +21,12 @@ export const metadata: Metadata = buildPageMetadata({
 });
 
 export default async function AccountPage() {
-  const authConfig = await fetchAuthConfig();
-  const accountSummary = await fetchAccountSummary();
+  const [authConfig, accountSummary, purchases, billingRecords] = await Promise.all([
+    fetchAuthConfig(),
+    fetchAccountSummary(),
+    fetchAccountPurchases(),
+    fetchAccountBillingRecords()
+  ]);
 
   const accountAreas = [
     "Profile",
@@ -69,6 +78,34 @@ export default async function AccountPage() {
               <strong>Code:</strong> {accountSummary.data.error}
             </p>
           ) : null}
+        </article>
+
+        <article className="card">
+          <h2>Purchase history integration</h2>
+          <p>
+            <strong>Endpoint status:</strong> {purchases.status}
+          </p>
+          <p>
+            <strong>Purchase records:</strong> {purchases.data?.purchaseCount ?? 0}
+          </p>
+          <p>
+            Purchase history and order IDs are the financial source of truth for license lifecycle and
+            download entitlement continuity.
+          </p>
+        </article>
+
+        <article className="card">
+          <h2>Billing records integration</h2>
+          <p>
+            <strong>Endpoint status:</strong> {billingRecords.status}
+          </p>
+          <p>
+            <strong>Invoice records:</strong> {billingRecords.data?.billingRecordCount ?? 0}
+          </p>
+          <p>
+            Invoice-ready records include legal identity, tax, and issue/payment states required for
+            download access and compliance workflows.
+          </p>
         </article>
 
         <article className="card">

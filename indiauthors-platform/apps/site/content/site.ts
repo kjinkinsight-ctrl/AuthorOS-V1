@@ -12,5 +12,6 @@ export const primaryNav = [
   { label: "Features", href: "/features" },
   { label: "Roadmap", href: "/roadmap" },
   { label: "Pricing", href: "/pricing" },
+  { label: "Downloads", href: "/downloads" },
   { label: "Account", href: "/account" }
 ];

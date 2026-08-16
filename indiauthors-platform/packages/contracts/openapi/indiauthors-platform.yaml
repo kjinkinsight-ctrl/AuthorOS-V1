@@ -251,8 +251,56 @@ paths:
       responses:
         "200":
           description: Release list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadReleasesResponse"
         "401":
           description: Unauthorized
+        "403":
+          description: Entitlement required
+  /v1/downloads/releases/{releaseId}/access:
+    post:
+      summary: Request entitlement-gated artifact access for a release platform artifact
+      operationId: requestDownloadAccess
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadAccessRequest"
+      responses:
+        "200":
+          description: Download access granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadAccessResponse"
+        "401":
+          description: Authentication required
+        "403":
+          description: Entitlement denied
+        "404":
+          description: Release or artifact not found
+        "503":
+          description: Download signing not configured
+  /v1/downloads/config:
+    get:
+      summary: Get download delivery configuration status
+      operationId: getDownloadsConfig
+      responses:
+        "200":
+          description: Download config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadConfig"
   /v1/support/requests:
     post:
       summary: Submit a support request
@@ -524,5 +572,116 @@ components:
           allOf:
             - $ref: "#/components/schemas/License"
           nullable: true
+    ReleaseArtifact:
+      type: object
+      required: [platform, fileName, fileSizeBytes, checksumSha256, contentType]
+      properties:
+        platform:
+          type: string
+          enum: [windows, macos, linux]
+        fileName:
+          type: string
+        fileSizeBytes:
+          type: integer
+          minimum: 1
+        checksumSha256:
+          type: string
+        contentType:
+          type: string
+    ReleaseRecord:
+      type: object
+      required: [id, productCode, version, channel, publishedAt, notes, artifacts]
+      properties:
+        id:
+          type: string
+        productCode:
+          type: string
+        version:
+          type: string
+        channel:
+          type: string
+          enum: [stable, beta, legacy]
+        publishedAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseArtifact"
+    DownloadReleasesResponse:
+      type: object
+      required: [items, releaseCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseRecord"
+        releaseCount:
+          type: integer
+          minimum: 0
+    DownloadAccessRequest:
+      type: object
+      required: [productCode, deviceId, platform]
+      properties:
+        productCode:
+          type: string
+        deviceId:
+          type: string
+        platform:
+          type: string
+          enum: [windows, macos, linux]
+    DownloadAccessResponse:
+      type: object
+      required:
+        - access
+        - releaseId
+        - version
+        - platform
+        - fileName
+        - checksumSha256
+        - contentType
+        - fileSizeBytes
+        - downloadUrl
+        - expiresAt
+      properties:
+        access:
+          type: string
+          enum: [granted]
+        releaseId:
+          type: string
+        version:
+          type: string
+        platform:
+          type: string
+          enum: [windows, macos, linux]
+        fileName:
+          type: string
+        checksumSha256:
+          type: string
+        contentType:
+          type: string
+        fileSizeBytes:
+          type: integer
+          minimum: 1
+        downloadUrl:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+    DownloadConfig:
+      type: object
+      required: [downloadBaseUrl, signingConfigured, urlTtlSeconds]
+      properties:
+        downloadBaseUrl:
+          type: string
+          format: uri
+        signingConfigured:
+          type: boolean
+        urlTtlSeconds:
+          type: integer
+          minimum: 1
 security:
   - sessionCookie: []

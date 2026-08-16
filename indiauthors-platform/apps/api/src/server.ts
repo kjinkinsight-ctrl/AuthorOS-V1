@@ -2,10 +2,12 @@ import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import { z } from "zod";
 import { authEnvSchema } from "./domain/auth.js";
+import { downloadEnvSchema } from "./domain/downloads.js";
 import { registerSecurityPlugins } from "./plugins/security.js";
 import { registerAccountRoutes } from "./routes/account.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCatalogRoutes } from "./routes/catalog.js";
+import { registerDownloadRoutes } from "./routes/downloads.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerLicenseRoutes } from "./routes/licenses.js";
 import { registerProductDiscoveryRoutes } from "./routes/product-discovery.js";
@@ -18,6 +20,7 @@ const envSchema = z.object({
 async function buildServer() {
   const env = envSchema.parse(process.env);
   const authEnv = authEnvSchema.parse(process.env);
+  const downloadEnv = downloadEnvSchema.parse(process.env);
 
   const app = Fastify({
     logger: true,
@@ -30,6 +33,7 @@ async function buildServer() {
   await registerAuthRoutes(app, authEnv);
   await registerAccountRoutes(app, authEnv);
   await registerLicenseRoutes(app, authEnv);
+  await registerDownloadRoutes(app, authEnv, downloadEnv);
   await registerHealthRoutes(app);
   await registerCatalogRoutes(app);
   await registerProductDiscoveryRoutes(app);

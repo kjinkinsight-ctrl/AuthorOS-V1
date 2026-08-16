@@ -24,6 +24,7 @@ export default async function AccountPage() {
     "Licenses",
     "Purchases",
     "Downloads",
+    "Download Centre",
     "Devices",
     "Support Requests",
     "Account Settings"

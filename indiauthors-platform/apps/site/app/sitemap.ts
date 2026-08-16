@@ -11,6 +11,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/features",
     "/roadmap",
     "/pricing",
+    "/downloads",
     "/account"
   ];
 

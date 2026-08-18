@@ -1,0 +1,63 @@
+{
+  "fixtureVersion": 1,
+  "name": "legacy-future-fields",
+  "description": "Known data mixed with newer root and nested fields that compatibility adapters must preserve.",
+  "mode": "literal",
+  "projectId": "fixture-project-future",
+  "preferences": {
+    "author_studio.starter_project": {
+      "storageType": "json",
+      "value": {
+        "id": "fixture-project-future",
+        "title": "Future Field Project",
+        "genre": "Mystery",
+        "projectType": "Novel",
+        "wordGoal": 70000,
+        "acts": [],
+        "chapters": [],
+        "characterSheets": [],
+        "beatChecklist": [],
+        "firstSceneTitle": "Opening",
+        "templateName": "Classic Novel",
+        "futureProjectField": {"retain": true}
+      }
+    },
+    "author_studio.manuscript_studio.fixture-project-future": {
+      "storageType": "json",
+      "value": {
+        "projectId": "fixture-project-future",
+        "manuscriptTitle": "Future Field Project",
+        "chapters": [],
+        "currentChapterId": "",
+        "currentSceneId": "",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "version": 9,
+        "migration": {},
+        "futureManuscriptField": {"retain": true}
+      }
+    },
+    "author_studio.story_codex.fixture-project-future": {
+      "storageType": "json",
+      "value": [
+        {
+          "id": "future-record-1",
+          "title": "Unknown Construct",
+          "type": "custom_future_type",
+          "aliases": [],
+          "summary": "Must not be coerced and saved back as a character.",
+          "tags": [],
+          "relationships": {},
+          "mentions": [],
+          "status": "Active",
+          "futureRecordField": {"retain": true}
+        }
+      ]
+    }
+  },
+  "expectations": {
+    "mustRemainReadable": true,
+    "unknownFieldsMustSurvive": true,
+    "unknownTypesRequireExplicitHandling": true
+  }
+}

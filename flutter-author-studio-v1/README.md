@@ -18,6 +18,8 @@ The local-first MVP feature set is implemented through planning and continuity. 
 
 See [MVP_SCOPE.md](MVP_SCOPE.md) for the release boundary and [docs/github-project-board.md](docs/github-project-board.md) for verified milestone status.
 
+The proposed post-MVP evolution into the connected AuthorOS ecosystem is defined in [docs/authoros-2-master-plan.md](docs/authoros-2-master-plan.md). It is a planning document, not a claim about currently shipped features.
+
 ## Build roadmap
 
 ### M1: Launch foundation — complete in code

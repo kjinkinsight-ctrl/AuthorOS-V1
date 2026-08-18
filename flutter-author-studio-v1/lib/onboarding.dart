@@ -108,11 +108,7 @@ class StoryTemplateLibrary {
         'The Climax of Trust',
         'The Happy Ending',
       ],
-      arcNames: [
-        'Romantic Tension',
-        'Emotional Growth',
-        'Relationship Arc'
-      ],
+      arcNames: ['Romantic Tension', 'Emotional Growth', 'Relationship Arc'],
       beatChecklist: [
         'Meet-cute',
         'Obstacles and chemistry',
@@ -198,12 +194,7 @@ class StoryTemplateLibrary {
         'The Confrontation',
         'The Reveal',
       ],
-      arcNames: [
-        'Case Arc',
-        'Truth Arc',
-        'False Solution',
-        'Suspect Thread'
-      ],
+      arcNames: ['Case Arc', 'Truth Arc', 'False Solution', 'Suspect Thread'],
       beatChecklist: [
         'The crime',
         'The clue trail',
@@ -775,10 +766,9 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
                   const SizedBox(height: 8),
                   Text(
                     'A focused setup for your project, structure, and first drafting session.',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyLarge
-                        ?.copyWith(color: Colors.white70),
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
                   ),
                   const SizedBox(height: 24),
                   _StepRail(currentStep: step),
@@ -788,8 +778,10 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF161A22),
-                        border: Border.all(color: Colors.white12),
+                        color: Theme.of(context).colorScheme.surface,
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: SingleChildScrollView(child: _buildStep(context)),
@@ -939,7 +931,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
           style: Theme.of(context)
               .textTheme
               .bodyLarge
-              ?.copyWith(color: Colors.white70),
+              ?.copyWith(color: Theme.of(context).colorScheme.onSurface),
         ),
         const SizedBox(height: 20),
         _ContinuityWorkflowStep(
@@ -1019,7 +1011,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1027,14 +1019,17 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
                           'Start a 15-minute writing sprint',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        SizedBox(height: 2),
+                        const SizedBox(height: 2),
                         Text(
                           'The timer begins when the first draft opens.',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
@@ -1074,9 +1069,11 @@ class _ContinuityWorkflowStep extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A2029),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1085,10 +1082,13 @@ class _ContinuityWorkflowStep extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: const Color(0xFFC59B6D).withValues(alpha: 0.18),
+              color: Theme.of(context).colorScheme.primaryContainer,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: const Color(0xFFC59B6D)),
+            child: Icon(
+              icon,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -1105,8 +1105,8 @@ class _ContinuityWorkflowStep extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   description,
-                  style: const TextStyle(
-                    color: Colors.white70,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     height: 1.4,
                   ),
                 ),
@@ -1128,11 +1128,14 @@ class _WizardBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       children: [
-        Icon(Icons.auto_stories, color: Color(0xFFC59B6D)),
-        SizedBox(width: 10),
-        Text('INDIE AUTHOR OS', style: TextStyle(fontWeight: FontWeight.w800)),
+        Icon(Icons.auto_stories, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 10),
+        const Text(
+          'INDIE AUTHOR OS',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
       ],
     );
   }
@@ -1157,13 +1160,17 @@ class _StepRail extends StatelessWidget {
               border: Border(
                 top: BorderSide(
                   width: 3,
-                  color: active ? const Color(0xFFC59B6D) : Colors.white12,
+                  color: active
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.outlineVariant,
                 ),
               ),
             ),
             child: Text(
               labels[index],
-              style: TextStyle(color: active ? Colors.white : Colors.white38),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
             ),
           ),
         );
@@ -1202,13 +1209,15 @@ class _StarterKitPreview extends StatelessWidget {
                 width: 250,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1D2230),
-                  border: Border.all(color: Colors.white10),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    Icon(item.$1, color: const Color(0xFFC59B6D)),
+                    Icon(item.$1, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 10),
                     Expanded(child: Text(item.$2)),
                   ],

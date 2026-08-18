@@ -1,0 +1,71 @@
+{
+  "fixtureVersion": 1,
+  "name": "legacy-partial",
+  "description": "A project containing structured manuscript data, old chapter seeds, legacy text, and prior migration metadata.",
+  "mode": "literal",
+  "projectId": "fixture-project-partial",
+  "preferences": {
+    "author_studio.manuscript_studio.fixture-project-partial": {
+      "storageType": "json",
+      "value": {
+        "projectId": "fixture-project-partial",
+        "manuscriptTitle": "Northbound",
+        "chapters": [
+          {
+            "id": "chapter-partial-1",
+            "title": "Northbound",
+            "order": 1,
+            "status": "revising",
+            "summary": "",
+            "prompt": "",
+            "pov": "",
+            "linkedChapterIds": [],
+            "scenes": [
+              {
+                "id": "scene-partial-1",
+                "chapterId": "wrong-parent-id",
+                "title": "Departure",
+                "order": 4,
+                "content": "The train left before dawn.",
+                "status": "revising",
+                "pov": "",
+                "location": "",
+                "timeLabel": "",
+                "notes": "",
+                "relationships": [],
+                "createdAt": "2025-12-01T00:00:00.000Z",
+                "updatedAt": "2026-01-02T00:00:00.000Z"
+              }
+            ],
+            "createdAt": "2025-12-01T00:00:00.000Z",
+            "updatedAt": "2026-01-02T00:00:00.000Z"
+          }
+        ],
+        "currentChapterId": "missing-current-chapter",
+        "currentSceneId": "scene-partial-1",
+        "createdAt": "2025-12-01T00:00:00.000Z",
+        "updatedAt": "2026-01-02T00:00:00.000Z",
+        "version": 2,
+        "migration": {"source": "legacy_text", "migratedAt": "2026-01-01T00:00:00.000Z"}
+      }
+    },
+    "author_studio.manuscript.fixture-project-partial": {
+      "storageType": "string",
+      "value": "Older flattened manuscript text."
+    },
+    "author_studio.manuscript_legacy_backup.fixture-project-partial": {
+      "storageType": "string",
+      "value": "Oldest recoverable manuscript text."
+    },
+    "author_studio.chapters.fixture-project-partial": {
+      "storageType": "stringList",
+      "value": ["{\"title\":\"Legacy Chapter\",\"prompt\":\"Old prompt\",\"scenes\":[\"Old scene\"]}"]
+    }
+  },
+  "expectations": {
+    "mustRemainReadable": true,
+    "authoritativeKey": "author_studio.manuscript_studio.fixture-project-partial",
+    "normalizedSceneOrder": 1,
+    "repairedSceneParentId": "chapter-partial-1"
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "fixtureVersion": 1,
+  "name": "legacy-simple",
+  "description": "A minimal connected project with one chapter, scene, character, and timeline event.",
+  "mode": "literal",
+  "projectId": "fixture-project-simple",
+  "preferences": {
+    "author_studio.starter_project": {
+      "storageType": "json",
+      "value": {
+        "id": "fixture-project-simple",
+        "title": "The Glass Harbor",
+        "genre": "Fantasy",
+        "projectType": "Novel",
+        "wordGoal": 80000,
+        "acts": ["Act I"],
+        "chapters": [{"title": "Chapter 1", "prompt": "A messenger arrives."}],
+        "characterSheets": [{"name": "Ari Vale", "role": "Protagonist"}],
+        "beatChecklist": ["Opening Image"],
+        "firstSceneTitle": "The Message",
+        "templateName": "Classic Novel"
+      }
+    },
+    "author_studio.manuscript_studio.fixture-project-simple": {
+      "storageType": "json",
+      "value": {
+        "projectId": "fixture-project-simple",
+        "manuscriptTitle": "The Glass Harbor",
+        "chapters": [
+          {
+            "id": "chapter-simple-1",
+            "title": "Chapter 1",
+            "order": 1,
+            "status": "draft",
+            "summary": "A messenger brings a warning.",
+            "prompt": "A messenger arrives.",
+            "pov": "Ari Vale",
+            "linkedChapterIds": [],
+            "scenes": [
+              {
+                "id": "scene-simple-1",
+                "chapterId": "chapter-simple-1",
+                "title": "The Message",
+                "order": 1,
+                "content": "Ari unfolded the salt-stained letter.",
+                "status": "draft",
+                "pov": "Ari Vale",
+                "location": "Glass Harbor",
+                "timeLabel": "Day 1",
+                "notes": "Opening scene",
+                "relationships": [
+                  {
+                    "id": "relationship-simple-1",
+                    "type": "character",
+                    "targetId": "character-ari",
+                    "label": "POV character",
+                    "metadata": {}
+                  }
+                ],
+                "createdAt": "2026-01-01T00:00:00.000Z",
+                "updatedAt": "2026-01-01T00:00:00.000Z"
+              }
+            ],
+            "createdAt": "2026-01-01T00:00:00.000Z",
+            "updatedAt": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "currentChapterId": "chapter-simple-1",
+        "currentSceneId": "scene-simple-1",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "version": 2,
+        "migration": {}
+      }
+    },
+    "author_studio.story_codex.fixture-project-simple": {
+      "storageType": "json",
+      "value": [
+        {
+          "id": "character-ari",
+          "title": "Ari Vale",
+          "type": "character",
+          "aliases": ["Ari"],
+          "summary": "A harbor cartographer.",
+          "tags": ["protagonist"],
+          "relationships": {"home": "Glass Harbor"},
+          "mentions": ["scene-simple-1"],
+          "status": "Active"
+        },
+        {
+          "id": "location-harbor",
+          "title": "Glass Harbor",
+          "type": "place",
+          "aliases": [],
+          "summary": "A storm-worn port.",
+          "tags": ["city"],
+          "relationships": {},
+          "mentions": ["scene-simple-1", "event-simple-1"],
+          "status": "Active"
+        }
+      ]
+    },
+    "author_studio.project.fixture-project-simple.timeline": {
+      "storageType": "json",
+      "value": {
+        "eras": [],
+        "sequences": [],
+        "events": [
+          {
+            "id": "event-simple-1",
+            "title": "The letter arrives",
+            "description": "Ari receives a warning.",
+            "dateLabel": "Day 1",
+            "startDay": 1,
+            "endDay": 1,
+            "pov": "Ari Vale",
+            "plotline": "Main Plot",
+            "presentCharacters": ["Ari Vale"],
+            "location": "Glass Harbor",
+            "travelDaysFromPrevious": 0,
+            "linkedNote": "",
+            "plotBeat": "Opening Image",
+            "status": "Planned",
+            "importance": "High",
+            "type": "Plot",
+            "eraId": "",
+            "sequenceId": "",
+            "order": 1,
+            "createdAt": "2026-01-01T00:00:00.000Z",
+            "updatedAt": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      }
+    }
+  },
+  "expectations": {
+    "mustRemainReadable": true,
+    "recordCount": 2,
+    "sceneCount": 1,
+    "unresolvedLinkCount": 0
+  }
+}

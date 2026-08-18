@@ -2,6 +2,15 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+class ManuscriptId {
+  ManuscriptId._();
+
+  static int _sequence = 0;
+
+  static String create(String prefix) =>
+      '${prefix}_${DateTime.now().microsecondsSinceEpoch}_${_sequence++}';
+}
+
 enum ManuscriptNodeStatus {
   planned,
   draft,
@@ -305,8 +314,8 @@ class ManuscriptChapter {
     final now = DateTime.now();
     final chapterId = (json['id'] as String?) ?? '';
     final scenes = (json['scenes'] as List? ?? const [])
-        .map((item) => ManuscriptScene.fromJson(
-            Map<String, dynamic>.from(item as Map)))
+        .map((item) =>
+            ManuscriptScene.fromJson(Map<String, dynamic>.from(item as Map)))
         .toList();
 
     return ManuscriptChapter(
@@ -414,8 +423,11 @@ class ManuscriptProjectSummary {
 
   String exportAsSingleText() {
     final buffer = StringBuffer();
-    final sortedChapters = [...chapters]..sort((a, b) => a.order.compareTo(b.order));
-    for (var chapterIndex = 0; chapterIndex < sortedChapters.length; chapterIndex++) {
+    final sortedChapters = [...chapters]
+      ..sort((a, b) => a.order.compareTo(b.order));
+    for (var chapterIndex = 0;
+        chapterIndex < sortedChapters.length;
+        chapterIndex++) {
       final chapter = sortedChapters[chapterIndex];
       buffer.writeln(chapter.title);
       if (chapter.prompt.trim().isNotEmpty) {
@@ -440,7 +452,8 @@ class ManuscriptProjectSummary {
 
   List<SceneCursor> orderedSceneCursors() {
     final result = <SceneCursor>[];
-    final sortedChapters = [...chapters]..sort((a, b) => a.order.compareTo(b.order));
+    final sortedChapters = [...chapters]
+      ..sort((a, b) => a.order.compareTo(b.order));
     for (final chapter in sortedChapters) {
       final sortedScenes = [...chapter.scenes]
         ..sort((a, b) => a.order.compareTo(b.order));
@@ -466,8 +479,8 @@ class ManuscriptProjectSummary {
   factory ManuscriptProjectSummary.fromJson(Map<String, dynamic> json) {
     final now = DateTime.now();
     final chapters = (json['chapters'] as List? ?? const [])
-        .map((item) => ManuscriptChapter.fromJson(
-            Map<String, dynamic>.from(item as Map)))
+        .map((item) =>
+            ManuscriptChapter.fromJson(Map<String, dynamic>.from(item as Map)))
         .toList();
     return ManuscriptProjectSummary(
       projectId: (json['projectId'] as String?) ?? '',
@@ -488,22 +501,19 @@ class ManuscriptProjectSummary {
   static List<ManuscriptChapter> _normalizedChapters(
       List<ManuscriptChapter> chapters) {
     final sorted = [...chapters]..sort((a, b) => a.order.compareTo(b.order));
-    final now = DateTime.now();
     return [
       for (var chapterIndex = 0; chapterIndex < sorted.length; chapterIndex++)
         sorted[chapterIndex].copyWith(
           order: chapterIndex + 1,
           scenes: [
-            for (var sceneIndex = 0;
-                sceneIndex < sorted[chapterIndex].scenes.length;
-                sceneIndex++)
-              sorted[chapterIndex]
-                  .scenes[sceneIndex]
-                  .copyWith(
-                    chapterId: sorted[chapterIndex].id,
-                    order: sceneIndex + 1,
-                    updatedAt: now,
-                  )
+            for (final entry in ([...sorted[chapterIndex].scenes]
+                  ..sort((a, b) => a.order.compareTo(b.order)))
+                .asMap()
+                .entries)
+              entry.value.copyWith(
+                chapterId: sorted[chapterIndex].id,
+                order: entry.key + 1,
+              )
           ],
         )
     ];
@@ -539,8 +549,7 @@ class ManuscriptChapterSeed {
 class ManuscriptStore {
   const ManuscriptStore();
 
-  static String _key(String projectId) =>
-      'author_studio.manuscript.$projectId';
+  static String _key(String projectId) => 'author_studio.manuscript.$projectId';
 
   static String _studioKey(String projectId) =>
       'author_studio.manuscript_studio.$projectId';
@@ -550,9 +559,6 @@ class ManuscriptStore {
 
   static String _chaptersKey(String projectId) =>
       'author_studio.chapters.$projectId';
-
-  static String _id(String prefix) =>
-      '${prefix}_${DateTime.now().microsecondsSinceEpoch}';
 
   Future<String> load(String projectId) async {
     final preferences = await SharedPreferences.getInstance();
@@ -668,20 +674,26 @@ class ManuscriptStore {
     final now = DateTime.now();
     final chapters = <ManuscriptChapter>[];
 
-    for (var chapterIndex = 0; chapterIndex < chapterSeeds.length; chapterIndex++) {
+    for (var chapterIndex = 0;
+        chapterIndex < chapterSeeds.length;
+        chapterIndex++) {
       final chapterSeed = chapterSeeds[chapterIndex];
-      final chapterId = _id('chapter');
-      final sceneTitles = chapterSeed.scenes.isEmpty
-          ? ['Scene 01']
-          : chapterSeed.scenes;
+      final chapterId = ManuscriptId.create('chapter');
+      final sceneTitles =
+          chapterSeed.scenes.isEmpty ? ['Scene 01'] : chapterSeed.scenes;
       final scenes = <ManuscriptScene>[];
       for (var sceneIndex = 0; sceneIndex < sceneTitles.length; sceneIndex++) {
-        final sceneTitle = sceneTitles[sceneIndex].trim().isEmpty
+        final seededTitle = sceneTitles[sceneIndex].trim().isEmpty
             ? 'Scene ${(sceneIndex + 1).toString().padLeft(2, '0')}'
             : sceneTitles[sceneIndex].trim();
+        final sceneTitle = chapterIndex == 0 &&
+                sceneIndex == 0 &&
+                firstSceneTitle.trim().isNotEmpty
+            ? firstSceneTitle.trim()
+            : seededTitle;
         scenes.add(
           ManuscriptScene(
-            id: _id('scene'),
+            id: ManuscriptId.create('scene'),
             chapterId: chapterId,
             title: sceneTitle,
             order: sceneIndex + 1,
@@ -710,20 +722,10 @@ class ManuscriptStore {
       );
     }
 
-    if (chapters.isNotEmpty &&
-        chapters.first.scenes.isNotEmpty &&
-        chapters.first.scenes.first.title.trim().isEmpty) {
-      chapters[0] = chapters[0].copyWith(
-        scenes: [
-          chapters[0].scenes.first.copyWith(title: firstSceneTitle),
-          ...chapters[0].scenes.skip(1),
-        ],
-      );
-    }
-
     final currentChapterId = chapters.isEmpty ? '' : chapters.first.id;
-    final currentSceneId =
-        chapters.isEmpty || chapters.first.scenes.isEmpty ? '' : chapters.first.scenes.first.id;
+    final currentSceneId = chapters.isEmpty || chapters.first.scenes.isEmpty
+        ? ''
+        : chapters.first.scenes.first.id;
 
     return ManuscriptProjectSummary(
       projectId: projectId,

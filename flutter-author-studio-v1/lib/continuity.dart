@@ -397,8 +397,10 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFF161A22),
-            border: Border.all(color: Colors.white12),
+            color: Theme.of(context).colorScheme.surface,
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -455,7 +457,9 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
                 Text(
                   '${widget.warnings.length} warning${widget.warnings.length == 1 ? '' : 's'} · ${integrity.criticalCount} critical · ${integrity.warningCount} warnings',
                   key: const Key('continuity-warning-count'),
-                  style: const TextStyle(color: Colors.white70),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 for (final issue in integrity.issues)
@@ -483,13 +487,17 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
                               style:
                                   const TextStyle(fontWeight: FontWeight.w700)),
                           const SizedBox(height: 3),
-                          Text(issue.message,
-                              style: const TextStyle(color: Colors.white70)),
+                          Text(
+                            issue.message,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
                           const SizedBox(height: 6),
                           Text(
                             'Next step: ${issue.recommendation}',
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -506,8 +514,10 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFF161A22),
-            border: Border.all(color: Colors.white12),
+            color: Theme.of(context).colorScheme.surface,
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -610,7 +620,9 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
                   Text(
                     '${zoomLevels[zoomIndex].round()} px/day',
                     key: const Key('timeline-zoom-label'),
-                    style: const TextStyle(color: Colors.white60),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
                 ],
               ),
@@ -750,7 +762,9 @@ class _LayeredTimeline extends StatelessWidget {
     return Container(
       key: const Key('layered-timeline-canvas'),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.white12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
         borderRadius: BorderRadius.circular(8),
       ),
       clipBehavior: Clip.antiAlias,
@@ -765,12 +779,12 @@ class _LayeredTimeline extends StatelessWidget {
                   height: axisHeight,
                   alignment: Alignment.centerLeft,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  color: const Color(0xFF121620),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   child: Text(
                     'Day $minimumDay to $maximumDay',
                     key: const Key('timeline-visible-range'),
-                    style: const TextStyle(
-                      color: Colors.white70,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
@@ -783,9 +797,14 @@ class _LayeredTimeline extends StatelessWidget {
                     width: labelWidth,
                     alignment: Alignment.centerLeft,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1D2230),
-                      border: Border(top: BorderSide(color: Colors.white12)),
+                    decoration: BoxDecoration(
+                      color:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                      border: Border(
+                        top: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                      ),
                     ),
                     child: Text(
                       laneName,
@@ -816,16 +835,23 @@ class _LayeredTimeline extends StatelessWidget {
                               height: axisHeight,
                               child: Container(
                                 alignment: Alignment.center,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF121620),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
                                   border: Border(
-                                    left: BorderSide(color: Colors.white12),
+                                    left: BorderSide(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outlineVariant,
+                                    ),
                                   ),
                                 ),
                                 child: Text(
                                   '$day',
-                                  style: const TextStyle(
-                                    color: Colors.white60,
+                                  style: TextStyle(
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
                                     fontSize: 11,
                                   ),
                                 ),
@@ -846,11 +872,20 @@ class _LayeredTimeline extends StatelessWidget {
                                 width: dayWidth,
                                 height: laneHeight,
                                 child: Container(
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF181D28),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Theme.of(context).colorScheme.surface,
                                     border: Border(
-                                      top: BorderSide(color: Colors.white12),
-                                      left: BorderSide(color: Colors.white10),
+                                      top: BorderSide(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outlineVariant,
+                                      ),
+                                      left: BorderSide(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outlineVariant,
+                                      ),
                                     ),
                                   ),
                                 ),

@@ -6,17 +6,121 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  test('premium palette uses richer dark and light color values', () {
-    expect(AppThemePreset.byId('midnight').backgroundColor,
-        const Color(0xFF0E1524));
+  double contrastRatio(Color first, Color second) {
+    final lighter = first.computeLuminance() > second.computeLuminance()
+        ? first.computeLuminance()
+        : second.computeLuminance();
+    final darker = first.computeLuminance() > second.computeLuminance()
+        ? second.computeLuminance()
+        : first.computeLuminance();
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  test('theme presets expose one light and one dark choice', () {
+    expect(AppThemePreset.values.map((theme) => theme.id), ['light', 'dark']);
+    expect(AppThemePreset.byId('light').brightness, Brightness.light);
+    expect(AppThemePreset.byId('dark').brightness, Brightness.dark);
     expect(
-        AppThemePreset.byId('midnight').surfaceColor, const Color(0xFF1A2437));
+      AppThemePreset.byId('light').accentColor,
+      const Color(0xFF4F8FCB),
+    );
     expect(
-        AppThemePreset.byId('midnight').accentColor, const Color(0xFF8AA7D9));
+      AppThemePreset.byId('dark').accentColor,
+      const Color(0xFFD4AF37),
+    );
+  });
+
+  test('legacy theme IDs preserve their previous brightness', () {
+    expect(AppThemePreset.byId('paper').id, 'light');
+    expect(AppThemePreset.byId('slate').id, 'light');
+    expect(AppThemePreset.byId('obsidian').id, 'dark');
+    expect(AppThemePreset.byId('midnight').id, 'dark');
+  });
+
+  for (final themeId in ['light', 'dark']) {
+    testWidgets('$themeId theme uses readable foreground contrast',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'author_studio.theme_id': themeId,
+      });
+
+      await tester.pumpWidget(const AuthorStudioApp());
+      await tester.pumpAndSettle();
+
+      final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+      final theme = app.theme!;
+      expect(theme.textTheme.bodyMedium?.fontFamily, 'Merriweather');
+      expect(
+        theme.colorScheme.onSurfaceVariant,
+        theme.colorScheme.onSurface,
+      );
+      expect(
+        contrastRatio(
+          theme.colorScheme.onSurface,
+          theme.colorScheme.surface,
+        ),
+        greaterThanOrEqualTo(7),
+      );
+      expect(
+        contrastRatio(
+          theme.colorScheme.onSurfaceVariant,
+          theme.colorScheme.surface,
+        ),
+        greaterThanOrEqualTo(4.5),
+      );
+    });
+  }
+
+  testWidgets('dashboard surfaces follow the active light color scheme',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF8A512A),
+      brightness: Brightness.light,
+      surface: Colors.white,
+    );
+    final project = NovelStarterKit.create(
+      title: 'The Light Draft',
+      genre: 'Fantasy',
+      projectType: 'Novel',
+      wordGoal: 80000,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true, colorScheme: colorScheme),
+        home: AuthorStudioShell(
+          project: project,
+          themeId: 'light',
+          accentId: 'default',
+          onThemeChanged: (_, __) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dashboard').first);
+    await tester.pumpAndSettle();
+
+    final hero = tester.widget<Container>(find.byKey(
+      const Key('dashboard-hero'),
+    ));
+    final heroDecoration = hero.decoration! as BoxDecoration;
     expect(
-        AppThemePreset.byId('paper').backgroundColor, const Color(0xFFEDE2D5));
-    expect(AppThemePreset.byId('paper').surfaceColor, const Color(0xFFF8F3EC));
-    expect(AppThemePreset.byId('paper').accentColor, const Color(0xFFB87A46));
+      (heroDecoration.gradient! as LinearGradient).colors,
+      [colorScheme.surfaceContainerHighest, colorScheme.surface],
+    );
+
+    final recentProjects = tester.widget<Container>(find.byKey(
+      const Key('dashboard-recent-projects'),
+    ));
+    expect(
+      (recentProjects.decoration! as BoxDecoration).color,
+      colorScheme.surface,
+    );
   });
 
   testWidgets('theme settings exposes palette choices and can change selection',
@@ -27,7 +131,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: SettingsStudioView(
-          themeId: 'obsidian',
+          themeId: 'light',
           accentId: 'default',
           onThemeChanged: (themeId, accentId) {
             pickedTheme = themeId;
@@ -37,39 +141,31 @@ void main() {
       ),
     );
 
-    expect(find.text('Obsidian'), findsNothing);
+    expect(find.text('Light'), findsNothing);
     await tester.tap(find.text('Appearance'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Obsidian'), findsOneWidget);
-    expect(find.text('Midnight'), findsOneWidget);
-    expect(find.text('Paper'), findsOneWidget);
+    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('Dark'), findsOneWidget);
+    expect(find.text('Obsidian'), findsNothing);
 
-    final midnightFinder = find.text('Midnight');
-    await tester.ensureVisible(midnightFinder);
-    await tester.tap(midnightFinder);
+    final darkFinder = find.text('Dark');
+    await tester.ensureVisible(darkFinder);
+    await tester.tap(darkFinder);
     await tester.pumpAndSettle();
 
-    expect(pickedTheme, 'midnight');
+    expect(pickedTheme, 'dark');
     expect(pickedAccent, 'default');
   });
 
-  testWidgets('accent selection updates the selected accent value',
+  testWidgets('appearance uses fixed theme palettes without accent overrides',
       (tester) async {
-    String? pickedTheme;
-    String? pickedAccent;
-
-    SharedPreferences.setMockInitialValues({});
-
     await tester.pumpWidget(
       MaterialApp(
         home: SettingsStudioView(
-          themeId: 'paper',
-          accentId: 'default',
-          onThemeChanged: (themeId, accentId) {
-            pickedTheme = themeId;
-            pickedAccent = accentId;
-          },
+          themeId: 'light',
+          accentId: 'coral',
+          onThemeChanged: (_, __) {},
         ),
       ),
     );
@@ -77,13 +173,13 @@ void main() {
     await tester.tap(find.text('Appearance'));
     await tester.pumpAndSettle();
 
-    final tealFinder = find.text('Teal');
-    await tester.ensureVisible(tealFinder);
-    await tester.tap(tealFinder);
-    await tester.pumpAndSettle();
-
-    expect(pickedTheme, 'paper');
-    expect(pickedAccent, 'teal');
+    expect(find.text('Accent'), findsNothing);
+    expect(find.text('Coral'), findsNothing);
+    expect(
+      const AppThemeSelection(themeId: 'light', accentId: 'coral')
+          .resolvedAccentColor,
+      AppThemePreset.byId('light').accentColor,
+    );
   });
 
   testWidgets('account security controls are inside a collapsible section',

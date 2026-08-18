@@ -314,7 +314,7 @@ class _VisualPlanningViewState extends State<VisualPlanningView> {
         Text(
           'Shape scenes by workflow, story structure, point of view, and arc.',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white70,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
         ),
         const SizedBox(height: 18),
@@ -322,8 +322,10 @@ class _VisualPlanningViewState extends State<VisualPlanningView> {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFF161A22),
-            border: Border.all(color: Colors.white12),
+            color: Theme.of(context).colorScheme.surface,
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -531,10 +533,12 @@ class _SceneLane extends StatelessWidget {
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: candidates.isEmpty
-              ? const Color(0xFF161A22)
+              ? Theme.of(context).colorScheme.surface
               : status.color.withValues(alpha: 0.16),
           border: Border.all(
-            color: candidates.isEmpty ? Colors.white12 : status.color,
+            color: candidates.isEmpty
+                ? Theme.of(context).colorScheme.outlineVariant
+                : status.color,
           ),
           borderRadius: BorderRadius.circular(8),
         ),
@@ -548,14 +552,22 @@ class _SceneLane extends StatelessWidget {
                 Expanded(
                     child: Text(status.label,
                         style: const TextStyle(fontWeight: FontWeight.w700))),
-                Text('${scenes.length}',
-                    style: const TextStyle(color: Colors.white60)),
+                Text(
+                  '${scenes.length}',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 10),
             if (scenes.isEmpty)
-              const Text('No matching scenes',
-                  style: TextStyle(color: Colors.white38))
+              Text(
+                'No matching scenes',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              )
             else
               for (final scene in scenes) ...[
                 Draggable<PlanningScene>(
@@ -596,8 +608,10 @@ class _SceneCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF202633),
-        border: Border.all(color: Colors.white12),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -607,8 +621,8 @@ class _SceneCard extends StatelessWidget {
             Text(
               overlay,
               key: Key('scene-overlay-${scene.id}'),
-              style: const TextStyle(
-                color: Color(0xFFC59B6D),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
               ),
@@ -618,10 +632,20 @@ class _SceneCard extends StatelessWidget {
           Text(scene.title,
               style: const TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          Text('POV · ${scene.pov}',
-              style: const TextStyle(color: Colors.white60, fontSize: 12)),
-          Text('Arc · ${scene.arc}',
-              style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Text(
+            'POV · ${scene.pov}',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: 12,
+            ),
+          ),
+          Text(
+            'Arc · ${scene.arc}',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );

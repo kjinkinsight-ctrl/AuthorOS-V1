@@ -264,6 +264,7 @@ class _BackupHealthViewState extends State<BackupHealthView> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final current = health;
     if (current == null) {
       return const Center(child: CircularProgressIndicator());
@@ -276,9 +277,9 @@ class _BackupHealthViewState extends State<BackupHealthView> {
           width: double.infinity,
           padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
-            color: const Color(0xFF141822),
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -289,27 +290,27 @@ class _BackupHealthViewState extends State<BackupHealthView> {
                   children: [
                     Text(
                       'BACKUP & EXPORT',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            color: Colors.white70,
-                            letterSpacing: 1.2,
-                          ),
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        letterSpacing: 1.2,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Create full backups, project exports, and safe import previews.',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
                       current.hasSuccessfulBackup
                           ? 'Your latest backup is recorded and ready for recovery.'
                           : 'No successful backup has been recorded yet.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: Colors.white70, height: 1.5),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        height: 1.5,
+                      ),
                     ),
                   ],
                 ),
@@ -319,14 +320,14 @@ class _BackupHealthViewState extends State<BackupHealthView> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2A2138),
+                  color: theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(color: theme.colorScheme.primary),
                 ),
-                child: const Text(
+                child: Text(
                   'READY',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: theme.colorScheme.onPrimaryContainer,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.8,
                   ),
@@ -368,9 +369,9 @@ class _BackupHealthViewState extends State<BackupHealthView> {
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: const Color(0xFF141822),
+              color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
             child: Wrap(
               spacing: 12,
@@ -386,18 +387,24 @@ class _BackupHealthViewState extends State<BackupHealthView> {
                     decoration: InputDecoration(
                       labelText: 'Backup destination',
                       filled: true,
-                      fillColor: const Color(0xFF1D2230),
+                      fillColor: theme.colorScheme.surfaceContainerHighest,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Colors.white10),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Colors.white10),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFFC59B6D)),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
                       isDense: true,
                     ),
@@ -440,7 +447,7 @@ class _BackupHealthViewState extends State<BackupHealthView> {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF1D2230),
+                color: theme.colorScheme.surfaceContainerHighest,
                 border: Border.all(
                   color: simulationReport!.passed
                       ? const Color(0xFF77B884)
@@ -464,9 +471,9 @@ class _BackupHealthViewState extends State<BackupHealthView> {
                       child: Text('✓ $check'),
                     ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'Simulation only: active project data was not overwritten.',
-                    style: TextStyle(color: Colors.white60),
+                    style: TextStyle(color: theme.colorScheme.onSurface),
                   ),
                 ],
               ),
@@ -481,8 +488,8 @@ class _BackupHealthViewState extends State<BackupHealthView> {
         width: double.infinity,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: const Color(0xFF161A22),
-          border: Border.all(color: Colors.white12),
+          color: theme.colorScheme.surface,
+          border: Border.all(color: theme.colorScheme.outlineVariant),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
@@ -536,24 +543,25 @@ class _HealthMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       width: 245,
       constraints: const BoxConstraints(minHeight: 100),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1D2230),
-        border: Border.all(color: Colors.white10),
+        color: theme.colorScheme.surfaceContainerHighest,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: const Color(0xFFC59B6D)),
+          Icon(icon, size: 20, color: theme.colorScheme.primary),
           const SizedBox(height: 10),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.white60,
+            style: TextStyle(
+              color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -564,7 +572,7 @@ class _HealthMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.w700,
-              color: valueColor,
+              color: valueColor ?? theme.colorScheme.onSurface,
               height: 1.35,
             ),
           ),

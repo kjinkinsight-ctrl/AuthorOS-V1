@@ -1,0 +1,23 @@
+{
+  "fixtureVersion": 1,
+  "name": "legacy-large",
+  "description": "A deterministic expansion recipe matching the existing large-manuscript test scale without committing repetitive generated content.",
+  "mode": "generated",
+  "projectId": "fixture-project-large",
+  "generator": {
+    "kind": "structuredManuscript",
+    "seed": 20260817,
+    "chapterCount": 120,
+    "scenesPerChapter": 5,
+    "wordsPerScene": 250,
+    "codexRecordCount": 250,
+    "timelineEventCount": 500,
+    "linksPerScene": 3
+  },
+  "expectations": {
+    "mustRemainReadable": true,
+    "sceneCount": 600,
+    "minimumWordCount": 150000,
+    "deterministic": true
+  }
+}

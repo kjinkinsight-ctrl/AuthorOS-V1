@@ -39,9 +39,16 @@ void main() {
 
     expect(manuscript.chapters, hasLength(1));
     expect(manuscript.chapters.first.scenes, hasLength(1));
+    expect(manuscript.chapters.first.scenes.first.title, 'Opening Scene');
     expect(manuscript.chapters.first.scenes.first.content,
         'Legacy draft line one.');
     expect(manuscript.migration['source'], 'legacy_text');
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences
+          .getString('author_studio.manuscript_legacy_backup.project-legacy'),
+      'Legacy draft line one.',
+    );
   });
 
   test('structured manuscript persists chapter and scene ordering explicitly',
@@ -88,6 +95,7 @@ void main() {
           title: 'Chapter A',
           order: 1,
           status: ManuscriptNodeStatus.draft,
+          linkedChapterIds: const ['chapter-b'],
           createdAt: now,
           updatedAt: now,
           scenes: [
@@ -98,6 +106,14 @@ void main() {
               order: 1,
               content: 'Alpha one',
               status: ManuscriptNodeStatus.draft,
+              relationships: const [
+                SceneRelationship(
+                  id: 'relationship-a-b',
+                  type: SceneRelationshipType.nextScene,
+                  targetId: 'scene-b1',
+                  label: 'Continue to B',
+                ),
+              ],
               createdAt: now,
               updatedAt: now,
             ),
@@ -118,10 +134,72 @@ void main() {
       defaultChapters: const [],
     );
 
-    expect(loaded.chapterById('chapter-a'), isNotNull);
-    expect(loaded.chapterById('chapter-b'), isNotNull);
-    expect(loaded.exportAsSingleText(), contains('Chapter A'));
-    expect(loaded.exportAsSingleText(), contains('Scene B1'));
+    expect(loaded.chapters.map((chapter) => chapter.id),
+        ['chapter-a', 'chapter-b']);
+    expect(loaded.chapterById('chapter-b')!.scenes.map((scene) => scene.id),
+        ['scene-b1', 'scene-b2']);
+    expect(loaded.chapterById('chapter-a')!.linkedChapterIds, ['chapter-b']);
+    expect(loaded.sceneById('scene-a1')!.relationships.single.targetId,
+        'scene-b1');
+    expect(loaded.sceneById('scene-a1')!.updatedAt, now);
+    expect(loaded.orderedSceneCursors().map((cursor) => cursor.sceneId),
+        ['scene-a1', 'scene-b1', 'scene-b2']);
+    final exported = loaded.exportAsSingleText();
+    expect(
+        exported.indexOf('Chapter A'), lessThan(exported.indexOf('Chapter B')));
+    expect(
+        exported.indexOf('Scene B1'), lessThan(exported.indexOf('Scene B2')));
     expect(loaded.wordCount, greaterThan(0));
+  });
+
+  test('large structured manuscript reloads with every scene addressable',
+      () async {
+    const store = ManuscriptStore();
+    final now = DateTime(2026, 8, 16);
+    final chapters = [
+      for (var chapterIndex = 0; chapterIndex < 120; chapterIndex++)
+        ManuscriptChapter(
+          id: 'chapter-$chapterIndex',
+          title: 'Chapter $chapterIndex',
+          order: chapterIndex + 1,
+          status: ManuscriptNodeStatus.draft,
+          createdAt: now,
+          updatedAt: now,
+          scenes: [
+            for (var sceneIndex = 0; sceneIndex < 5; sceneIndex++)
+              ManuscriptScene(
+                id: 'scene-$chapterIndex-$sceneIndex',
+                chapterId: 'chapter-$chapterIndex',
+                title: 'Scene $sceneIndex',
+                order: sceneIndex + 1,
+                content: 'Scene text $chapterIndex $sceneIndex',
+                status: ManuscriptNodeStatus.draft,
+                createdAt: now,
+                updatedAt: now,
+              ),
+          ],
+        ),
+    ];
+    final manuscript = ManuscriptProjectSummary(
+      projectId: 'large-project',
+      manuscriptTitle: 'Large Project',
+      chapters: chapters,
+      currentChapterId: chapters.first.id,
+      currentSceneId: chapters.first.scenes.first.id,
+      createdAt: now,
+      updatedAt: now,
+      version: 2,
+    );
+
+    await store.saveStudio(manuscript);
+    final loaded = await store.loadStudio(
+      'large-project',
+      manuscriptTitle: 'Large Project',
+      defaultChapters: const [],
+    );
+
+    expect(loaded.chapterCount, 120);
+    expect(loaded.sceneCount, 600);
+    expect(loaded.sceneById('scene-119-4')?.content, 'Scene text 119 4');
   });
 }

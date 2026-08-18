@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'backup_health.dart';
+import 'character_studio.dart';
 import 'continuity.dart';
 import 'impact_trace.dart';
 import 'manuscript_studio.dart';
@@ -42,88 +43,41 @@ class AppThemePreset {
 
   static const List<AppThemePreset> values = [
     AppThemePreset(
-      id: 'obsidian',
-      name: 'Obsidian',
-      description:
-          'Sophisticated dark writing environment with warm literary accents.',
-      brightness: Brightness.dark,
-      backgroundColor: Color(0xFF101A2C),
-      surfaceColor: Color(0xFF1A2638),
-      accentColor: Color(0xFFB78551),
-    ),
-    AppThemePreset(
-      id: 'midnight',
-      name: 'Midnight',
-      description:
-          'Deep blue-black environment for focused late-night writing.',
-      brightness: Brightness.dark,
-      backgroundColor: Color(0xFF0E1524),
-      surfaceColor: Color(0xFF1A2437),
-      accentColor: Color(0xFF8AA7D9),
-    ),
-    AppThemePreset(
-      id: 'forest',
-      name: 'Forest',
-      description:
-          'Deep green literary environment with natural calm contrast.',
-      brightness: Brightness.dark,
-      backgroundColor: Color(0xFF12221D),
-      surfaceColor: Color(0xFF1A332D),
-      accentColor: Color(0xFF7FB89A),
-    ),
-    AppThemePreset(
-      id: 'burgundy',
-      name: 'Burgundy',
-      description:
-          'Dramatic dark wine atmosphere with luxurious literary tones.',
-      brightness: Brightness.dark,
-      backgroundColor: Color(0xFF1A1115),
-      surfaceColor: Color(0xFF2A1C23),
-      accentColor: Color(0xFFCB8D7A),
-    ),
-    AppThemePreset(
-      id: 'plum',
-      name: 'Plum',
-      description:
-          'Deep violet creative environment with atmospheric contrast.',
-      brightness: Brightness.dark,
-      backgroundColor: Color(0xFF1A1325),
-      surfaceColor: Color(0xFF2B203C),
-      accentColor: Color(0xFFBE9DE8),
-    ),
-    AppThemePreset(
-      id: 'ocean',
-      name: 'Ocean',
-      description: 'Deep blue and teal environment that feels modern and calm.',
-      brightness: Brightness.dark,
-      backgroundColor: Color(0xFF0D2128),
-      surfaceColor: Color(0xFF1A3842),
-      accentColor: Color(0xFF5AC4BA),
-    ),
-    AppThemePreset(
-      id: 'paper',
-      name: 'Paper',
-      description:
-          'Warm manuscript-like light environment built for long sessions.',
+      id: 'light',
+      name: 'Light',
+      description: 'Light blue, white, and cool gray for daytime writing.',
       brightness: Brightness.light,
-      backgroundColor: Color(0xFFEDE2D5),
-      surfaceColor: Color(0xFFF8F3EC),
-      accentColor: Color(0xFFB87A46),
+      backgroundColor: Color(0xFFF2F7FC),
+      surfaceColor: Color(0xFFFFFFFF),
+      accentColor: Color(0xFF4F8FCB),
     ),
     AppThemePreset(
-      id: 'slate',
-      name: 'Slate',
-      description: 'Clean light modern theme with cool professional balance.',
-      brightness: Brightness.light,
-      backgroundColor: Color(0xFFE9EEF4),
-      surfaceColor: Color(0xFFF6F8FB),
-      accentColor: Color(0xFF5A7CC7),
+      id: 'dark',
+      name: 'Dark',
+      description: 'Black, gold, and white for focused evening writing.',
+      brightness: Brightness.dark,
+      backgroundColor: Color(0xFF080808),
+      surfaceColor: Color(0xFF141414),
+      accentColor: Color(0xFFD4AF37),
     ),
   ];
 
-  static AppThemePreset byId(String? id) =>
-      values.firstWhere((theme) => theme.id == (id ?? 'paper'),
-          orElse: () => values.first);
+  static String normalizeId(String? id) => switch (id) {
+        'dark' ||
+        'obsidian' ||
+        'midnight' ||
+        'forest' ||
+        'burgundy' ||
+        'plum' ||
+        'ocean' =>
+          'dark',
+        _ => 'light',
+      };
+
+  static AppThemePreset byId(String? id) {
+    final normalizedId = normalizeId(id);
+    return values.firstWhere((theme) => theme.id == normalizedId);
+  }
 }
 
 class AppThemeAccent {
@@ -164,11 +118,7 @@ class AppThemeSelection {
   final String accentId;
 
   Color get resolvedAccentColor {
-    final accent = AppThemeAccent.byId(accentId);
-    if (accent.id == 'default') {
-      return AppThemePreset.byId(themeId).accentColor;
-    }
-    return accent.color;
+    return AppThemePreset.byId(themeId).accentColor;
   }
 }
 
@@ -219,7 +169,7 @@ class AuthorStudioApp extends StatefulWidget {
 
 class _AuthorStudioAppState extends State<AuthorStudioApp> {
   bool _loadingTheme = true;
-  String _themeId = 'paper';
+  String _themeId = 'light';
   String _accentId = 'default';
 
   static const _themePreferenceKey = 'author_studio.theme_id';
@@ -233,14 +183,22 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
 
   Future<void> _loadThemeSelection() async {
     final prefs = await SharedPreferences.getInstance();
+    final savedThemeId = prefs.getString(_themePreferenceKey);
+    final normalizedThemeId = AppThemePreset.normalizeId(savedThemeId);
     if (!mounted) {
       return;
     }
     setState(() {
-      _themeId = prefs.getString(_themePreferenceKey) ?? _themeId;
-      _accentId = prefs.getString(_accentPreferenceKey) ?? _accentId;
+      _themeId = normalizedThemeId;
+      _accentId = 'default';
       _loadingTheme = false;
     });
+    if (savedThemeId != null && savedThemeId != normalizedThemeId) {
+      await prefs.setString(_themePreferenceKey, normalizedThemeId);
+    }
+    if (prefs.getString(_accentPreferenceKey) != 'default') {
+      await prefs.setString(_accentPreferenceKey, 'default');
+    }
   }
 
   Future<void> _saveThemeSelection() async {
@@ -252,7 +210,7 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
   void _updateThemeSelection(AppThemeSelection selection) {
     setState(() {
       _themeId = AppThemePreset.byId(selection.themeId).id;
-      _accentId = AppThemeAccent.byId(selection.accentId).id;
+      _accentId = 'default';
     });
     _saveThemeSelection();
   }
@@ -265,26 +223,45 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
 
   ThemeData _buildThemeData() {
     final preset = AppThemePreset.byId(_themeId);
+    final isDark = preset.brightness == Brightness.dark;
     final accent = AppThemeSelection(themeId: _themeId, accentId: _accentId)
         .resolvedAccentColor;
+    final foregroundColor =
+        isDark ? const Color(0xFFFFFFFF) : const Color(0xFF17283A);
+    final outlineColor =
+        isDark ? const Color(0xFF8A8A8A) : const Color(0xFF718399);
+    final outlineVariantColor =
+        isDark ? const Color(0xFF363636) : const Color(0xFFD4E0EB);
     final colorScheme = ColorScheme.fromSeed(
       seedColor: accent,
       brightness: preset.brightness,
       surface: preset.surfaceColor,
+    ).copyWith(
+      onSurface: foregroundColor,
+      onSurfaceVariant: foregroundColor,
+      outline: outlineColor,
+      outlineVariant: outlineVariantColor,
     );
 
-    final surfaceContainerColor = preset.brightness == Brightness.dark
-        ? const Color(0xFF1D2A39)
-        : const Color(0xFFF3E9DF);
+    final surfaceContainerColor =
+        isDark ? const Color(0xFF202020) : const Color(0xFFE7F0F8);
+    final textTheme = ThemeData(brightness: preset.brightness).textTheme.apply(
+          fontFamily: 'Merriweather',
+          bodyColor: foregroundColor,
+          displayColor: foregroundColor,
+        );
 
     return ThemeData(
       useMaterial3: true,
       brightness: preset.brightness,
+      fontFamily: 'Merriweather',
       colorScheme: colorScheme,
+      textTheme: textTheme,
       scaffoldBackgroundColor: preset.backgroundColor,
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         centerTitle: false,
         backgroundColor: Colors.transparent,
+        foregroundColor: foregroundColor,
         elevation: 0,
       ),
       cardTheme: CardThemeData(
@@ -328,7 +305,9 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        fillColor: surfaceContainerColor,
+        labelStyle: TextStyle(color: foregroundColor),
+        hintStyle: TextStyle(color: foregroundColor),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: colorScheme.outlineVariant),
@@ -703,7 +682,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                               children: [
                                                 const CircleAvatar(
                                                   radius: 20,
-                                                  backgroundColor: Colors.white24,
+                                                  backgroundColor:
+                                                      Colors.white24,
                                                   child: Icon(
                                                     Icons.person_outline,
                                                     color: Colors.white,
@@ -713,10 +693,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                                 Expanded(
                                                   child: Column(
                                                     crossAxisAlignment:
-                                                        CrossAxisAlignment.start,
+                                                        CrossAxisAlignment
+                                                            .start,
                                                     children: [
                                                       Text(
-                                                        widget.existingProfileName!,
+                                                        widget
+                                                            .existingProfileName!,
                                                         style: const TextStyle(
                                                           color: Colors.white,
                                                           fontWeight:
@@ -725,7 +707,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                                       ),
                                                       if (widget.existingProfileEmail !=
                                                               null &&
-                                                          widget.existingProfileEmail!
+                                                          widget
+                                                              .existingProfileEmail!
                                                               .trim()
                                                               .isNotEmpty)
                                                         Text(
@@ -733,7 +716,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                                               .existingProfileEmail!,
                                                           style:
                                                               const TextStyle(
-                                                            color: Colors.white70,
+                                                            color:
+                                                                Colors.white70,
                                                           ),
                                                         ),
                                                     ],
@@ -752,8 +736,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                               backgroundColor: Colors.white,
                                               foregroundColor: Colors.black,
                                             ),
-                                            icon: const Icon(
-                                                Icons.login_rounded),
+                                            icon:
+                                                const Icon(Icons.login_rounded),
                                             label: const Text(
                                                 'Continue with selected profile'),
                                           ),
@@ -828,61 +812,64 @@ class _BrandPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(26),
         border: Border.all(color: Colors.white24),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 220),
-              child: Image.asset(
-                'assets/author-studio-logo.png',
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    color: Colors.white24,
-                  ),
-                  child: const Icon(
-                    Icons.auto_stories_rounded,
-                    size: 32,
-                    color: Colors.white,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 220),
+                child: Image.asset(
+                  'assets/author-studio-logo.png',
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      color: Colors.white24,
+                    ),
+                    child: const Icon(
+                      Icons.auto_stories_rounded,
+                      size: 32,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            title,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            valueProp,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: Colors.white70,
-              height: 1.5,
+            const SizedBox(height: 10),
+            Text(
+              valueProp,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: Colors.white70,
+                height: 1.5,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          const Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _FeatureChip(icon: Icons.timeline_rounded, label: 'Plan the arc'),
-              _FeatureChip(
-                  icon: Icons.menu_book_rounded, label: 'Draft scenes'),
-              _FeatureChip(
-                  icon: Icons.analytics_outlined, label: 'Track continuity'),
-            ],
-          ),
-        ],
+            const SizedBox(height: 16),
+            const Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _FeatureChip(
+                    icon: Icons.timeline_rounded, label: 'Plan the arc'),
+                _FeatureChip(
+                    icon: Icons.menu_book_rounded, label: 'Draft scenes'),
+                _FeatureChip(
+                    icon: Icons.analytics_outlined, label: 'Track continuity'),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -985,18 +972,6 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
 
   Future<void> _login() async {
     final prefs = await SharedPreferences.getInstance();
-
-    if (AppSupabase.hasCredentials) {
-      try {
-        final signedIn = await AppSupabase.signInWithGoogle();
-        if (signedIn) {
-          await prefs.setBool(_profileCompleteKey, true);
-        }
-      } catch (_) {
-        // Fall back to local persistence if Supabase sign-in fails or is unavailable.
-      }
-    }
-
     await prefs.setBool(_profileCompleteKey, true);
     final savedProject = await widget.store.loadProject();
     if (!mounted) {
@@ -1828,14 +1803,16 @@ class _MobileNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       height: 88,
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF141822),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -1845,7 +1822,6 @@ class _MobileNavigation extends StatelessWidget {
         itemBuilder: (context, index) {
           final section = sections[index];
           final isSelected = index == selectedIndex;
-
           return ChoiceChip(
             selected: isSelected,
             onSelected: (_) => onSelected(index),
@@ -1855,19 +1831,23 @@ class _MobileNavigation extends StatelessWidget {
                 Icon(
                   section.icon,
                   size: 18,
-                  color: isSelected ? const Color(0xFF0F1115) : Colors.white70,
+                  color: isSelected
+                      ? theme.colorScheme.onPrimaryContainer
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 8),
                 Text(section.label),
               ],
             ),
-            backgroundColor: const Color(0xFF1A1F2B),
-            selectedColor: const Color(0xFFC59B6D),
+            backgroundColor: theme.colorScheme.surface,
+            selectedColor: theme.colorScheme.primaryContainer,
             labelStyle: TextStyle(
-              color: isSelected ? const Color(0xFF0F1115) : Colors.white,
+              color: isSelected
+                  ? theme.colorScheme.onPrimaryContainer
+                  : theme.colorScheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
-            side: const BorderSide(color: Colors.white10),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
           );
         },
       ),
@@ -1902,17 +1882,46 @@ class _SectionView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (section == StudioSection.manuscript) {
-      return SizedBox(
-        key: PageStorageKey(section),
-        height: 760,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
-          child: ManuscriptStudioView(
-            project: project,
-            startSprint: startSprint,
-            minimalMode: minimalFocusMode,
-          ),
+      final studio = Padding(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final manuscript = ManuscriptStudioView(
+              project: project,
+              startSprint: startSprint,
+              minimalMode: minimalFocusMode,
+            );
+            final research = _ResearchSidePanel(projectId: project.id);
+            if (constraints.maxWidth < 720) {
+              return Column(
+                children: [
+                  Expanded(child: manuscript),
+                  const SizedBox(height: 12),
+                  SizedBox(height: 220, child: research),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: manuscript),
+                const SizedBox(width: 12),
+                SizedBox(width: 260, child: research),
+              ],
+            );
+          },
         ),
+      );
+      if (minimalFocusMode) {
+        return SizedBox(
+          key: PageStorageKey(section),
+          height: (MediaQuery.sizeOf(context).height - 140).clamp(520, 900),
+          child: studio,
+        );
+      }
+      return SizedBox.expand(
+        key: PageStorageKey(section),
+        child: studio,
       );
     }
 
@@ -2025,6 +2034,187 @@ class ProjectResearchStore {
   }
 }
 
+class _ResearchSidePanel extends StatefulWidget {
+  const _ResearchSidePanel({required this.projectId});
+
+  final String projectId;
+
+  @override
+  State<_ResearchSidePanel> createState() => _ResearchSidePanelState();
+}
+
+class _ResearchSidePanelState extends State<_ResearchSidePanel> {
+  Map<ResearchTab, List<ResearchReference>> references = {};
+  bool loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final loaded =
+        await ProjectResearchStore(projectId: widget.projectId).load();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      references = {
+        for (final tab in ResearchTab.values) tab: [...?loaded[tab]],
+      };
+      loading = false;
+    });
+  }
+
+  Future<void> _addReference(ResearchTab tab) async {
+    final titleController = TextEditingController();
+    final detailController = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Add ${tab.name} reference'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Title'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: detailController,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Details'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    final title = titleController.text.trim();
+    if (accepted != true || title.isEmpty) {
+      return;
+    }
+    setState(() {
+      references[tab] = [
+        ...?references[tab],
+        ResearchReference(
+          title: title,
+          detail: detailController.text.trim(),
+          tag: tab.name,
+        ),
+      ];
+    });
+    await ProjectResearchStore(projectId: widget.projectId).save(references);
+  }
+
+  Future<void> _removeReference(ResearchTab tab, int index) async {
+    setState(() {
+      references[tab] = [...?references[tab]]..removeAt(index);
+    });
+    await ProjectResearchStore(projectId: widget.projectId).save(references);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: ResearchTab.values.length,
+      child: Material(
+        color: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+              child: Text(
+                'Pinned references',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+            const TabBar(
+              isScrollable: true,
+              tabs: [
+                Tab(text: 'Research'),
+                Tab(text: 'Notes'),
+                Tab(text: 'Timeline'),
+              ],
+            ),
+            Expanded(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      children: [
+                        for (final tab in ResearchTab.values) _buildTab(tab),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTab(ResearchTab tab) {
+    final items = references[tab] ?? const [];
+    return Column(
+      children: [
+        Expanded(
+          child: items.isEmpty
+              ? const Center(child: Text('No pinned references.'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return ListTile(
+                      dense: true,
+                      title: Text(item.title),
+                      subtitle: item.detail.isEmpty ? null : Text(item.detail),
+                      trailing: IconButton(
+                        tooltip: 'Remove reference',
+                        onPressed: () => _removeReference(tab, index),
+                        icon: const Icon(Icons.close, size: 18),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _addReference(tab),
+              icon: const Icon(Icons.add),
+              label: const Text('Pin reference'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _MetricChip extends StatelessWidget {
   const _MetricChip({required this.label, required this.value});
 
@@ -2036,9 +2226,11 @@ class _MetricChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1F2B),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2046,7 +2238,7 @@ class _MetricChip extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Colors.white60,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
           const SizedBox(height: 4),
@@ -3016,7 +3208,7 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
                   Text(
                     'Build chronology with dates, status, and importance tracking.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                   ),
                 ],
@@ -3066,9 +3258,11 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFF141822),
+            color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
           ),
           child: Wrap(
             spacing: 10,
@@ -3276,7 +3470,9 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
-                              ?.copyWith(color: Colors.white70),
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
                         ),
                       ),
                     ),
@@ -3349,7 +3545,8 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
                                   .textTheme
                                   .bodyMedium
                                   ?.copyWith(
-                                    color: Colors.white70,
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
                                   ),
                             ),
                             const SizedBox(height: 12),
@@ -3359,7 +3556,8 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
                                   .textTheme
                                   .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white54,
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
                                   ),
                             ),
                             const SizedBox(height: 12),
@@ -3392,9 +3590,13 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1A1F2B),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3426,7 +3628,10 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
+                                  ),
                             ),
                           const SizedBox(height: 8),
                           for (final sequence in sequences
@@ -4742,16 +4947,20 @@ class _DashboardView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
+              key: const Key('dashboard-hero'),
               width: double.infinity,
               padding: const EdgeInsets.all(28),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF22283A), Color(0xFF131720)],
+                gradient: LinearGradient(
+                  colors: [
+                    theme.colorScheme.surfaceContainerHighest,
+                    theme.colorScheme.surface,
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -4759,8 +4968,9 @@ class _DashboardView extends StatelessWidget {
                   Text(
                     'AUTHOROS',
                     style: theme.textTheme.labelLarge?.copyWith(
-                      color: Colors.white70,
+                      color: theme.colorScheme.primary,
                       letterSpacing: 1.2,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -4775,9 +4985,11 @@ class _DashboardView extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.04),
+                      color: theme.colorScheme.surface,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white10),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -4805,7 +5017,9 @@ class _DashboardView extends StatelessWidget {
                                   color: theme.colorScheme.primaryContainer,
                                   child: Text(
                                     profile.initials,
-                                    style: const TextStyle(
+                                    style: TextStyle(
+                                      color:
+                                          theme.colorScheme.onPrimaryContainer,
                                       fontWeight: FontWeight.w800,
                                       fontSize: 24,
                                     ),
@@ -4827,7 +5041,7 @@ class _DashboardView extends StatelessWidget {
                               Text(
                                 profile.focus,
                                 style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: Colors.white70,
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -4839,8 +5053,8 @@ class _DashboardView extends StatelessWidget {
                                         : Icons.lock_outline,
                                     size: 16,
                                     color: profile.publicProfile
-                                        ? Colors.greenAccent
-                                        : Colors.orangeAccent,
+                                        ? theme.colorScheme.primary
+                                        : theme.colorScheme.error,
                                   ),
                                   const SizedBox(width: 6),
                                   Text(
@@ -4848,7 +5062,7 @@ class _DashboardView extends StatelessWidget {
                                         ? 'Public author identity'
                                         : 'Private author identity',
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.white70,
+                                      color: theme.colorScheme.onSurfaceVariant,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -4866,7 +5080,7 @@ class _DashboardView extends StatelessWidget {
                     child: Text(
                       'Welcome to the foundation of your authoring system.',
                       style: theme.textTheme.bodyLarge?.copyWith(
-                        color: Colors.white70,
+                        color: theme.colorScheme.onSurfaceVariant,
                         height: 1.4,
                       ),
                     ),
@@ -4890,12 +5104,13 @@ class _DashboardView extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             Container(
+              key: const Key('dashboard-recent-projects'),
               width: double.infinity,
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: const Color(0xFF141822),
+                color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -4923,7 +5138,7 @@ class _DashboardView extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1A1F2B),
+                        color: theme.colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(18),
                       ),
                       child: Row(
@@ -4932,15 +5147,16 @@ class _DashboardView extends StatelessWidget {
                             width: 52,
                             height: 52,
                             alignment: Alignment.center,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFC59B6D),
-                              borderRadius:
-                                  BorderRadius.all(Radius.circular(16)),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primaryContainer,
+                              borderRadius: const BorderRadius.all(
+                                Radius.circular(16),
+                              ),
                             ),
-                            child: const Text(
+                            child: Text(
                               '✦',
                               style: TextStyle(
-                                color: Color(0xFF0F1115),
+                                color: theme.colorScheme.onPrimaryContainer,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 20,
                               ),
@@ -4961,7 +5177,7 @@ class _DashboardView extends StatelessWidget {
                                 Text(
                                   '${project.genre} • ${project.projectType} • ${project.wordGoal} word target',
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: Colors.white70,
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
                               ],
@@ -4976,12 +5192,13 @@ class _DashboardView extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             Container(
+              key: const Key('dashboard-foundation'),
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
               decoration: BoxDecoration(
-                color: const Color(0xFF141822),
+                color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -4993,7 +5210,7 @@ class _DashboardView extends StatelessWidget {
                         Text(
                           'FOUNDATION',
                           style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white70,
+                            color: theme.colorScheme.primary,
                             letterSpacing: 1.2,
                           ),
                         ),
@@ -5008,7 +5225,7 @@ class _DashboardView extends StatelessWidget {
                         Text(
                           'The AuthorOS foundation is operational. Core services, persistence, navigation, modules and diagnostics are active.',
                           style: theme.textTheme.bodyLarge?.copyWith(
-                            color: Colors.white70,
+                            color: theme.colorScheme.onSurfaceVariant,
                             height: 1.5,
                           ),
                         ),
@@ -5022,14 +5239,14 @@ class _DashboardView extends StatelessWidget {
                       vertical: 10,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF2A2138),
+                      color: theme.colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white10),
+                      border: Border.all(color: theme.colorScheme.primary),
                     ),
-                    child: const Text(
+                    child: Text(
                       'READY',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: theme.colorScheme.onPrimaryContainer,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.8,
                       ),
@@ -5078,6 +5295,7 @@ class _DashboardInfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final onTap = target == null || onNavigate == null
         ? null
         : () => onNavigate!(target!);
@@ -5086,11 +5304,12 @@ class _DashboardInfoTile extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(24),
       child: Container(
+        key: ValueKey('dashboard-tile-$title'),
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: const Color(0xFF141822),
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -5100,14 +5319,17 @@ class _DashboardInfoTile extends StatelessWidget {
               height: 42,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color:
-                    accent ? const Color(0xFFC59B6D) : const Color(0xFF1D2230),
+                color: accent
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Text(
                 icon,
                 style: TextStyle(
-                  color: accent ? const Color(0xFF0F1115) : Colors.white,
+                  color: accent
+                      ? theme.colorScheme.onPrimary
+                      : theme.colorScheme.onPrimaryContainer,
                   fontWeight: FontWeight.w700,
                   fontSize: 20,
                 ),
@@ -5116,9 +5338,9 @@ class _DashboardInfoTile extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Expanded(
@@ -5128,10 +5350,10 @@ class _DashboardInfoTile extends StatelessWidget {
                   body,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white70,
-                        height: 1.45,
-                      ),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.45,
+                  ),
                 ),
               ),
             ),
@@ -5150,22 +5372,6 @@ class _DashboardInfoTile extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ActionChip extends StatelessWidget {
-  const _ActionChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      label: Text(label),
-      backgroundColor: const Color(0xFF1D2331),
-      side: const BorderSide(color: Colors.white12),
-      labelStyle: const TextStyle(color: Colors.white),
     );
   }
 }

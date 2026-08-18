@@ -8,6 +8,10 @@ environment:
   flutter: ">=3.19.0"
 
 dependencies:
+  archive: ^4.0.9
+  crypto: ^3.0.7
+  drift: ^2.34.3
+  drift_flutter: ^0.3.1
   file_selector: ^1.1.0
   flutter:
     sdk: flutter
@@ -22,9 +26,22 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  sqlite3: ^3.5.1
+  drift_dev: ^2.34.0
+  isar_community: ^3.3.2
+  isar_community_generator: ^3.3.2
+  isar_community_flutter_libs: ^3.3.2
+  build_runner: ^2.15.1
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Merriweather
+      fonts:
+        - asset: assets/fonts/Merriweather-400.ttf
+          weight: 400
+        - asset: assets/fonts/Merriweather-700.ttf
+          weight: 700
   assets:
     - assets/author-studio-logo.png
     - assets/fonts/Inter-400.ttf

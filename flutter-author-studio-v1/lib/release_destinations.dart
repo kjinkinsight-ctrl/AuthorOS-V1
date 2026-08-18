@@ -12,6 +12,8 @@ import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';
 
+export 'character_studio.dart';
+
 enum StoryCodexType {
   character,
   place,
@@ -368,8 +370,9 @@ class _SearchStudioViewState extends State<SearchStudioView> {
   }
 
   Future<void> _load() async {
-    final store = const ManuscriptStore();
-    final migratedChapters = await store.loadLegacyChapterSeeds(widget.project.id);
+    const store = ManuscriptStore();
+    final migratedChapters =
+        await store.loadLegacyChapterSeeds(widget.project.id);
     final chapterSeeds = migratedChapters.isNotEmpty
         ? migratedChapters
         : widget.project.chapters
@@ -403,23 +406,23 @@ class _SearchStudioViewState extends State<SearchStudioView> {
       ),
     ));
     stored.addAll(manuscript.chapters.map(
-          (chapter) => StudioRecord(
-            id: chapter.id,
-            title: chapter.title,
-            category: 'Chapter',
-            details: chapter.prompt,
-          ),
-        ));
+      (chapter) => StudioRecord(
+        id: chapter.id,
+        title: chapter.title,
+        category: 'Chapter',
+        details: chapter.prompt,
+      ),
+    ));
     stored.addAll(manuscript.chapters.expand(
-          (chapter) => chapter.scenes.map(
-            (scene) => StudioRecord(
-              id: scene.id,
-              title: scene.title,
-              category: 'Scene',
-              details: '${chapter.title}\n${scene.content}',
-            ),
-          ),
-        ));
+      (chapter) => chapter.scenes.map(
+        (scene) => StudioRecord(
+          id: scene.id,
+          title: scene.title,
+          category: 'Scene',
+          details: '${chapter.title}\n${scene.content}',
+        ),
+      ),
+    ));
     stored.addAll(widget.project.characterSheets.asMap().entries.map(
           (entry) => StudioRecord(
             id: 'starter-character-${entry.key}',
@@ -453,6 +456,7 @@ class _SearchStudioViewState extends State<SearchStudioView> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final query = controller.text.trim().toLowerCase();
     final results = query.isEmpty
         ? records
@@ -478,9 +482,9 @@ class _SearchStudioViewState extends State<SearchStudioView> {
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: const Color(0xFF141822),
+              color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -492,24 +496,35 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                         key: const Key('universal-search-field'),
                         controller: controller,
                         onChanged: (_) => setState(() {}),
-                        style: const TextStyle(fontSize: 16),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface,
+                          fontSize: 16,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'Search Author Studio...',
                           filled: true,
-                          fillColor: const Color(0xFF1B1F2A),
-                          prefixIcon:
-                              const Icon(Icons.search, color: Colors.white60),
+                          fillColor: theme.colorScheme.surfaceContainerHighest,
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: theme.colorScheme.onSurface,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Colors.white10),
+                            borderSide: BorderSide(
+                              color: theme.colorScheme.outlineVariant,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Colors.white10),
+                            borderSide: BorderSide(
+                              color: theme.colorScheme.outlineVariant,
+                            ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Color(0xFFC59B6D)),
+                            borderSide: BorderSide(
+                              color: theme.colorScheme.primary,
+                            ),
                           ),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
@@ -522,8 +537,8 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                     TextButton(
                       onPressed: () => setState(() {}),
                       style: TextButton.styleFrom(
-                        backgroundColor: const Color(0xFF1D2230),
-                        foregroundColor: Colors.white,
+                        backgroundColor: theme.colorScheme.primaryContainer,
+                        foregroundColor: theme.colorScheme.onPrimaryContainer,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 18,
                           vertical: 16,
@@ -541,8 +556,8 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                         setState(() {});
                       },
                       style: TextButton.styleFrom(
-                        backgroundColor: const Color(0xFF1D2230),
-                        foregroundColor: Colors.white,
+                        backgroundColor: theme.colorScheme.primaryContainer,
+                        foregroundColor: theme.colorScheme.onPrimaryContainer,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 18,
                           vertical: 16,
@@ -558,9 +573,9 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                 const SizedBox(height: 8),
                 Text(
                   'Shortcut: Ctrl/Cmd + K. Search is read-only and never edits story data.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white60,
-                      ),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
               ],
             ),
@@ -570,9 +585,9 @@ class _SearchStudioViewState extends State<SearchStudioView> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF141822),
+              color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
             child: const Wrap(
               spacing: 10,
@@ -592,16 +607,16 @@ class _SearchStudioViewState extends State<SearchStudioView> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF181D2A),
+              color: theme.colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
             child: Text(
               resultLabel,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -630,9 +645,11 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                 return Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF141822),
+                    color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.white10),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant,
+                    ),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -640,13 +657,15 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                       Container(
                         width: 40,
                         height: 40,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF1D2230),
-                          borderRadius: BorderRadius.all(Radius.circular(12)),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: const BorderRadius.all(
+                            Radius.circular(12),
+                          ),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.description_outlined,
-                          color: Colors.white70,
+                          color: theme.colorScheme.onPrimaryContainer,
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -670,7 +689,7 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                                   .textTheme
                                   .bodySmall
                                   ?.copyWith(
-                                    color: const Color(0xFFC59B6D),
+                                    color: theme.colorScheme.primary,
                                     fontWeight: FontWeight.w700,
                                   ),
                             ),
@@ -683,7 +702,7 @@ class _SearchStudioViewState extends State<SearchStudioView> {
                                   .textTheme
                                   .bodyMedium
                                   ?.copyWith(
-                                    color: Colors.white70,
+                                    color: theme.colorScheme.onSurface,
                                     height: 1.45,
                                   ),
                             ),
@@ -708,19 +727,20 @@ class _SearchFilterPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1D2230),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white70,
-              fontWeight: FontWeight.w600,
-            ),
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurface,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -737,32 +757,37 @@ class _SearchEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: const Color(0xFF141822),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Icon(Icons.search, size: 42, color: Colors.white60),
+          Icon(
+            Icons.search,
+            size: 42,
+            color: theme.colorScheme.onSurface,
+          ),
           const SizedBox(height: 12),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
-                ),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface,
+            ),
           ),
         ],
       ),
@@ -789,8 +814,9 @@ class _StatisticsStudioViewState extends State<StatisticsStudioView> {
   }
 
   Future<void> _load() async {
-    final store = const ManuscriptStore();
-    final migratedChapters = await store.loadLegacyChapterSeeds(widget.project.id);
+    const store = ManuscriptStore();
+    final migratedChapters =
+        await store.loadLegacyChapterSeeds(widget.project.id);
     final chapterSeeds = migratedChapters.isNotEmpty
         ? migratedChapters
         : widget.project.chapters
@@ -842,9 +868,11 @@ class _StatisticsStudioViewState extends State<StatisticsStudioView> {
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: const Color(0xFF141822),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: Wrap(
               spacing: 12,
@@ -863,9 +891,11 @@ class _StatisticsStudioViewState extends State<StatisticsStudioView> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF141822),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -885,13 +915,15 @@ class _StatisticsStudioViewState extends State<StatisticsStudioView> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1D2230),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         'Read-only calculations',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white70,
+                              color: Theme.of(context).colorScheme.onSurface,
                               fontWeight: FontWeight.w600,
                             ),
                       ),
@@ -903,15 +935,17 @@ class _StatisticsStudioViewState extends State<StatisticsStudioView> {
                   value: progress,
                   minHeight: 12,
                   borderRadius: BorderRadius.circular(999),
-                  backgroundColor: const Color(0xFF1D2230),
-                  valueColor:
-                      const AlwaysStoppedAnimation<Color>(Color(0xFFC59B6D)),
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.primary,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   '${widget.project.chapters.length} planned chapters | ${widget.project.characterSheets.length} starter characters',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white70,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                 ),
               ],
@@ -951,29 +985,31 @@ class _MiniMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF141822),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.white60,
-                  fontWeight: FontWeight.w600,
-                ),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             value,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -1275,7 +1311,7 @@ class _ChapterStudioViewState extends State<ChapterStudioView> {
                 Text(
                   'Archived',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Colors.white60,
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -1284,7 +1320,8 @@ class _ChapterStudioViewState extends State<ChapterStudioView> {
                   if (chapters[index].isArchived)
                     Card(
                       margin: const EdgeInsets.only(bottom: 12),
-                      color: const Color(0xFF111827).withValues(alpha: 0.7),
+                      color:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
                       child: ListTile(
                         leading: const CircleAvatar(
                           child: Icon(Icons.archive_outlined),
@@ -1689,9 +1726,11 @@ class _StoryCodexViewState extends State<StoryCodexView> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF141822),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1702,13 +1741,17 @@ class _StoryCodexViewState extends State<StoryCodexView> {
                     Container(
                       width: 40,
                       height: 40,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF1D2230),
-                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(10),
+                        ),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.auto_stories_rounded,
-                        color: Colors.white70,
+                        color: Theme.of(context).colorScheme.onSurface,
                         size: 20,
                       ),
                     ),
@@ -1727,8 +1770,8 @@ class _StoryCodexViewState extends State<StoryCodexView> {
                           const SizedBox(height: 4),
                           Text(
                             entry.type.label,
-                            style: const TextStyle(
-                              color: Color(0xFFC59B6D),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1778,7 +1821,9 @@ class _StoryCodexViewState extends State<StoryCodexView> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1A1F2B),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
@@ -1826,7 +1871,9 @@ class _StoryCodexViewState extends State<StoryCodexView> {
                               vertical: 5,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1A1F2B),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
@@ -1852,7 +1899,7 @@ class _StoryCodexViewState extends State<StoryCodexView> {
         Text(
           'Archived',
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: Colors.white60,
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w700,
               ),
         ),
@@ -1864,9 +1911,11 @@ class _StoryCodexViewState extends State<StoryCodexView> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF111827).withValues(alpha: 0.8),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: Row(
               children: [
@@ -1884,8 +1933,8 @@ class _StoryCodexViewState extends State<StoryCodexView> {
                       const SizedBox(height: 4),
                       Text(
                         entry.type.label,
-                        style: const TextStyle(
-                          color: Colors.white60,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
                           fontSize: 12,
                         ),
                       ),
@@ -1949,8 +1998,8 @@ class _StoryCodexViewState extends State<StoryCodexView> {
   }
 }
 
-class CharacterBoardView extends StatefulWidget {
-  const CharacterBoardView({
+class _LegacyCharacterBoardView extends StatefulWidget {
+  const _LegacyCharacterBoardView({
     super.key,
     required this.project,
   });
@@ -1958,10 +2007,11 @@ class CharacterBoardView extends StatefulWidget {
   final StarterProject project;
 
   @override
-  State<CharacterBoardView> createState() => _CharacterBoardViewState();
+  State<_LegacyCharacterBoardView> createState() =>
+      _LegacyCharacterBoardViewState();
 }
 
-class _CharacterBoardViewState extends State<CharacterBoardView> {
+class _LegacyCharacterBoardViewState extends State<_LegacyCharacterBoardView> {
   final Map<String, String> _statusByName = {};
 
   List<_CharacterCardData> get _cards {
@@ -2044,7 +2094,7 @@ class _CharacterBoardViewState extends State<CharacterBoardView> {
             Text(
               'Archived',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Colors.white60,
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w700,
                   ),
             ),
@@ -2106,10 +2156,12 @@ class _CharacterCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: isArchived
-            ? const Color(0xFF111827).withValues(alpha: 0.8)
-            : const Color(0xFF141822),
+            ? Theme.of(context).colorScheme.surfaceContainerHighest
+            : Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2119,13 +2171,13 @@ class _CharacterCard extends StatelessWidget {
               Container(
                 width: 42,
                 height: 42,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1D2230),
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: const BorderRadius.all(Radius.circular(12)),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.person_rounded,
-                  color: Colors.white70,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
               ),
               const SizedBox(width: 10),
@@ -2141,13 +2193,13 @@ class _CharacterCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFF2C3546),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(
               card.category,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Colors.white70,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
             ),
           ),
@@ -2155,7 +2207,7 @@ class _CharacterCard extends StatelessWidget {
           Text(
             card.role,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
           const SizedBox(height: 12),
@@ -2165,8 +2217,7 @@ class _CharacterCard extends StatelessWidget {
               Text(
                 isArchived ? 'Archived' : 'Active',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color:
-                          isArchived ? Colors.white54 : const Color(0xFFC59B6D),
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
               ),
               IconButton(
@@ -2344,9 +2395,11 @@ class _RecordStudioViewState extends State<RecordStudioView> {
           width: double.infinity,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: const Color(0xFF141822),
+            color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
           ),
           child: const LinearProgressIndicator(),
         ),
@@ -2375,21 +2428,23 @@ class _RecordStudioViewState extends State<RecordStudioView> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: const Color(0xFF141822),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: ListTile(
               leading: Container(
                 width: 40,
                 height: 40,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1D2230),
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: const BorderRadius.all(Radius.circular(12)),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.auto_stories_outlined,
-                  color: Colors.white70,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
               ),
               title: Text(record.title),
@@ -2446,21 +2501,23 @@ class _RecordStudioViewState extends State<RecordStudioView> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: const Color(0xFF111827).withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: ListTile(
               leading: Container(
                 width: 40,
                 height: 40,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1D2230),
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: const BorderRadius.all(Radius.circular(12)),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.archive_outlined,
-                  color: Colors.white70,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
               ),
               title: Text(
@@ -2540,7 +2597,7 @@ Future<void> _defaultSettingsLogout() async {}
 class SettingsStudioView extends StatefulWidget {
   const SettingsStudioView({
     super.key,
-    this.themeId = 'obsidian',
+    this.themeId = 'light',
     this.accentId = 'default',
     required this.onThemeChanged,
     this.onLogout = _defaultSettingsLogout,
@@ -2571,18 +2628,6 @@ class _ThemeOption {
   final String description;
 }
 
-class _AccentOption {
-  const _AccentOption({
-    required this.id,
-    required this.label,
-    required this.color,
-  });
-
-  final String id;
-  final String label;
-  final Color color;
-}
-
 class _SettingsStudioViewState extends State<SettingsStudioView> {
   static const _autosaveKey = 'author_studio.settings.autosave';
   static const _focusKey = 'author_studio.settings.focus_defaults';
@@ -2605,50 +2650,16 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   static const _accountSectionId = 'account';
   static const _themeOptions = <_ThemeOption>[
     _ThemeOption(
-        id: 'obsidian',
-        name: 'Obsidian',
-        description: 'Warm editorial dark mode.'),
+        id: 'light',
+        name: 'Light',
+        description: 'Bright and comfortable for daytime writing.'),
     _ThemeOption(
-        id: 'midnight',
-        name: 'Midnight',
-        description: 'Deep blue-black focus mode.'),
-    _ThemeOption(
-        id: 'forest',
-        name: 'Forest',
-        description: 'Serene, earthy writing mode.'),
-    _ThemeOption(
-        id: 'burgundy',
-        name: 'Burgundy',
-        description: 'Rich dramatic atmosphere.'),
-    _ThemeOption(
-        id: 'plum',
-        name: 'Plum',
-        description: 'Atmospheric violet studio mode.'),
-    _ThemeOption(
-        id: 'ocean',
-        name: 'Ocean',
-        description: 'Cool calm draft environment.'),
-    _ThemeOption(
-        id: 'paper',
-        name: 'Paper',
-        description: 'Warm manuscript style light mode.'),
-    _ThemeOption(
-        id: 'slate', name: 'Slate', description: 'Modern clean light mode.'),
+        id: 'dark',
+        name: 'Dark',
+        description: 'Low-glare and focused for evening writing.'),
   ];
 
-  static const _accentOptions = <_AccentOption>[
-    _AccentOption(
-        id: 'default', label: 'Theme Default', color: Color(0x00000000)),
-    _AccentOption(id: 'amber', label: 'Amber', color: Color(0xFFE1A857)),
-    _AccentOption(id: 'teal', label: 'Teal', color: Color(0xFF59D0C4)),
-    _AccentOption(id: 'crimson', label: 'Crimson', color: Color(0xFFDB6F7D)),
-    _AccentOption(id: 'cobalt', label: 'Cobalt', color: Color(0xFF4E73D8)),
-    _AccentOption(id: 'olive', label: 'Olive', color: Color(0xFF7E9B3D)),
-    _AccentOption(id: 'coral', label: 'Coral', color: Color(0xFFE78E6E)),
-    _AccentOption(id: 'slate', label: 'Slate', color: Color(0xFF7B8FA7)),
-  ];
-
-  String selectedTheme = 'obsidian';
+  String selectedTheme = 'light';
   String selectedAccent = 'default';
   bool autosave = true;
   bool focusDefaults = false;
@@ -3069,11 +3080,11 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   'Writer profile',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.white70,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -3120,7 +3131,9 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                         decoration: BoxDecoration(
                           color: Theme.of(context).colorScheme.surface,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white10),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -3238,7 +3251,9 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.white10),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -3266,7 +3281,11 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
-                                      ?.copyWith(color: Colors.white70),
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
                                 ),
                               ],
                             ),
@@ -3437,7 +3456,7 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                           border: Border.all(
                             color: isSelected
                                 ? Theme.of(context).colorScheme.primary
-                                : Colors.white10,
+                                : Theme.of(context).colorScheme.outlineVariant,
                           ),
                         ),
                         child: Column(
@@ -3460,65 +3479,6 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                                 fontSize: 12,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 18),
-                const Text(
-                  'Accent',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: _accentOptions.map((accent) {
-                    final isSelected = selectedAccent == accent.id;
-                    final swatchColor = accent.color == const Color(0x00000000)
-                        ? Colors.transparent
-                        : accent.color;
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() => selectedAccent = accent.id);
-                        widget.onThemeChanged(selectedTheme, selectedAccent);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: isSelected
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.white12,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 16,
-                              height: 16,
-                              decoration: BoxDecoration(
-                                color: swatchColor,
-                                border: Border.all(
-                                  color: accent.color == const Color(0x00000000)
-                                      ? Colors.white54
-                                      : Colors.transparent,
-                                ),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(accent.label),
                           ],
                         ),
                       ),
@@ -3661,54 +3621,55 @@ class _StudioPage extends StatelessWidget {
   final Widget? action;
 
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                color: const Color(0xFF141822),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          subtitle,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(color: Colors.white70),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (action != null) ...[
-                    const SizedBox(width: 12),
-                    action!,
-                  ],
-                ],
-              ),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
-            const SizedBox(height: 18),
-            child,
-          ],
-        ),
-      );
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (action != null) ...[
+                  const SizedBox(width: 12),
+                  action!,
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          child,
+        ],
+      ),
+    );
+  }
 }
 
 class _StatTile extends StatelessWidget {
@@ -3718,34 +3679,36 @@ class _StatTile extends StatelessWidget {
   final String value;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        width: 180,
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: const Color(0xFF141822),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(color: Colors.white60),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                value,
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: 180,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
         ),
-      );
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: theme.textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EmptyState extends StatelessWidget {
@@ -3754,29 +3717,37 @@ class _EmptyState extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.all(28),
-        decoration: BoxDecoration(
-          color: const Color(0xFF141822),
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Icon(Icons.search, size: 42, color: Colors.white60),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.white70,
-                  ),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.search,
+            size: 42,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
+  }
 }

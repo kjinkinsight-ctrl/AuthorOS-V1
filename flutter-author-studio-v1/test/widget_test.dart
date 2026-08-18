@@ -236,7 +236,7 @@ void main() {
     expect(find.text('Start your writing workspace'), findsNothing);
   });
 
-  testWidgets('previous saved state never bypasses the login screen on startup',
+  testWidgets('selected profile opens its saved workspace directly',
       (tester) async {
     SharedPreferences.setMockInitialValues({
       'author_studio.profile_setup_complete': true,
@@ -253,6 +253,12 @@ void main() {
     expect(find.text('Old Name'), findsOneWidget);
     expect(find.text('Create new profile'), findsOneWidget);
     expect(find.text('Start your writing workspace'), findsNothing);
+
+    await tester.tap(find.text('Continue with selected profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Login / Profile Selection'), findsNothing);
+    expect(find.byKey(const Key('focus-mode-toggle')), findsOneWidget);
   });
 
   testWidgets('first run opens the first scene with an optional sprint',

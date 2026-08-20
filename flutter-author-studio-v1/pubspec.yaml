@@ -42,6 +42,12 @@ flutter:
           weight: 400
         - asset: assets/fonts/Merriweather-700.ttf
           weight: 700
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-400.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-700.ttf
+          weight: 700
   assets:
     - assets/author-studio-logo.png
     - assets/welcome-hero.png

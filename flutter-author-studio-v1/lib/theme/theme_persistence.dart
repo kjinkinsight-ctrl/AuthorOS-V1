@@ -175,12 +175,7 @@ class ThemePersistence {
     // Pre-engine installs have no mode key. They persisted an explicit theme
     // id, so an explicit mode matching that theme's brightness is the correct
     // reading — not `system`, which would silently change their appearance.
-    final themeId = registry.normalizeId(store.read(themeIdKey));
-    final definition = registry.byId(themeId);
-    return definition.supports(ThemeBrightness.dark) &&
-            !definition.supports(ThemeBrightness.light)
-        ? AuthorOsThemeMode.dark
-        : AuthorOsThemeMode.light;
+    return registry.naturalMode(store.read(themeIdKey));
   }
 
   bool _readFlag(String key) => store.read(key)?.trim() == 'true';

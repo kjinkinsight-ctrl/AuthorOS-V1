@@ -63,6 +63,21 @@ class ThemeRegistry {
 
   ThemeDefinition byId(String? id) => _themes[normalizeId(id)]!;
 
+  /// The explicit mode that renders [id] as its author intended.
+  ///
+  /// A theme that can only render dark is naturally a dark selection; anything
+  /// else is naturally light. This is the single definition of that rule: the
+  /// shell uses it when the user picks a theme, and [ThemePersistence] uses it
+  /// when reading a pre-engine install that has no persisted mode. Neither
+  /// re-implements it.
+  AuthorOsThemeMode naturalMode(String? id) {
+    final definition = byId(id);
+    return definition.supports(ThemeBrightness.dark) &&
+            !definition.supports(ThemeBrightness.light)
+        ? AuthorOsThemeMode.dark
+        : AuthorOsThemeMode.light;
+  }
+
   /// The two built-in AuthorOS themes.
   ///
   /// Colour values reproduce the pre-engine shell exactly, so adopting the

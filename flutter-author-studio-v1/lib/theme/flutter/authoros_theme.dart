@@ -22,6 +22,23 @@ class AuthorOsTheme {
   static Brightness brightness(ThemeBrightness value) =>
       value == ThemeBrightness.dark ? Brightness.dark : Brightness.light;
 
+  /// Flutter's [Brightness] as the engine's [ThemeBrightness].
+  ///
+  /// This is the boundary the host brightness crosses on its way in: Flutter's
+  /// type stops here and the engine's type continues inwards.
+  static ThemeBrightness themeBrightness(Brightness value) =>
+      value == Brightness.dark ? ThemeBrightness.dark : ThemeBrightness.light;
+
+  /// The engine's [AuthorOsThemeMode] as Flutter's [ThemeMode].
+  ///
+  /// Only `MaterialApp` needs Flutter's enum. The engine never sees it, so the
+  /// core stays plain Dart and there is exactly one mode vocabulary inside it.
+  static ThemeMode themeMode(AuthorOsThemeMode mode) => switch (mode) {
+        AuthorOsThemeMode.light => ThemeMode.light,
+        AuthorOsThemeMode.dark => ThemeMode.dark,
+        AuthorOsThemeMode.system => ThemeMode.system,
+      };
+
   static FontWeight fontWeight(int weight) => switch (weight) {
         <= 100 => FontWeight.w100,
         <= 200 => FontWeight.w200,

@@ -1,265 +1,457 @@
 # Theme Engine Phase 2 — Application Shell Integration — Implementation Map
 
-Audited: August 20, 2026
-Status: **BLOCKED — Phase 1 does not exist. No integration code written.**
+Status: **complete**. `ThemeEngine` is the live application theme source.
 
-## Executive summary
+Phase 1 built the engine under `lib/theme/` but deliberately left `main.dart`
+untouched, so the engine existed without driving anything. Phase 2 connects it:
+the shell now resolves through the engine and hands the result to `MaterialApp`,
+and the pre-engine construction path is gone from the runtime.
 
-Phase 2 directs the integration of "the completed Theme Engine Phase 1" into the
-application shell. **Theme Engine Phase 1 does not exist.** It has never existed
-in this repository, on any branch, in any commit.
+This is an integration, not a redesign. No Studio, Dashboard, Progression,
+Analytics, Community, or Universal Records behaviour was changed, and no new
+theme was added.
 
-Phase 2 cannot migrate the shell onto an architecture that was never built.
+---
 
-What this document *does* deliver is the audit Phase 2's SETUP section requires
-(items 2, 3, 4, 5, 9): a complete inventory of the current theme implementation,
-every `ThemeData` construction path, the persistence contract, and the concrete
-defects found. That inventory is the required input for whoever builds Phase 1,
-and it is reusable unchanged.
+## 1. Architecture
 
-## Finding 1 — Phase 1 does not exist
-
-Every symbol named by the Phase 1 and Phase 2 directives was searched across
-`lib/` and `test/`:
-
-| Symbol | Files |
-|---|---|
-| `ThemeEngine` | 0 |
-| `ThemeRegistry` | 0 |
-| `ThemeResolver` | 0 |
-| `ThemePersistence` | 0 |
-| `ResolvedTheme` | 0 |
-| `StudioId` | 0 |
-| `ThemeColorRef` | 0 |
-| `AuthorOsTheme` / `AuthorOSTheme` | 0 |
-| `StudioThemeScope` | 0 |
-| `ThemeFlutter` (adapter) | 0 |
-| `ThemeMode` | 0 |
-| `ComponentTokens` / `SemanticTokens` / `ThemeTokens` | 0 |
-
-There is no `theme/` directory in `lib/` or `test/`. The only file in the
-repository with "theme" in its name is `test/settings_theme_test.dart`.
-
-### History-wide verification
-
-This was confirmed beyond the working tree:
-
-- **All branch tips** — `git grep` for `class ThemeEngine`, `class ResolvedTheme`,
-  and `StudioThemeScope` across every local and remote branch (`main`,
-  `feat/world-workspace`, `kjinkinsight-ctrl-refactored-pancake`, 11 `origin/*`
-  branches including 6 `copilot/*`, and 4 `authoros-v1/*`): **zero matches**.
-- **All history** — every file ever *added* on any branch matching `theme`:
-  only `css/themes.css` (legacy web app, since deleted),
-  `test/settings_theme_test.dart`, and its pre-move path.
-- **Stashes** — none.
-- **Worktrees** — two, both scanned via their branches.
-- **Sibling project** — `indiauthors-platform` contains no Theme Engine symbols.
-
-The Theme Engine was never written. This is not a rename, a move, or an
-uncommitted change.
-
-## Finding 2 — The current theme path (the "old path")
-
-There is already exactly **one** `ThemeData` resolution path in the live
-application. It is not an engine, but it is not duplicated either.
+### Old runtime theme path
 
 ```
-SharedPreferences ('author_studio.theme_id', 'author_studio.accent_id')
-      ↓
-_MyAppState._loadTheme  →  _themeId, _accentId
-      ↓
-AppThemePreset.byId(_themeId)  +  AppThemeSelection.resolvedAccentColor
-      ↓
-_buildThemeData()                             [lib/main.dart:242]
-      ↓
-ThemeData
-      ↓
-MaterialApp(theme: …)                         [lib/main.dart:351, 363]
+SharedPreferences ('author_studio.theme_id')
+  → AppThemePreset.normalizeId / AppThemePreset.byId
+  → _AuthorStudioAppState._buildThemeData()      ← palette, typography,
+  → MaterialApp.theme                              metrics, brightness all
+                                                   derived inline in the shell
 ```
 
-### Components
+Everything lived in `_AuthorStudioAppState`: the light/dark literals, the
+`ColorScheme.fromSeed` call, the Merriweather assignment, the radii (20/12/14),
+and the padding. There was no mode concept — the theme id *was* the brightness —
+no accessibility, and no Studio scoping.
 
-| Component | Location | Role |
-|---|---|---|
-| `AppThemePreset` | `lib/main.dart:31` | Two presets (`light`, `dark`); holds `Brightness` + 3 `Color`s; `normalizeId()` maps 8 legacy ids |
-| `AppThemeSelection` | `lib/main.dart:117` | Pairs `themeId` + `accentId`; exposes `resolvedAccentColor` |
-| `_buildThemeData()` | `lib/main.dart:242` | **The single ThemeData construction site** |
-| `_updateThemeSelection()` | `lib/main.dart:228` | Applies a new selection and persists it |
-| `_handleThemeChanged()` | `lib/main.dart:236` | Settings callback into the above |
-| Persistence keys | `lib/main.dart:193-194` | `author_studio.theme_id`, `author_studio.accent_id` |
+### New runtime theme path
 
-### What `_buildThemeData()` produces
-
-`ColorScheme.fromSeed(seedColor: accent, brightness: preset.brightness,
-surface: preset.surfaceColor)`, then `.copyWith` overrides for `onSurface`,
-`onSurfaceVariant`, `outline`, `outlineVariant`. It then themes: `appBarTheme`,
-`cardTheme`, `dividerTheme`, `chipTheme`, `filledButtonTheme`,
-`inputDecorationTheme`, and `textTheme`.
-
-Radii are inline literals: cards 20, chips 12, buttons 14, inputs 14.
-
-## Finding 3 — Capability gaps in the current shell
-
-Three Phase 2 requirements have **no existing behaviour to migrate**. They would
-be new features, not integrations:
-
-| Requirement | Current state |
-|---|---|
-| **Req 9 — system mode** | **Does not exist.** `MaterialApp` is given only `theme:`. There is no `darkTheme:` and no `themeMode:`. Dark mode works by rebuilding `theme` from the selected preset, so the shell never consults host brightness. |
-| **Req 8 — accessibility** | **Does not exist.** No reduced intensity, no high contrast, no focus-ring token, no selection/highlight token anywhere in the shell. |
-| **Req 5 — studio theme scope** | **Does not exist.** No scope mechanism; Studios read `Theme.of(context)` directly. |
-
-Two requirements are **already satisfied**:
-
-| Requirement | Current state |
-|---|---|
-| **Req 10 — hot theme resolution** | **Already works.** `_handleThemeChanged` → `_updateThemeSelection` → `setState` rebuilds `MaterialApp` with new `ThemeData`. No stream architecture needed, and none should be added. |
-| **Req 1 — single resolution path** | **Substantially true already.** `_buildThemeData()` is the only `ThemeData` construction site reachable from the live app. |
-
-## Finding 4 — Inter is not registered as a font family
-
-Requirement 7 states: *"The registered Inter family must actually be used by the
-Theme Engine's UI typography."* **Inter is not a registered family.**
-
-In `pubspec.yaml`, only Merriweather is declared under `fonts:`:
-
-```yaml
-  fonts:
-    - family: Merriweather
-      fonts:
-        - asset: assets/fonts/Merriweather-400.ttf
-          weight: 400
-        - asset: assets/fonts/Merriweather-700.ttf
-          weight: 700
-  assets:
-    - assets/fonts/Inter-400.ttf     # bundled as a raw asset only
-    - assets/fonts/Inter-700.ttf     # not declared as a family
+```
+SharedPreferences
+  → SharedPreferencesThemeStore        (ThemeSettingsStore, Flutter adapter)
+  → ThemePersistence                   (reads + migrates legacy ids)
+  → ThemeSelection                     (themeId, mode, accessibility, accentId)
+  → ThemeEngine.resolveSelection(hostBrightness:)
+  → ThemeRegistry → ThemeResolver      (mode rule, fallback rule, a11y transforms)
+  → ResolvedTheme                      (authoritative: one brightness, one palette)
+  → AuthorOsTheme.toThemeData          (the only ThemeData builder)
+  → MaterialApp.theme / .darkTheme
 ```
 
-Both Inter TTFs exist on disk (`assets/fonts/Inter-400.ttf`, 324,820 bytes;
-`Inter-700.ttf`, 326,468 bytes) and are bundled — but because they are listed
-under `assets:` rather than `fonts:`, **Flutter cannot resolve `fontFamily:
-'Inter'`**. Any such reference silently falls back to the default font.
+The shell no longer derives palette, typography, metrics, accessibility,
+brightness, or fallback. It supplies two inputs — the persisted selection and
+the host environment — and consumes one output.
 
-The shell currently hard-codes `fontFamily: 'Merriweather'` in two places
-(`lib/main.dart:267` in `textTheme.apply`, and `:274` in `ThemeData`), and
-`test/settings_theme_test.dart:55` asserts `bodyMedium?.fontFamily ==
-'Merriweather'`.
+---
 
-**This is a real defect and it is independent of the Theme Engine.** Fixing it
-is a ~6-line `pubspec.yaml` change. It was not applied here because this phase
-is blocked and the change was not sanctioned in isolation. It should be done as
-a prerequisite to any Phase 1 typography contract.
+## 2. MaterialApp integration
 
-## Finding 5 — A dead second theme already exists
+`_AuthorStudioAppState.build` is now the single resolution point:
 
-`lib/main.authorstudio.backup.dart` is **not imported by anything** — verified
-by grep across `lib/` and `test/`. It nonetheless contains:
+```dart
+_hostBrightness = AuthorOsTheme.themeBrightness(
+  MediaQuery.maybePlatformBrightnessOf(context) ??
+      WidgetsBinding.instance.platformDispatcher.platformBrightness,
+);
+final resolved  = _engine.resolveSelection(selection: …, hostBrightness: _hostBrightness);
+final themeData = AuthorOsTheme.toThemeData(resolved);
+```
 
-- a second `main()` entry point,
-- a second `MaterialApp`,
-- a second complete `ThemeData` with its own `ColorScheme.fromSeed`,
-- 19 hard-coded `Color(0x…)` literals (`0xFFC59B6D`, `0xFF161A22`, `0xFF0F1115`, …).
+`resolveSelection` is pure, so building is safe to repeat and there is no cached
+theme to invalidate.
 
-This is precisely the "second theme system" Requirement 13 exists to prevent,
-and it predates this phase. It is dead code and should be deleted — but that is
-a cleanup decision for the repository owner, not a Phase 2 action, so it was
-left in place.
+**Why `theme` and `darkTheme` hold the same value.** The engine has already
+applied the mode and the fallback rule before `MaterialApp` is constructed, so
+both slots carry the identical resolved `ThemeData`. Whichever branch Flutter
+takes for `themeMode`, it renders what the engine decided — Flutter cannot
+re-derive a brightness the engine did not choose. `themeMode` is still set from
+the selection so the widget tree reports the user's actual choice.
 
-## Finding 6 — Requirement 13 inventory (hard-coded values)
+**Loading.** `SharedPreferences` resolves asynchronously. Until it does, the
+engine runs over an empty `MemoryThemeSettingsStore` and resolves the registry
+default (light) — the same default the old shell used while loading, but now
+produced by the engine rather than by a hand-built `ThemeData`. When preferences
+arrive, the engine is rebuilt over `SharedPreferencesThemeStore` and the
+persisted selection replaces the default. This is a placeholder store, not a
+second settings store: it is `ThemeSettingsStore`, and it is discarded.
 
-Requirement 13 asks for a survey of remaining theme constants. Performed:
+---
 
-| File | `Color(0x…)` count | Assessment |
-|---|---|---|
-| `lib/main.dart` | 21 | 8 inside `_buildThemeData()` (foreground/outline/surface-container) — these are the shell's real palette and belong in a token vocabulary. The rest are scattered UI accents. |
-| `lib/main.authorstudio.backup.dart` | 19 | **Dead code** — see Finding 5 |
-| `lib/continuity.dart` | 19 | Status/severity colours — likely semantic, needs per-value review |
-| `lib/welcome_page.dart` | 11 | Marketing surface — plausibly intentional |
-| `lib/backup_health.dart` | 6 | Status colours — likely semantic |
-| `lib/visual_planning.dart` | 5 | Canvas/board colours — likely intentional |
-| `lib/impact_trace.dart` | 1 | Single accent |
-| **Total in `lib/`** | **89** | |
+## 3. State update mechanism
 
-`AppThemePreset` is referenced **only** in `lib/main.dart` and
-`test/settings_theme_test.dart` — it has not leaked into Studios. A future
-migration is therefore well contained.
+Unchanged in shape, as required: `_handleThemeChanged` → `setState` → rebuild →
+re-resolve. **No stream was introduced.** The engine is a plain object the
+`State` owns; a rebuild re-runs a pure resolution.
 
-## Finding 7 — Existing test contract to preserve
+```dart
+Future<void> _handleThemeChanged(String themeId, String accentId) async {
+  final next = current.copyWith(
+    themeId: themeId,
+    mode: engine.registry.naturalMode(themeId),
+    accentId: accentId,
+  );
+  setState(() => _selection = next);
+  await engine.select(selection: next, hostBrightness: _hostBrightness);
+}
+```
 
-`test/settings_theme_test.dart` encodes behaviour any future migration must keep:
+`engine.select` persists through `ThemePersistence`. Its returned `ResolvedTheme`
+is intentionally discarded: `build` re-resolves against the live host brightness,
+keeping exactly one resolution point.
 
-1. Exactly two presets, ids `['light', 'dark']`, with matching `Brightness`.
-2. **Legacy id migration** — `paper` → `light`, `slate` → `light`,
-   `obsidian` → `dark`, `midnight` → `dark`. (`normalizeId()` also maps
-   `forest`, `burgundy`, `plum`, `ocean` → `dark`.)
-3. Body text uses `fontFamily == 'Merriweather'`.
-4. Contrast assertions on `onSurfaceVariant` vs `onSurface` and `onSurface` vs
-   `surface`, for both themes.
+**Natural mode.** The settings UI offers theme *ids* ("Light"/"Dark"), not modes.
+Selecting a theme therefore also fixes an explicit mode, via
+`ThemeRegistry.naturalMode` — a dark-only theme is naturally a dark selection.
+That rule already existed inside `ThemePersistence._readMode` for reading
+pre-engine installs; Phase 2 promoted it to `ThemeRegistry.naturalMode` and made
+`ThemePersistence` call it, so the shell reuses the rule rather than restating
+it. Without this, picking "Dark" while the stored mode was `light` would render
+correctly only via the fallback path, and `fallbackApplied` would be permanently
+true — technically right, semantically misleading.
 
-Requirement 4's "legacy presets continue to resolve correctly" is already
-implemented and already tested — by `normalizeId()`, not by a `ThemePersistence`
-migration.
+---
 
-## Requirement-by-requirement feasibility
+## 4. Light / dark / system
 
-| Req | Subject | Status |
-|---|---|---|
-| 1 | Single theme source | **Blocked** — no `ThemeEngine`; one path already exists |
-| 2 | Application theme | **Blocked** — no `AuthorOsTheme`; system mode absent |
-| 3 | Remove duplicate theme logic | **Blocked** — nothing to migrate *to* |
-| 4 | Settings compatibility | **Already works** via `normalizeId()`; no `ThemePersistence` to migrate through |
-| 5 | Studio theme scope | **Blocked** — no `StudioThemeScope` |
-| 6 | Component tokens | **Blocked** — no token vocabulary exists |
-| 7 | Typography | **Blocked, and premise false** — Inter is not registered (Finding 4) |
-| 8 | Accessibility | **Blocked** — no transformations exist anywhere |
-| 9 | System mode | **Blocked** — shell has no `themeMode`/`darkTheme` |
-| 10 | Hot theme resolution | **Already satisfied** |
-| 11 | Tests | **Blocked** — 11 of 19 cases reference absent systems |
-| 12 | Regression protection | **Honoured** — nothing modified |
-| 13 | No new theme system | **Audited** — see Finding 6; one dead duplicate found |
-| 14 | Documentation | **This document** |
-| 15 | Verification | **Baseline captured** |
+| Selection | Host | Result | `fallbackApplied` |
+|---|---|---|---|
+| theme `light`, mode `light` | any | light | false |
+| theme `dark`, mode `dark` | any | dark | false |
+| theme `dark`, mode `system` | dark | dark | false |
+| theme `light`, mode `system` | light | light | false |
+| theme `light`, mode `system` | dark | **light** (fallback) | true |
+| theme `dark`, mode `light` | any | **dark** (fallback) | true |
 
-## Verification baseline (unchanged tree)
+The host brightness is read with `MediaQuery.maybePlatformBrightnessOf`, which
+establishes a dependency: when the OS switches appearance the shell rebuilds and
+re-resolves with no restart. This is covered by a test.
 
-| Check | Result |
+Both built-in themes define exactly one palette, so any `system` selection whose
+host brightness disagrees with the theme lands on the Phase 1 fallback rule.
+That is correct and intended: the fallback exists precisely so resolution never
+throws and never renders an undefined palette.
+
+**Type boundary.** `AuthorOsThemeMode` is the engine's vocabulary. Flutter's
+`ThemeMode` and `Brightness` are translated only in the Flutter adapter, via
+`AuthorOsTheme.themeMode` and `AuthorOsTheme.themeBrightness`. No Flutter type
+enters `lib/theme/*.dart`; the Phase 1 plain-Dart architecture test still
+enforces this.
+
+---
+
+## 5. Accessibility
+
+Accessibility reaches the engine from two sources and is applied only by
+`ThemeResolver`. No widget performs colour manipulation.
+
+1. **Persisted preferences** — `author_studio.theme.high_contrast` and
+   `author_studio.theme.reduce_intensity`, read by `ThemePersistence` into
+   `ThemeSelection.accessibility`.
+2. **Host request** — `MediaQuery.maybeHighContrastOf` is OR-ed into the
+   selection at resolve time only. It is honoured for the session but never
+   written back: an OS setting is not the user's saved preference.
+
+Verified end to end through the running application: high contrast raises the
+onSurface/surface contrast ratio, reduced intensity softens `primary`, and the
+`focusRing`, `selection`, and `highlight` tokens carry the transformation into
+`ThemeData.focusColor`, `textSelectionTheme.selectionColor`, and the input
+focused border (whose width comes from `metrics.focusRingWidth`).
+
+### Deferred
+
+There is **no user-facing accessibility settings UI**. The Appearance page
+offers theme choice only. Adding controls would mean designing new settings
+surface, which is outside this phase. The persistence keys, the engine
+transformations, and the shell wiring all exist and are tested — only the
+controls are missing. Beyond high contrast, no platform accessibility signal is
+consumed; `reduceIntensity` has no host equivalent and is preference-only.
+
+---
+
+## 6. Fonts
+
+`Inter` and `Merriweather` are both declared in `pubspec.yaml`. Phase 2 adds no
+font package and changes no asset.
+
+Verified against the `ThemeData` the running application uses:
+
+* **Inter** — `textTheme.titleMedium` (engine `ui` role), `labelLarge` and
+  `labelMedium` (engine `label` role), and `chipTheme.labelStyle`.
+* **Merriweather** — `textTheme.bodyMedium`, `bodySmall`, `headlineMedium`, and
+  `ThemeData.fontFamily`, so every role the engine does not explicitly override
+  (`bodyLarge`, `titleLarge`, `titleSmall`, `headlineSmall`, `labelSmall`) still
+  reads Merriweather.
+
+Merriweather remains the reading and writing face. Manuscript rendering is
+untouched.
+
+---
+
+## 7. StudioThemeScope
+
+Two levels, both installed by the shell:
+
+* **Root** — `StudioThemeScope(theme: resolved, studio: null)` wraps
+  `MaterialApp`, so every route, dialog, and overlay can reach the resolved
+  theme. `studio: null` means shell chrome.
+* **Per section** — `_SectionView` nests a scope carrying the section's
+  `StudioId`, resolved by the new top-level `sectionStudioId`:
+
+  | Section | StudioId |
+  |---|---|
+  | characters | `StudioId.character` |
+  | codex | `StudioId.storyCodex` |
+  | world | `StudioId.world` |
+  | timeline | `StudioId.timeline` |
+  | plot | `StudioId.plot` |
+  | manuscript, chapters | `StudioId.manuscript` |
+  | everything else | `null` (shell chrome) |
+
+The nested scope uses `StudioThemeScope.maybeOf`, not `of`: several existing
+tests drive `AuthorStudioShell` directly inside a bare `MaterialApp`, where no
+root scope exists. Those keep working unchanged, and no fake Studio was created
+to test this.
+
+**No Studio was redesigned.** Studios continue to use `Theme.of(context)`; the
+scope establishes the mechanism and is proven on a real surface (the Chapters
+section resolving `StudioId.manuscript` and reading tokens, spacing, and radii).
+Neither built-in theme currently defines `studioOverrides`, so Studio token
+lookup correctly falls through to the shell palette today.
+
+---
+
+## 8. Legacy settings compatibility
+
+All eight legacy ids continue to resolve, through `ThemeRegistry`'s alias table:
+
+| Legacy id | Resolves to |
 |---|---|
-| `flutter test` | **387 tests, all passed** |
-| `flutter analyze` | **53 issues: 0 errors**, 9 warnings, 44 infos |
-| `flutter build web --release` | **Succeeded** |
-| `flutter build linux --release` | **Not applicable** — Windows 11 host, no Linux toolchain |
+| `paper`, `slate` | `light` |
+| `obsidian`, `midnight`, `forest`, `burgundy`, `plum`, `ocean` | `dark` |
 
-No source file was modified, so these results are unchanged from the previous
-audit and no regression is possible.
+Migration behaviour, verified through the running application:
 
-## Deferred
+* **Lazy** — performed on read, not at startup.
+* **Non-destructive** — the original id is copied to
+  `author_studio.theme.legacy_id` before `author_studio.theme_id` is rewritten.
+* **Idempotent** — a second launch is a no-op.
+* **Read-only safe** — a rejected write still resolves the migrated theme.
+* **Same keys** — no new storage namespace; `author_studio.theme_id` and
+  `author_studio.accent_id` are the pre-engine keys.
 
-Deferred by the directive and confirmed absent: Theme Engine Phase 3, Studio
-redesign, Map Studio, Expansion Packs, Community features.
+Pre-engine installs have no `theme.mode` key. `ThemePersistence` reads an
+explicit mode from the stored theme's natural mode rather than defaulting to
+`system`, so an upgrading user's appearance does not silently change.
 
-**Additionally deferred, as a prerequisite rather than a successor:** Theme
-Engine Phase 1 — `ThemeRegistry`, `ThemeResolver`, `ThemePersistence`,
-`ThemeEngine`, `ResolvedTheme`, `StudioId`, `ThemeColorRef`, and the Flutter
-adapter. Phase 2 cannot precede Phase 1.
+`AppThemePreset.normalizeId` is **retained** (see below) and is now pinned
+against `ThemeRegistry.normalizeId` by a test over every legacy id, so the two
+normalizations cannot drift apart.
 
-## Recommended prerequisite work
+---
 
-Independent of the Theme Engine, and safe to do now:
+## 9. Remaining legacy code
 
-1. **Register Inter as a font family** in `pubspec.yaml` (~6 lines). Currently
-   bundled but unresolvable. Inert until referenced, so it breaks nothing.
-2. **Delete `lib/main.authorstudio.backup.dart`** — dead code carrying a second
-   `main()`, `MaterialApp`, and `ThemeData`.
+Nothing below is on the live theme path. Each is documented in place.
 
-Then Theme Engine Phase 1, with this document's Findings 2, 3, 6, and 7 as its
-input: Finding 2 is the path to replace, Finding 3 is the gap list, Finding 6 is
-the migration surface, Finding 7 is the behavioural contract to preserve.
+| Item | Location | Why it remains |
+|---|---|---|
+| `AppThemePreset` | `lib/main.dart` | `test/settings_theme_test.dart` asserts the legacy id and accent contract against it. Deleting it would mean deleting or weakening existing tests. Pinned to `ThemeRegistry` by a new equivalence test. |
+| `AppThemeSelection` | `lib/main.dart` | Same test file (`resolvedAccentColor`). Superseded by `ThemeSelection`. |
+| `AppThemeAccent` | `lib/main.dart` | Already unreferenced before Phase 2 — the shell dropped accent tinting earlier. Removing it is unrelated cleanup, so it is documented rather than deleted. |
+| `ThemeSelection.accentId` | `lib/theme/theme_persistence.dart` | Round-tripped for compatibility with the pre-engine key. Resolution does not consume it. |
+| `lib/main.authorstudio.backup.dart` | `lib/` | **Dead code.** Contains a second `main()`, a second `MaterialApp`, a second `ThemeData`, and hard-coded colours. Nothing imports it — verified across `lib/`, `test/`, `web/`, `tool/`, and `tools/` — and it is not reachable from the entrypoint, so it is not part of the runtime theme path. It is **not deleted**: removing a file of that size is outside this phase's scope and is a separate decision. It must not be revived. |
 
-## Known limitations
+**Removed from the runtime:** `_buildThemeData` (deleted), and the shell's direct
+`SharedPreferences` theme read/write (`_saveThemeSelection`,
+`_updateThemeSelection`, `_themePreferenceKey`, `_accentPreferenceKey`).
 
-1. Phase 1 does not exist; Phase 2 is unexecutable as written.
-2. Requirement 7's premise is factually incorrect — Inter is not registered.
-3. Requirements 8, 9, and 5 describe new features, not migrations.
-4. Linux build unverifiable on this Windows host.
-5. This document is an audit, not an implementation.
+### Duplicate-path search
+
+Every occurrence of `AppThemePreset`, `_buildThemeData`, `ThemeData(`,
+`ThemeMode`, `Color(0x`, and `fontFamily:` was reviewed and classified:
+
+* `lib/theme/**` — authoritative engine and its Flutter adapter.
+* `lib/main.dart` — the legacy compatibility types above, plus
+  `AuthorOsTheme.toThemeData` consumption. A test asserts `main.dart` contains
+  no `ThemeData(` constructor call, no `_buildThemeData`, and no
+  `ColorScheme.fromSeed`.
+* `lib/main.authorstudio.backup.dart` — dead, documented above.
+* Other `lib/` files — literal `Color(0x…)` values inside individual widgets
+  (semantic status colours, chart colours, Studio-specific decoration). These
+  are outside the migrated surface and are **not** migrated in this phase; see
+  Limitations.
+* `test/**` — fixtures constructing their own `ThemeData`/`ColorScheme`, which
+  is correct for tests that isolate a widget from the shell.
+
+Nothing was removed mechanically. Only `_buildThemeData` and the shell's
+duplicate persistence were obsolete.
+
+---
+
+## 10. Discrepancies discovered
+
+The pre-Phase-2 `_buildThemeData` output was reconstructed verbatim and compared
+field by field against the engine's `ThemeData`, for both themes.
+
+**Identical:** `scaffoldBackgroundColor` (`0xFFF2F7FC` / `0xFF080808`),
+`colorScheme.surface`, `onSurface`/`onSurfaceVariant` (`0xFF17283A` /
+`0xFFFFFFFF`), `outline` (`0xFF718399` / `0xFF8A8A8A`), `outlineVariant`
+(`0xFFD4E0EB` / `0xFF363636`), `primaryContainer`, `surfaceContainerHighest`,
+`secondary`, card colour, chip background and border (`0xFFE7F0F8` /
+`0xFF202020`), input fill, divider, app bar, all radii (card 20, chip 12,
+button 14, input 14), chip padding (12/8), button padding (18/12), and body text
+family, size, and colour.
+
+Three differences remain. **None is a Phase 2 bypass** — each traces to a
+deliberate Phase 1 decision, and none was introduced by this integration.
+
+### D1 — the brand accent is now painted literally *(needs a product decision)*
+
+| | Old | New |
+|---|---|---|
+| `colorScheme.primary` (light) | `0xFF32618D` | `0xFF4F8FCB` |
+| `colorScheme.primary` (dark) | `0xFFE2C46D` | `0xFFD4AF37` |
+| `colorScheme.onPrimary` (dark) | `0xFF3C2F00` | `0xFF141414` |
+
+The old shell passed the brand accent to `ColorScheme.fromSeed` as a *seed* and
+never applied it, so Material's tonal derivation shipped instead — the declared
+brand colour was never actually on screen. Phase 1 sets `primary` to the token
+value, which is what Phase 2's brief requires (`0xFF4F8FCB` must "continue
+through the Theme Engine") and what `settings_theme_test` has always asserted
+`AppThemePreset.accentColor` to be.
+
+**Classification: C — the old behaviour was accidental.** Phase 1's is correct.
+It is nevertheless *visible*: filled button backgrounds, focused input borders,
+and selected chips shift to the true brand colour. Flagged rather than
+silently accepted.
+
+### D2 — focus and selection tokens are now bound
+
+| | Old | New |
+|---|---|---|
+| `focusColor` | `0x1F000000` / `0x1FFFFFFF` (Material default) | `focusRing` token |
+| `textSelectionTheme.selectionColor` | unset | `selection` token |
+| focused input border width | `1.5` | `2.0` (`metrics.focusRingWidth`) |
+
+The old shell never bound these; Material's defaults applied and text selection
+had no themed colour. Phase 1 introduced the tokens, and Phase 2's accessibility
+requirement is that focus ring and selection flow through the engine.
+
+**Classification: C — new behaviour Phase 1 added deliberately.**
+
+### D3 — the typography scale is now explicit *(needs a product decision)*
+
+The old shell set a *family* but no *scale*, so Material 3's default sizes
+applied by accident. Phase 1 declares a scale (heading 22, ui 14, label 12,
+body 14) and maps it onto Material's role names:
+
+| Role | Old size | New size | Uses in `lib/` |
+|---|---|---|---|
+| `headlineMedium` | 28 | **22** | 4 |
+| `titleMedium` | 16 | **14** (and Inter) | 16 |
+| `labelLarge` | 14 | **12** (and Inter) | 14 |
+| `bodySmall` | 12 | **13** | 46 |
+| `labelMedium` | 12 | 12 (Inter) | 5 |
+| `bodyMedium` | 14 | 14 | 25 |
+| `displayLarge` / `displayMedium` | 57 / 45 | 44 / 35.2 | 0 |
+
+Roles the engine does not override (`bodyLarge`, `titleLarge`, `titleSmall`,
+`headlineSmall`, `labelSmall` — 66 uses) are unchanged.
+
+The **Inter** part of this is required by Phase 2 §8 and is not a discrepancy.
+The **size** changes are a Phase 1 design choice: headings and labels render
+somewhat smaller, body copy is unchanged, and `bodySmall` gains 1px.
+
+**Classification: C, escalating to D — a product decision.** Phase 2 must not
+redesign, and equally must not silently undo Phase 1, so Phase 1's scale is
+preserved as built. If the intent was byte-identical typography, the fix belongs
+in Phase 1's `_typography` (heading 28, ui 16, label 14, bodySmall 12), not in
+the shell.
+
+---
+
+## 11. Limitations and deferred work
+
+1. **No accessibility settings UI.** Engine, persistence, and shell wiring are
+   complete and tested; the controls are not built. §5.
+2. **No mode selector.** The Appearance page offers themes, not
+   light/dark/system. `system` mode is fully supported by the engine, is honoured
+   when persisted, and is tested — but no UI writes it today.
+3. **Neither built-in theme defines `studioOverrides`.** The Studio scoping
+   mechanism is integrated and proven; there is no per-Studio palette variation
+   to show yet. Creating one would be a redesign.
+4. **Hard-coded colours outside the migrated surface remain.** Individual
+   widgets across `lib/` still use literal `Color(0x…)` values for semantic
+   status, chart, and decoration colours. This phase migrated the application
+   shell and the theme boundary only; a component-wide migration is explicitly
+   not in scope.
+5. **`lib/main.authorstudio.backup.dart` is dead but retained.** §9.
+6. **`AuthorOsThemeMode.system` cannot render both brightnesses in one theme.**
+   Both built-in themes are single-brightness, so `system` always resolves via
+   the fallback rule unless the theme matches the host. A theme defining both
+   palettes would need to be authored — out of scope.
+7. **Verified on Linux with Flutter 3.47.1.** The web release build, the full
+   test suite, and the analyzer were run there. The Linux *desktop* build could
+   not run — the GTK 3 development headers are absent from the environment.
+   Windows, macOS, iOS, and Android were not built, and no platform support is
+   claimed for any of them.
+8. **The change is left uncommitted** in the working tree for the repository
+   owner to commit manually.
+
+---
+
+## 12. Verification
+
+| Check | Baseline (before Phase 2) | After Phase 2 |
+|---|---|---|
+| `flutter test` | 451 passed | **487 passed**, 0 failed |
+| `flutter analyze` | 56 issues, 0 errors | **56 issues, 0 errors** — output byte-identical |
+| `flutter build web --release` | — | **succeeded** |
+| `flutter build linux --release` | — | **unavailable** (see below) |
+
+`flutter build linux --release` cannot run in this environment: CMake fails at
+`pkg_check_modules(gtk+-3.0)` because the GTK 3 development headers are not
+installed. The CMake toolchain itself (cmake, ninja, clang, pkg-config) is
+present. This is an environment limitation, not a project defect — no project
+configuration was changed and no system package was installed to force it.
+
+The analyzer baseline was re-measured on this toolchain rather than assumed; the
+Phase 1 note of 53 issues reflects a different Flutter version. What matters is
+that Phase 2 introduces **no new issue of any severity**.
+
+Generated files rewritten by the Flutter tooling during verification
+(`analysis_options.yaml`, `linux/flutter/*`, `windows/flutter/*`, `pubspec.lock`)
+were restored and are **not** part of this change.
+
+### Tests added — `test/theme_shell_integration_test.dart` (36)
+
+| Phase 2 requirement | Coverage |
+|---|---|
+| 1. MaterialApp receives engine output | theme equals adapter output; every colour role traced to the resolved palette; guard that `main.dart` builds no `ThemeData` |
+| 2. Default theme resolves | first launch with no settings → registry default |
+| 3. Explicit light | light on a dark host, `themeMode` light |
+| 4. Explicit dark | dark on a light host, `themeMode` dark, background `0xFF080808` |
+| 5. System mode | dark host → dark, light host → light, and a live host switch re-resolves without restart |
+| 6. Fallback | light-only theme on a dark host, and dark-only theme asked for light |
+| 7. Legacy ids | all eight aliases launch with the right brightness, migrate the key, and back up the original; unknown id → default; `AppThemePreset` ≡ `ThemeRegistry` |
+| 8. Theme changes update the app | full app → Settings → Appearance → Dark rebuilds the theme and persists |
+| 9. Accessibility reaches the engine | persisted high contrast raises measured contrast; reduced intensity softens `primary`; focus ring / selection / highlight carried; host high-contrast honoured but not persisted |
+| 10. Inter for UI | `titleMedium`, `labelLarge`, `labelMedium`, chip label |
+| 11. Merriweather reading face | `bodyMedium`, `bodySmall`, `headlineMedium`, non-overridden roles |
+| 12. StudioThemeScope resolves | root shell scope carries the resolved theme; a real Studio surface resolves `StudioId.manuscript` and reads tokens, spacing, and radii; every section maps to the right identity |
+| No duplicate preference persistence | `main.dart` names no theme storage key and keeps no theme preference constants; every theme key is declared in exactly one file (`ThemePersistence`) across all of `lib/` |
+| Visual compatibility intact | the live `MaterialApp` theme still renders the pre-engine palette for both themes (`0xFFF2F7FC`, `0xFFFFFFFF`, `0xFF17283A`, `0xFF718399`, `0xFFD4E0EB`, `0xFFE7F0F8` / `0xFF080808`, `0xFF141414`, `0xFF8A8A8A`, `0xFF363636`, `0xFF202020`) and the same shapes: card 20, chip 12, input 14, button 14, chip padding 12/8, button padding 18/12, zero elevation |
+
+### Existing tests
+
+All 451 pre-existing tests pass unchanged. None was deleted, weakened, or
+rewritten — including `test/settings_theme_test.dart`, whose light/dark contrast
+assertions now run against engine-produced `ThemeData`. Dashboard, Studio,
+Progression, Analytics, Community, Universal Records, and manuscript behaviour
+are untouched.

@@ -17,6 +17,11 @@ import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
 import 'supabase_service.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/theme_definition.dart';
+import 'theme/theme_engine.dart';
+import 'theme/theme_persistence.dart';
+import 'theme/theme_tokens.dart';
 import 'timeline.dart';
 import 'visual_planning.dart';
 import 'welcome_page.dart';
@@ -28,6 +33,14 @@ Future<void> main() async {
   runApp(const AuthorStudioApp());
 }
 
+/// Legacy pre-engine theme description.
+///
+/// **Not part of the live theme path.** The runtime resolves themes through
+/// `lib/theme/` — see `docs/theme-engine-phase-2-implementation-map.md`. This
+/// type is retained only because `test/settings_theme_test.dart` asserts the
+/// legacy id contract against it; `test/theme_engine_test.dart` pins
+/// [ThemeRegistry] to the same contract, so the two cannot drift apart
+/// silently. Nothing in `lib/` reads it.
 class AppThemePreset {
   const AppThemePreset({
     required this.id,
@@ -86,6 +99,9 @@ class AppThemePreset {
   }
 }
 
+/// Legacy accent palette. Unreferenced by `lib/` and by the theme engine: the
+/// shell dropped per-accent tinting before Phase 1 and the engine never had it.
+/// Kept out of the live theme path; see the Phase 2 map.
 class AppThemeAccent {
   const AppThemeAccent({
     required this.id,
@@ -114,6 +130,8 @@ class AppThemeAccent {
           orElse: () => values.first);
 }
 
+/// Legacy pre-engine selection. Superseded by `ThemeSelection`, which the
+/// engine persists and resolves. Retained for `test/settings_theme_test.dart`.
 class AppThemeSelection {
   const AppThemeSelection({
     required this.themeId,
@@ -186,12 +204,27 @@ class AuthorStudioApp extends StatefulWidget {
 }
 
 class _AuthorStudioAppState extends State<AuthorStudioApp> {
-  bool _loadingTheme = true;
-  String _themeId = 'light';
-  String _accentId = 'default';
+  /// The one live theme engine. Nothing else in the shell resolves a theme.
+  ///
+  /// It starts over an empty in-memory store so the very first frame — drawn
+  /// before SharedPreferences has resolved — still comes from the engine rather
+  /// than from a hand-built [ThemeData]. As soon as preferences are available
+  /// the same engine type is rebuilt over [SharedPreferencesThemeStore] and the
+  /// persisted selection replaces the default.
+  ThemeEngine _engine = ThemeEngine.standard(store: MemoryThemeSettingsStore());
 
-  static const _themePreferenceKey = 'author_studio.theme_id';
-  static const _accentPreferenceKey = 'author_studio.accent_id';
+  /// The selection in force. `setState` on this is the whole update mechanism;
+  /// there is deliberately no stream.
+  ThemeSelection _selection = const ThemeSelection(
+    themeId: 'light',
+    mode: AuthorOsThemeMode.light,
+  );
+
+  bool _loadingTheme = true;
+
+  /// The host brightness seen by the last build, so an out-of-build selection
+  /// change can be persisted against the same host the user is looking at.
+  ThemeBrightness _hostBrightness = ThemeBrightness.light;
 
   @override
   void initState() {
@@ -200,174 +233,107 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
   }
 
   Future<void> _loadThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedThemeId = prefs.getString(_themePreferenceKey);
-    final normalizedThemeId = AppThemePreset.normalizeId(savedThemeId);
+    final store = await SharedPreferencesThemeStore.load();
+    final engine = ThemeEngine.standard(store: store);
+    // Loading migrates any legacy theme id in place before resolving.
+    final selection = await engine.load();
     if (!mounted) {
       return;
     }
     setState(() {
-      _themeId = normalizedThemeId;
-      _accentId = 'default';
+      _engine = engine;
+      _selection = selection;
       _loadingTheme = false;
     });
-    if (savedThemeId != null && savedThemeId != normalizedThemeId) {
-      await prefs.setString(_themePreferenceKey, normalizedThemeId);
-    }
-    if (prefs.getString(_accentPreferenceKey) != 'default') {
-      await prefs.setString(_accentPreferenceKey, 'default');
-    }
   }
 
-  Future<void> _saveThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themePreferenceKey, _themeId);
-    await prefs.setString(_accentPreferenceKey, _accentId);
-  }
-
-  void _updateThemeSelection(AppThemeSelection selection) {
-    setState(() {
-      _themeId = AppThemePreset.byId(selection.themeId).id;
-      _accentId = 'default';
-    });
-    _saveThemeSelection();
-  }
-
-  void _handleThemeChanged(String themeId, String accentId) {
-    _updateThemeSelection(
-      AppThemeSelection(themeId: themeId, accentId: accentId),
+  /// Applies a theme chosen in Settings.
+  ///
+  /// Selecting a theme also fixes an explicit mode, using the registry's single
+  /// definition of a theme's natural mode. This reproduces the pre-engine
+  /// behaviour — picking "Dark" renders dark — without the shell inventing a
+  /// rule of its own.
+  Future<void> _handleThemeChanged(String themeId, String accentId) async {
+    final engine = _engine;
+    final current = engine.selection ?? _selection;
+    final next = current.copyWith(
+      themeId: themeId,
+      mode: engine.registry.naturalMode(themeId),
+      accentId: accentId,
     );
+    if (mounted) {
+      setState(() => _selection = next);
+    }
+    // Persists, and normalizes the id through the registry. The resolved theme
+    // it returns is not used: build() re-resolves against the live host
+    // brightness so there is exactly one resolution point.
+    await engine.select(selection: next, hostBrightness: _hostBrightness);
+    if (!mounted) {
+      return;
+    }
+    final applied = engine.selection;
+    if (applied != null && applied != next) {
+      setState(() => _selection = applied);
+    }
   }
 
-  ThemeData _buildThemeData() {
-    final preset = AppThemePreset.byId(_themeId);
-    final isDark = preset.brightness == Brightness.dark;
-    final accent = AppThemeSelection(themeId: _themeId, accentId: _accentId)
-        .resolvedAccentColor;
-    final foregroundColor =
-        isDark ? const Color(0xFFFFFFFF) : const Color(0xFF17283A);
-    final outlineColor =
-        isDark ? const Color(0xFF8A8A8A) : const Color(0xFF718399);
-    final outlineVariantColor =
-        isDark ? const Color(0xFF363636) : const Color(0xFFD4E0EB);
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: preset.brightness,
-      surface: preset.surfaceColor,
-    ).copyWith(
-      onSurface: foregroundColor,
-      onSurfaceVariant: foregroundColor,
-      outline: outlineColor,
-      outlineVariant: outlineVariantColor,
-    );
-
-    final surfaceContainerColor =
-        isDark ? const Color(0xFF202020) : const Color(0xFFE7F0F8);
-    final textTheme = ThemeData(brightness: preset.brightness).textTheme.apply(
-          fontFamily: 'Merriweather',
-          bodyColor: foregroundColor,
-          displayColor: foregroundColor,
-        );
-
-    return ThemeData(
-      useMaterial3: true,
-      brightness: preset.brightness,
-      fontFamily: 'Merriweather',
-      colorScheme: colorScheme,
-      textTheme: textTheme,
-      scaffoldBackgroundColor: preset.backgroundColor,
-      appBarTheme: AppBarTheme(
-        centerTitle: false,
-        backgroundColor: Colors.transparent,
-        foregroundColor: foregroundColor,
-        elevation: 0,
-      ),
-      cardTheme: CardThemeData(
-        color: preset.surfaceColor,
-        surfaceTintColor: colorScheme.surfaceTint,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        elevation: 0,
-      ),
-      dividerTheme: DividerThemeData(
-        color: colorScheme.outlineVariant,
-        thickness: 1,
-      ),
-      chipTheme: ChipThemeData(
-        backgroundColor: surfaceContainerColor,
-        selectedColor: colorScheme.primaryContainer,
-        side: BorderSide(color: colorScheme.outlineVariant),
-        labelStyle: TextStyle(
-          color: colorScheme.onSurface,
-          fontWeight: FontWeight.w600,
-        ),
-        secondaryLabelStyle: TextStyle(
-          color: colorScheme.onPrimaryContainer,
-          fontWeight: FontWeight.w700,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: surfaceContainerColor,
-        labelStyle: TextStyle(color: foregroundColor),
-        hintStyle: TextStyle(color: foregroundColor),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
-        ),
-      ),
+  /// The selection actually resolved, with host accessibility folded in.
+  ///
+  /// The platform's high-contrast request is honoured for this session but is
+  /// never written back: it belongs to the OS, not to the user's saved
+  /// preferences. `reduceIntensity` has no host signal and comes from
+  /// persistence alone — see the Phase 2 map for the deferred settings UI.
+  ThemeSelection _effectiveSelection({required bool hostHighContrast}) {
+    if (!hostHighContrast || _selection.accessibility.highContrast) {
+      return _selection;
+    }
+    return _selection.copyWith(
+      accessibility: _selection.accessibility.copyWith(highContrast: true),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loadingTheme) {
-      return MaterialApp(
+    // Depending on the platform brightness here is what makes system mode
+    // live: the host changing theme rebuilds this widget, which re-resolves.
+    _hostBrightness = AuthorOsTheme.themeBrightness(
+      MediaQuery.maybePlatformBrightnessOf(context) ??
+          WidgetsBinding.instance.platformDispatcher.platformBrightness,
+    );
+    final hostHighContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
+    final selection = _effectiveSelection(hostHighContrast: hostHighContrast);
+
+    final resolved = _engine.resolveSelection(
+      selection: selection,
+      hostBrightness: _hostBrightness,
+    );
+    final themeData = AuthorOsTheme.toThemeData(resolved);
+    // The engine has already applied the mode and the fallback rule, so both
+    // slots carry the same resolved result: whichever branch MaterialApp takes
+    // for `themeMode`, it renders what the engine decided. Flutter's ThemeMode
+    // exists only here, at the boundary.
+    final themeMode = AuthorOsTheme.themeMode(selection.mode);
+
+    return StudioThemeScope(
+      theme: resolved,
+      child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Indie Author OS',
-        theme: _buildThemeData(),
-        home: const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
-
-    final themeData = _buildThemeData();
-
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Indie Author OS',
-      theme: themeData,
-      home: _OnboardingBootstrap(
-        store: widget.store,
-        manuscriptStore: widget.manuscriptStore,
-        themeId: _themeId,
-        accentId: _accentId,
-        onThemeChanged: _handleThemeChanged,
-        showWelcome: widget.showWelcome,
+        theme: themeData,
+        darkTheme: themeData,
+        themeMode: themeMode,
+        home: _loadingTheme
+            ? const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              )
+            : _OnboardingBootstrap(
+                store: widget.store,
+                manuscriptStore: widget.manuscriptStore,
+                themeId: selection.themeId,
+                accentId: selection.accentId,
+                onThemeChanged: _handleThemeChanged,
+                showWelcome: widget.showWelcome,
+              ),
       ),
     );
   }
@@ -1938,6 +1904,22 @@ class _MobileNavigation extends StatelessWidget {
   }
 }
 
+/// The Studio identity a section belongs to, or `null` for shell chrome
+/// (dashboard, search, settings, backup...), which uses the shell palette.
+///
+/// This is the only mapping from a navigation section to a theme [StudioId];
+/// `_SectionView` uses it to nest a [StudioThemeScope] around the Studio it
+/// is about to build.
+StudioId? sectionStudioId(StudioSection section) => switch (section) {
+      StudioSection.characters => StudioId.character,
+      StudioSection.codex => StudioId.storyCodex,
+      StudioSection.world => StudioId.world,
+      StudioSection.timeline => StudioId.timeline,
+      StudioSection.plot => StudioId.plot,
+      StudioSection.manuscript || StudioSection.chapters => StudioId.manuscript,
+      _ => null,
+    };
+
 class _SectionView extends StatelessWidget {
   const _SectionView({
     super.key,
@@ -1966,6 +1948,23 @@ class _SectionView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = _buildSection(context);
+    // Nest a scope carrying this section's Studio id, so anything below can
+    // resolve Studio-scoped tokens from the theme the shell already resolved.
+    // `maybeOf` rather than `of`: tests that drive AuthorStudioShell directly
+    // inside a bare MaterialApp have no shell scope, and must keep working.
+    final scope = StudioThemeScope.maybeOf(context);
+    if (scope == null) {
+      return content;
+    }
+    return StudioThemeScope(
+      theme: scope.theme,
+      studio: sectionStudioId(section),
+      child: content,
+    );
+  }
+
+  Widget _buildSection(BuildContext context) {
     if (section == StudioSection.manuscript) {
       final studio = Padding(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),

@@ -332,6 +332,7 @@ class BuiltInConnectionTypes {
       builtIn: true,
       sourcePackId: 'authoros-core',
     ),
+    ..._foundationRelationships,
     ..._worldRelationships,
     ..._timelineRelationships(const {
       'before': ('Before', 'After'),
@@ -390,11 +391,59 @@ class BuiltInConnectionTypes {
     ..._plotRelationships,
   ];
 
+  /// The architectural relationship primitives every Studio may rely on.
+  ///
+  /// Studio-specific relationship types stay in [definitions] alongside these;
+  /// this list only names the foundation vocabulary so a future Studio can
+  /// assert its presence without hard-coding the whole registry.
+  static const List<String> foundationTypeIds = [
+    'appearsIn',
+    'belongsTo',
+    'childOf',
+    'contains',
+    'follows',
+    'involves',
+    'locatedAt',
+    'memberOf',
+    'occursAt',
+    'parentOf',
+    'partOf',
+    'precedes',
+    'references',
+    'relatedTo',
+  ];
+
   static ConnectionTypeRegistry registry({
     Iterable<ConnectionTypeDefinition> additionalDefinitions = const [],
   }) =>
       ConnectionTypeRegistry([...definitions, ...additionalDefinitions]);
 }
+
+/// Relationship primitives that belong to no single Studio.
+///
+/// They carry no metadata fields on purpose: a foundation edge should stay
+/// cheap to create and strict about what it accepts, while richer Studio
+/// relationship types keep their own metadata schemas.
+final _foundationRelationships = <ConnectionTypeDefinition>[
+  _foundationRelationship('childOf', 'Child of', 'Parent of'),
+  _foundationRelationship('locatedAt', 'Located at', 'Location of'),
+  _foundationRelationship('references', 'References', 'Referenced by'),
+];
+
+ConnectionTypeDefinition _foundationRelationship(
+  String id,
+  String displayName,
+  String inverseLabel,
+) =>
+    ConnectionTypeDefinition(
+      id: id,
+      displayName: displayName,
+      sourceTypeIds: const ['*'],
+      targetTypeIds: const ['*'],
+      inverseLabel: inverseLabel,
+      builtIn: true,
+      sourcePackId: 'authoros-core',
+    );
 
 final _plotRelationships = <ConnectionTypeDefinition>[
   ..._plotLinkDefinitions(const {

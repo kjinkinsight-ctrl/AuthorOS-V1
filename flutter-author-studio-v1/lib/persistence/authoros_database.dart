@@ -6,6 +6,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import '../core/connected_domain.dart';
 import '../core/connection_types.dart';
 import '../core/record_types.dart';
+import '../core/relationship_validation.dart';
 import '../core/branch_domain.dart';
 import '../core/search_models.dart';
 import '../core/version_audit.dart';
@@ -948,6 +949,21 @@ class DriftConnectedDomainRepository {
     return rows.map(_linkFromRow).toList();
   }
 
+  Future<RecordLink?> linkById(String id) async {
+    final row = await (database.select(database.recordLinkRows)
+          ..where((table) => table.id.equals(id)))
+        .getSingleOrNull();
+    return row == null ? null : _linkFromRow(row);
+  }
+
+  Future<List<RecordLink>> linksByScope(String scopeId) async {
+    final rows = await (database.select(database.recordLinkRows)
+          ..where((table) => table.scopeId.equals(scopeId))
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    return rows.map(_linkFromRow).toList();
+  }
+
   Future<String?> entityScopeId(String entityId) async {
     final row = await (database.select(database.connectedEntities)
           ..where((table) => table.id.equals(entityId)))
@@ -972,6 +988,20 @@ class DriftConnectedDomainRepository {
           record.scopeId;
     }
     return (await manuscriptNodeById(entityId))?.projectId;
+  }
+
+  /// Resolves the endpoint facts a relationship validator needs for
+  /// [entityId], without deciding whether the entity may be linked.
+  Future<RelationshipEndpoint> relationshipEndpoint(String entityId) async {
+    final record = await recordById(entityId);
+    if (record != null) {
+      return RelationshipEndpoint.fromRecord(record);
+    }
+    final node = await manuscriptNodeById(entityId);
+    if (node != null) {
+      return RelationshipEndpoint.fromManuscriptNode(node);
+    }
+    return RelationshipEndpoint.missing(entityId);
   }
 
   Future<void> deleteLink(String linkId) async {

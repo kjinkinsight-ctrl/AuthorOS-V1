@@ -19,7 +19,7 @@ import 'release_destinations.dart';
 import 'supabase_service.dart';
 import 'timeline.dart';
 import 'visual_planning.dart';
-import 'world_studio.dart';
+import 'world_workspace.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -2000,7 +2000,21 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
-        StudioSection.world => WorldStudioWorkspace(projectId: project.id),
+        StudioSection.world => WorldWorkspace(
+            projectId: project.id,
+            onNavigate: (request) => onNavigate(
+              switch (request.destination) {
+                SearchDestination.characterStudio => StudioSection.characters,
+                SearchDestination.worldStudio => StudioSection.world,
+                SearchDestination.timelineStudio => StudioSection.timeline,
+                SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.manuscriptStudio => StudioSection.manuscript,
+                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.storyCodex => StudioSection.codex,
+                SearchDestination.record => StudioSection.world,
+              },
+            ),
+          ),
         StudioSection.plot => VisualPlanningView(project: project),
         StudioSection.timeline => _TimelineStudioView(project: project),
         StudioSection.notes => const _NotesStudioView(),

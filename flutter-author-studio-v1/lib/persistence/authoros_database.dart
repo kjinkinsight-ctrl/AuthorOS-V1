@@ -454,6 +454,32 @@ class DriftConnectedDomainRepository {
     });
   }
 
+  /// Removes a manuscript node from the connected store.
+  ///
+  /// Chapters and scenes are shared entities, so deleting one has to clear its
+  /// entity row and its entry in the shared search index too, or a deleted
+  /// scene would keep answering searches and connection lookups.
+  Future<void> removeManuscriptNodes(Iterable<String> nodeIds) async {
+    final ids = nodeIds.toSet().toList();
+    if (ids.isEmpty) return;
+    await database.transaction(() async {
+      for (final id in ids) {
+        await (database.delete(database.manuscriptNodeRows)
+              ..where((table) => table.id.equals(id)))
+            .go();
+        await (database.delete(database.connectedEntities)
+              ..where((table) => table.id.equals(id)))
+            .go();
+        if (database.schemaVersion >= 2) {
+          await database.customStatement(
+            'DELETE FROM author_search WHERE entity_id = ? AND entity_kind = ?',
+            [id, SearchEntityKind.manuscriptNode.name],
+          );
+        }
+      }
+    });
+  }
+
   Future<void> putRecordsAndLinks({
     required Iterable<AuthorRecord> records,
     required Iterable<RecordLink> links,

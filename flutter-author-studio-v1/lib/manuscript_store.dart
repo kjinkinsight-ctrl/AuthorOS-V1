@@ -424,6 +424,23 @@ class ManuscriptProjectSummary {
     return null;
   }
 
+  /// The chapter that owns [sceneId], or `null` when the scene is unknown.
+  ManuscriptChapter? chapterOfScene(String sceneId) {
+    for (final chapter in chapters) {
+      for (final scene in chapter.scenes) {
+        if (scene.id == sceneId) {
+          return chapter;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// A copy with chapter and scene orders renumbered from one, and every
+  /// scene re-parented to the chapter that holds it.
+  ManuscriptProjectSummary normalized() =>
+      copyWith(chapters: _normalizedChapters(chapters));
+
   String exportAsSingleText() {
     final buffer = StringBuffer();
     final sortedChapters = [...chapters]
@@ -663,37 +680,70 @@ class ManuscriptStore {
       );
     }
 
-    await _repository.putManuscriptNodes([
-      for (final chapter in manuscript.chapters)
-        ManuscriptNodeReference(
-          id: chapter.id,
-          projectId: manuscript.projectId,
-          nodeType: 'chapter',
-          title: chapter.title,
-          createdAt: chapter.createdAt,
-          updatedAt: chapter.updatedAt,
-          extensionData: {
-            'order': chapter.order,
-            'status': chapter.status.id,
-          },
-        ),
-      for (final chapter in manuscript.chapters)
-        for (final scene in chapter.scenes)
-          ManuscriptNodeReference(
-            id: scene.id,
-            projectId: manuscript.projectId,
-            nodeType: 'scene',
-            title: scene.title,
-            createdAt: scene.createdAt,
-            updatedAt: scene.updatedAt,
-            extensionData: {
-              'chapterId': chapter.id,
-              'order': scene.order,
-              'status': scene.status.id,
-            },
-          ),
-    ]);
+    await _repository.putManuscriptNodes(manuscriptNodesFor(manuscript));
   }
+
+  /// The shared-entity projection of [manuscript].
+  ///
+  /// Chapters and scenes are already entities in the connected store, so this
+  /// is how the manuscript participates in shared search, connections,
+  /// inspection and history without a second record model. Scene and chapter
+  /// body text is deliberately absent: prose stays in the manuscript store.
+  static List<ManuscriptNodeReference> manuscriptNodesFor(
+    ManuscriptProjectSummary manuscript,
+  ) =>
+      [
+        for (final chapter in manuscript.chapters)
+          manuscriptNodeForChapter(chapter, manuscript.projectId),
+        for (final chapter in manuscript.chapters)
+          for (final scene in chapter.scenes)
+            manuscriptNodeForScene(scene, manuscript.projectId),
+      ];
+
+  static ManuscriptNodeReference manuscriptNodeForChapter(
+    ManuscriptChapter chapter,
+    String projectId,
+  ) =>
+      ManuscriptNodeReference(
+        id: chapter.id,
+        projectId: projectId,
+        nodeType: 'chapter',
+        title: chapter.title,
+        createdAt: chapter.createdAt,
+        updatedAt: chapter.updatedAt,
+        extensionData: {
+          'order': chapter.order,
+          'status': chapter.status.id,
+          'pov': chapter.pov,
+          'summary': chapter.summary,
+          'sceneCount': chapter.scenes.length,
+          'wordCount': chapter.wordCount,
+          'linkedChapterIds': chapter.linkedChapterIds,
+        },
+      );
+
+  static ManuscriptNodeReference manuscriptNodeForScene(
+    ManuscriptScene scene,
+    String projectId,
+  ) =>
+      ManuscriptNodeReference(
+        id: scene.id,
+        projectId: projectId,
+        nodeType: 'scene',
+        title: scene.title,
+        createdAt: scene.createdAt,
+        updatedAt: scene.updatedAt,
+        extensionData: {
+          'chapterId': scene.chapterId,
+          'order': scene.order,
+          'status': scene.status.id,
+          'pov': scene.pov,
+          'location': scene.location,
+          'timeLabel': scene.timeLabel,
+          'notes': scene.notes,
+          'wordCount': scene.wordCount,
+        },
+      );
 
   Future<ManuscriptProjectSummary> _migrateLegacyToStudio(
     String projectId, {

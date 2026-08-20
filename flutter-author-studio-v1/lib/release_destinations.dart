@@ -11,6 +11,7 @@ import 'app_updater.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';
+import 'sync/project_sync_service.dart';
 
 export 'character_studio.dart';
 export 'story_codex.dart';
@@ -2857,6 +2858,13 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
     }
 
     setState(() {});
+
+    // Drain anything saved while signed out.
+    await const ProjectSyncService().flushQueue();
+    if (!mounted) {
+      return;
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
           content: Text(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'supabase_service.dart';
+import 'sync/project_sync_service.dart';
 
 class StarterChapter {
   const StarterChapter({
@@ -585,6 +586,10 @@ class OnboardingStore {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_projectKey, jsonEncode(project.toJson()));
     await preferences.setBool(_completeKey, true);
+
+    // Queued after the local write so a sync failure can never cost the
+    // user their save; the queue retries on the next flush.
+    await const ProjectSyncService().recordProjectSaved(project);
   }
 
   static Future<void> clearProjectState() async {

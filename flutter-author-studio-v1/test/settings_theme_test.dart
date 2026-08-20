@@ -47,7 +47,7 @@ void main() {
         'author_studio.theme_id': themeId,
       });
 
-      await tester.pumpWidget(const AuthorStudioApp());
+      await tester.pumpWidget(const AuthorStudioApp(showWelcome: false));
       await tester.pumpAndSettle();
 
       final app = tester.widget<MaterialApp>(find.byType(MaterialApp));

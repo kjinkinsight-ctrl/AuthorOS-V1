@@ -240,7 +240,10 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
+    await tester.pumpWidget(AuthorStudioApp(
+      manuscriptStore: manuscriptStore,
+      showWelcome: false,
+    ));
     await tester.pumpAndSettle();
 
     expect(find.text('Login / Profile Selection'), findsOneWidget);
@@ -260,7 +263,10 @@ void main() {
       'author_studio.onboarding_complete': true,
     });
 
-    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
+    await tester.pumpWidget(AuthorStudioApp(
+      manuscriptStore: manuscriptStore,
+      showWelcome: false,
+    ));
     await tester.pumpAndSettle();
 
     expect(find.text('Continue with selected profile'), findsOneWidget);
@@ -284,7 +290,10 @@ void main() {
 
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
+    await tester.pumpWidget(AuthorStudioApp(
+      manuscriptStore: manuscriptStore,
+      showWelcome: false,
+    ));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Create new profile'));
@@ -513,7 +522,10 @@ void main() {
 
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
+    await tester.pumpWidget(AuthorStudioApp(
+      manuscriptStore: manuscriptStore,
+      showWelcome: false,
+    ));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Create new profile'));
@@ -556,7 +568,10 @@ void main() {
 
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
+    await tester.pumpWidget(AuthorStudioApp(
+      manuscriptStore: manuscriptStore,
+      showWelcome: false,
+    ));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Create new profile'));

@@ -19,6 +19,7 @@ import 'release_destinations.dart';
 import 'supabase_service.dart';
 import 'timeline.dart';
 import 'visual_planning.dart';
+import 'welcome_page.dart';
 import 'world_workspace.dart';
 
 Future<void> main() async {
@@ -168,10 +169,17 @@ class AuthorStudioApp extends StatefulWidget {
     super.key,
     this.store = const OnboardingStore(),
     this.manuscriptStore = const ManuscriptStore(),
+    this.showWelcome = true,
   });
 
   final OnboardingStore store;
   final ManuscriptStore manuscriptStore;
+
+  /// Whether the Author OS welcome page is shown before the studio shell.
+  ///
+  /// Tests that drive the studio directly pass false so they land on the
+  /// shell without stepping through the launcher.
+  final bool showWelcome;
 
   @override
   State<AuthorStudioApp> createState() => _AuthorStudioAppState();
@@ -359,6 +367,7 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
         themeId: _themeId,
         accentId: _accentId,
         onThemeChanged: _handleThemeChanged,
+        showWelcome: widget.showWelcome,
       ),
     );
   }
@@ -371,6 +380,7 @@ class _OnboardingBootstrap extends StatefulWidget {
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
+    this.showWelcome = true,
   });
 
   final OnboardingStore store;
@@ -378,6 +388,7 @@ class _OnboardingBootstrap extends StatefulWidget {
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
+  final bool showWelcome;
 
   @override
   State<_OnboardingBootstrap> createState() => _OnboardingBootstrapState();
@@ -1048,11 +1059,53 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     });
   }
 
+  /// Set once the author leaves the welcome page, so returning to the shell
+  /// does not bounce them back to the launcher.
+  bool welcomeDismissed = false;
+
+  /// Section the welcome page asked for, opened on the first shell build.
+  StudioSection? welcomeTarget;
+
+  /// Maps a welcome page action onto the studio section that serves it.
+  ///
+  /// The launcher offers a few entry points the studio does not model as its
+  /// own section yet -- templates and recent projects both live in Projects,
+  /// and "continue writing" drops straight into the manuscript.
+  void _openFromWelcome(WelcomeAction action) {
+    setState(() {
+      welcomeDismissed = true;
+      welcomeTarget = switch (action) {
+        WelcomeAction.openProject ||
+        WelcomeAction.newProject ||
+        WelcomeAction.recentProjects ||
+        WelcomeAction.templates =>
+          StudioSection.projects,
+        WelcomeAction.worlds || WelcomeAction.buildWorld => StudioSection.world,
+        WelcomeAction.settings => StudioSection.settings,
+        WelcomeAction.createCharacter => StudioSection.characters,
+        WelcomeAction.openTimeline => StudioSection.timeline,
+        WelcomeAction.newManuscript ||
+        WelcomeAction.continueWriting =>
+          StudioSection.manuscript,
+      };
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // The welcome page is the title screen: it greets the author before
+    // profile selection, then falls through to whichever step is still
+    // outstanding -- profile setup, the first project, or the studio itself.
+    if (widget.showWelcome && !welcomeDismissed) {
+      return WelcomePage(
+        onAction: _openFromWelcome,
+        authorName: existingProfileName,
       );
     }
 
@@ -1080,6 +1133,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       accentId: widget.accentId,
       onThemeChanged: widget.onThemeChanged,
       onLogout: _logoutToProfileSelection,
+      initialSection: welcomeTarget,
     );
   }
 }
@@ -1153,11 +1207,15 @@ class AuthorStudioShell extends StatefulWidget {
     required this.onThemeChanged,
     this.manuscriptStore = const ManuscriptStore(),
     this.onLogout = _defaultLogout,
+    this.initialSection,
   });
 
   final StarterProject project;
   final bool openFirstDraft;
   final bool startSprint;
+
+  /// Section to open on first build; defaults to the manuscript.
+  final StudioSection? initialSection;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -1201,7 +1259,9 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   @override
   void initState() {
     super.initState();
-    selectedIndex = sections.indexOf(StudioSection.manuscript);
+    final requested = widget.initialSection ?? StudioSection.manuscript;
+    final index = sections.indexOf(requested);
+    selectedIndex = index >= 0 ? index : sections.indexOf(StudioSection.manuscript);
   }
 
   void _selectSection(StudioSection section) {

@@ -11,6 +11,7 @@ import 'continuity.dart';
 import 'continuity_actions.dart';
 import 'core/search_models.dart' show SearchDestination;
 import 'impact_trace.dart';
+import 'liquid_aurora_background.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
@@ -443,23 +444,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          Positioned.fill(
-            child: Image.asset(
-              'assets/author-studio-logo.png',
-              fit: BoxFit.cover,
-              color: Colors.black.withValues(alpha: 0.24),
-              colorBlendMode: BlendMode.darken,
-            ),
-          ),
+          const Positioned.fill(child: LiquidAuroraBackground()),
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.72),
-                    Colors.black.withValues(alpha: 0.34),
+                    Colors.black.withValues(alpha: 0.42),
+                    Colors.black.withValues(alpha: 0.12),
+                    Colors.black.withValues(alpha: 0.48),
                   ],
                 ),
               ),

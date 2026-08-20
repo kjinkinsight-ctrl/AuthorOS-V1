@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:author_studio_v1/app_updater.dart';
 import 'package:author_studio_v1/continuity.dart';
+import 'package:author_studio_v1/liquid_aurora_background.dart';
 import 'package:author_studio_v1/main.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
@@ -33,13 +34,19 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // The profile screen's aurora loops forever, which would stall
+    // `pumpAndSettle`; pin it to a static frame for the widget tests.
+    debugDisableAuroraAnimation = true;
     manuscriptDatabase = AuthorOsDatabase(NativeDatabase.memory());
     manuscriptStore = ManuscriptStore(
       repository: DriftConnectedDomainRepository(manuscriptDatabase),
     );
   });
 
-  tearDown(() => manuscriptDatabase.close());
+  tearDown(() {
+    manuscriptDatabase.close();
+    debugDisableAuroraAnimation = false;
+  });
 
   test('version checker flags a newer remote app version', () async {
     final checker = AppVersionChecker(

@@ -1,3 +1,4 @@
+import 'package:author_studio_v1/liquid_aurora_background.dart';
 import 'package:author_studio_v1/main.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
@@ -9,6 +10,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  // The profile screen's aurora loops forever, which would stall
+  // `pumpAndSettle`; pin it to a static frame for the widget tests.
+  setUp(() => debugDisableAuroraAnimation = true);
+  tearDown(() => debugDisableAuroraAnimation = false);
+
   double contrastRatio(Color first, Color second) {
     final lighter = first.computeLuminance() > second.computeLuminance()
         ? first.computeLuminance()

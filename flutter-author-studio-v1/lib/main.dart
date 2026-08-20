@@ -8,13 +8,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
 import 'continuity.dart';
+import 'continuity_actions.dart';
+import 'core/search_models.dart' show SearchDestination;
 import 'impact_trace.dart';
 import 'manuscript_studio.dart';
+import 'manuscript_store.dart';
 import 'onboarding.dart';
+import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
 import 'supabase_service.dart';
 import 'timeline.dart';
 import 'visual_planning.dart';
+import 'world_studio.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -159,9 +164,14 @@ class AuthorProfileSummary {
 }
 
 class AuthorStudioApp extends StatefulWidget {
-  const AuthorStudioApp({super.key, this.store = const OnboardingStore()});
+  const AuthorStudioApp({
+    super.key,
+    this.store = const OnboardingStore(),
+    this.manuscriptStore = const ManuscriptStore(),
+  });
 
   final OnboardingStore store;
+  final ManuscriptStore manuscriptStore;
 
   @override
   State<AuthorStudioApp> createState() => _AuthorStudioAppState();
@@ -345,6 +355,7 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
       theme: themeData,
       home: _OnboardingBootstrap(
         store: widget.store,
+        manuscriptStore: widget.manuscriptStore,
         themeId: _themeId,
         accentId: _accentId,
         onThemeChanged: _handleThemeChanged,
@@ -356,12 +367,14 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
 class _OnboardingBootstrap extends StatefulWidget {
   const _OnboardingBootstrap({
     required this.store,
+    required this.manuscriptStore,
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
   });
 
   final OnboardingStore store;
+  final ManuscriptStore manuscriptStore;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -1060,6 +1073,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
 
     return AuthorStudioShell(
       project: currentProject,
+      manuscriptStore: widget.manuscriptStore,
       openFirstDraft: openFirstDraft,
       startSprint: startSprint,
       themeId: widget.themeId,
@@ -1080,6 +1094,7 @@ enum StudioSection {
   manuscript,
   chapters,
   characters,
+  codex,
   world,
   plot,
   timeline,
@@ -1098,6 +1113,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.manuscript => 'Manuscript',
         StudioSection.chapters => 'Chapters',
         StudioSection.characters => 'Characters',
+        StudioSection.codex => 'Story Codex',
         StudioSection.world => 'World',
         StudioSection.plot => 'Plot',
         StudioSection.timeline => 'Timeline',
@@ -1115,6 +1131,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.manuscript => Icons.menu_book_outlined,
         StudioSection.chapters => Icons.chrome_reader_mode_outlined,
         StudioSection.characters => Icons.groups_outlined,
+        StudioSection.codex => Icons.auto_stories_outlined,
         StudioSection.world => Icons.public_outlined,
         StudioSection.plot => Icons.route_outlined,
         StudioSection.timeline => Icons.timeline_outlined,
@@ -1134,6 +1151,7 @@ class AuthorStudioShell extends StatefulWidget {
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
+    this.manuscriptStore = const ManuscriptStore(),
     this.onLogout = _defaultLogout,
   });
 
@@ -1143,6 +1161,7 @@ class AuthorStudioShell extends StatefulWidget {
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
+  final ManuscriptStore manuscriptStore;
   final Future<void> Function() onLogout;
 
   @override
@@ -1166,6 +1185,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   static const storySections = <StudioSection>[
     StudioSection.chapters,
     StudioSection.characters,
+    StudioSection.codex,
     StudioSection.world,
     StudioSection.plot,
     StudioSection.timeline,
@@ -1214,6 +1234,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
             themeId: widget.themeId,
             accentId: widget.accentId,
             onThemeChanged: widget.onThemeChanged,
+            manuscriptStore: widget.manuscriptStore,
             onLogout: widget.onLogout,
             minimalFocusMode:
                 focusModeEnabled && currentSection == StudioSection.manuscript,
@@ -1606,6 +1627,7 @@ class _DesktopNavigation extends StatelessWidget {
   static const storySections = <StudioSection>[
     StudioSection.chapters,
     StudioSection.characters,
+    StudioSection.codex,
     StudioSection.world,
     StudioSection.plot,
     StudioSection.timeline,
@@ -1865,6 +1887,7 @@ class _SectionView extends StatelessWidget {
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
+    required this.manuscriptStore,
     this.onLogout,
     this.minimalFocusMode = false,
   });
@@ -1876,6 +1899,7 @@ class _SectionView extends StatelessWidget {
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
+  final ManuscriptStore manuscriptStore;
   final Future<void> Function()? onLogout;
   final bool minimalFocusMode;
 
@@ -1890,6 +1914,7 @@ class _SectionView extends StatelessWidget {
               project: project,
               startSprint: startSprint,
               minimalMode: minimalFocusMode,
+              store: manuscriptStore,
             );
             final research = _ResearchSidePanel(projectId: project.id);
             if (constraints.maxWidth < 720) {
@@ -1945,8 +1970,37 @@ class _SectionView extends StatelessWidget {
           ),
         StudioSection.manuscript => const SizedBox.shrink(),
         StudioSection.chapters => ChapterStudioView(project: project),
-        StudioSection.characters => CharacterBoardView(project: project),
-        StudioSection.world => StoryCodexView(projectId: project.id),
+        StudioSection.characters => CharacterBoardView(
+            project: project,
+            onNavigate: (destination) => onNavigate(
+              switch (destination) {
+                CharacterWorkspaceDestination.manuscript =>
+                  StudioSection.manuscript,
+                CharacterWorkspaceDestination.timeline =>
+                  StudioSection.timeline,
+                CharacterWorkspaceDestination.codex => StudioSection.world,
+                CharacterWorkspaceDestination.world => StudioSection.world,
+                CharacterWorkspaceDestination.plot => StudioSection.plot,
+              },
+            ),
+          ),
+        StudioSection.codex => StoryCodexWorkspace(
+            projectId: project.id,
+            onNavigate: (request) => onNavigate(
+              switch (request.destination) {
+                SearchDestination.characterStudio => StudioSection.characters,
+                SearchDestination.worldStudio => StudioSection.world,
+                SearchDestination.timelineStudio => StudioSection.timeline,
+                SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.manuscriptStudio => StudioSection.manuscript,
+                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.storyCodex ||
+                SearchDestination.record =>
+                  StudioSection.codex,
+              },
+            ),
+          ),
+        StudioSection.world => WorldStudioWorkspace(projectId: project.id),
         StudioSection.plot => VisualPlanningView(project: project),
         StudioSection.timeline => _TimelineStudioView(project: project),
         StudioSection.notes => const _NotesStudioView(),
@@ -2296,6 +2350,8 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
   final List<TimelineEra> eras = [];
   final List<TimelineSequence> sequences = [];
   final TextEditingController searchController = TextEditingController();
+  final Set<String> createdContinuityCharacters = {};
+  final Set<String> createdContinuityLocations = {};
 
   bool isLoading = true;
   String statusFilter = 'All';
@@ -2330,6 +2386,136 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
         widget.project.id,
         TimelineState(eras: eras, sequences: sequences, events: events),
       );
+
+  Future<void> _applyContinuityRecommendation(
+    ContinuityIntegrityIssue issue,
+  ) async {
+    TimelineEvent? affectedEvent;
+    for (final eventId in issue.eventIds.reversed) {
+      final matchingEvents = events.where((event) => event.id == eventId);
+      if (matchingEvents.isNotEmpty) {
+        affectedEvent = matchingEvents.first;
+        break;
+      }
+    }
+    if (affectedEvent == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('The affected timeline event was not found.')),
+        );
+      }
+      return;
+    }
+
+    setState(() => selectedEventId = affectedEvent!.id);
+    if (issue.actionKind == ContinuityActionKind.create) {
+      final suggestedName = switch (issue.type) {
+        ContinuityWarningType.unknownLocation => affectedEvent.location,
+        ContinuityWarningType.unknownCharacter => affectedEvent
+                .presentCharacters
+                .where((name) => !_knownCharacterNames.contains(name))
+                .firstOrNull ??
+            '',
+        _ => '',
+      };
+      final name = await _confirmContinuityCreation(issue, suggestedName);
+      if (name == null || !mounted) {
+        return;
+      }
+      final result = await ContinuityActionService(
+        projectId: widget.project.id,
+        repository: authorOsRepository,
+      ).createForRecommendation(
+        issue,
+        name: name,
+        confirmed: true,
+        recheck: () => !_warningResolvesWithName(issue, name),
+      );
+      if (!mounted) {
+        return;
+      }
+      if (result.mutationApplied) {
+        setState(() {
+          if (issue.type == ContinuityWarningType.unknownCharacter) {
+            createdContinuityCharacters.add(name);
+          } else if (issue.type == ContinuityWarningType.unknownLocation) {
+            createdContinuityLocations.add(name);
+          }
+        });
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message)),
+      );
+      return;
+    }
+    await openEventEditor(existing: affectedEvent);
+  }
+
+  Future<String?> _confirmContinuityCreation(
+    ContinuityIntegrityIssue issue,
+    String suggestedName,
+  ) async {
+    final controller = TextEditingController(text: suggestedName);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(issue.type == ContinuityWarningType.unknownCharacter
+            ? 'Create character'
+            : 'Create location'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(issue.message),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('continuity-create-name'),
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: issue.type == ContinuityWarningType.unknownCharacter
+                    ? 'Character name'
+                    : 'Location name',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('confirm-continuity-create'),
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) {
+                Navigator.of(context).pop(name);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  bool _warningResolvesWithName(
+    ContinuityIntegrityIssue issue,
+    String createdName,
+  ) {
+    final warnings = const ContinuityAnalyzer().analyze(
+      continuityEvents,
+      knownCharacters: {..._knownCharacterNames, createdName},
+      knownLocations: {..._knownLocationNames, createdName},
+    );
+    return !warnings.any((warning) =>
+        warning.type == issue.type &&
+        warning.eventIds.any(issue.eventIds.contains));
+  }
 
   @override
   void dispose() {
@@ -2431,24 +2617,24 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
             travelDaysFromPrevious: event.travelDaysFromPrevious,
           ))
       .toList();
+  Set<String> get _knownCharacterNames => {
+        ...widget.project.characterSheets.map((character) => character.name),
+        ...StoryCodexReferenceIndex.characterNames(
+          StoryCodexStore.defaultEntries,
+        ),
+        ...createdContinuityCharacters,
+      };
+  Set<String> get _knownLocationNames => {
+        ...StoryCodexReferenceIndex.locationNames(
+          StoryCodexStore.defaultEntries,
+        ),
+        ...createdContinuityLocations,
+      };
   List<ContinuityWarning> get continuityWarnings {
-    final projectCharacters = widget.project.characterSheets
-        .map((character) => character.name)
-        .toList();
-    final codexCharacters = StoryCodexReferenceIndex.characterNames(
-      StoryCodexStore.defaultEntries,
-    );
-    final codexLocations = StoryCodexReferenceIndex.locationNames(
-      StoryCodexStore.defaultEntries,
-    );
-
     return const ContinuityAnalyzer().analyze(
       continuityEvents,
-      knownCharacters: {
-        ...projectCharacters,
-        ...codexCharacters,
-      },
-      knownLocations: codexLocations,
+      knownCharacters: _knownCharacterNames,
+      knownLocations: _knownLocationNames,
     );
   }
 
@@ -3253,6 +3439,7 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
           selectedEventId: selectedEventId,
           onEventSelected: (eventId) =>
               setState(() => selectedEventId = eventId),
+          onRecommendationSelected: _applyContinuityRecommendation,
         ),
         const SizedBox(height: 16),
         Container(

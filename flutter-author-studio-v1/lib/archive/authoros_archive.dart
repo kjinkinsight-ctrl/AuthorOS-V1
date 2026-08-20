@@ -5,6 +5,10 @@ import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 
 import '../core/connected_domain.dart';
+import '../core/connection_types.dart';
+import '../core/record_types.dart';
+import '../core/branch_domain.dart';
+import '../core/version_audit.dart';
 
 class AuthorOsArchiveLimits {
   const AuthorOsArchiveLimits({
@@ -44,6 +48,34 @@ class AuthorOsArchiveService {
       'data/links.jsonl': _jsonLines(
         snapshot.links.map((link) => link.toJson()),
       ),
+      'data/record-types.jsonl': _jsonLines(
+        snapshot.recordTypeDefinitions.map((definition) => definition.toJson()),
+      ),
+      'data/connection-types.jsonl': _jsonLines(
+        snapshot.connectionTypeDefinitions
+            .map((definition) => definition.toJson()),
+      ),
+      'data/branches.jsonl': _jsonLines(
+        snapshot.branches.map((branch) => branch.toJson()),
+      ),
+      'data/branch-record-overlays.jsonl': _jsonLines(
+        snapshot.branchRecordOverlays.map((overlay) => {
+              'id': '${overlay.branchId}|${overlay.recordId}',
+              ...overlay.toJson(),
+            }),
+      ),
+      'data/branch-link-overlays.jsonl': _jsonLines(
+        snapshot.branchLinkOverlays.map((overlay) => {
+              'id': '${overlay.branchId}|${overlay.linkId}',
+              ...overlay.toJson(),
+            }),
+      ),
+      'data/versions.jsonl': _jsonLines(
+        snapshot.versions.map((version) => version.toJson()),
+      ),
+      'data/audit-events.jsonl': _jsonLines(
+        snapshot.auditEvents.map((event) => event.toJson()),
+      ),
     };
     final contentFingerprint = _contentFingerprint(entries);
     final entryMetadata = [
@@ -78,7 +110,13 @@ class AuthorOsArchiveService {
       },
       'contentScope': 'project',
       'rootIds': [rootId],
-      'schemaVersions': const {'connectedDomain': 1},
+      'schemaVersions': const {
+        'connectedDomain': 2,
+        'recordTypeDefinition': 1,
+        'connectionTypeDefinition': 1,
+        'scopeCanonBranch': 1,
+        'versionAudit': 1,
+      },
       'entries': entryMetadata,
       'contentFingerprint': contentFingerprint,
     };
@@ -190,6 +228,43 @@ class AuthorOsArchiveService {
       links: _decodeJsonLines(files['data/links.jsonl'])
           .map(RecordLink.fromJson)
           .toList(),
+      recordTypeDefinitions: files.containsKey('data/record-types.jsonl')
+          ? _decodeJsonLines(files['data/record-types.jsonl'])
+              .map(RecordTypeDefinition.fromJson)
+              .toList()
+          : const [],
+      connectionTypeDefinitions:
+          files.containsKey('data/connection-types.jsonl')
+              ? _decodeJsonLines(files['data/connection-types.jsonl'])
+                  .map(ConnectionTypeDefinition.fromJson)
+                  .toList()
+              : const [],
+      branches: files.containsKey('data/branches.jsonl')
+          ? _decodeJsonLines(files['data/branches.jsonl'])
+              .map(StoryBranch.fromJson)
+              .toList()
+          : const [],
+      branchRecordOverlays:
+          files.containsKey('data/branch-record-overlays.jsonl')
+              ? _decodeJsonLines(files['data/branch-record-overlays.jsonl'])
+                  .map(BranchRecordOverlay.fromJson)
+                  .toList()
+              : const [],
+      branchLinkOverlays: files.containsKey('data/branch-link-overlays.jsonl')
+          ? _decodeJsonLines(files['data/branch-link-overlays.jsonl'])
+              .map(BranchLinkOverlay.fromJson)
+              .toList()
+          : const [],
+      versions: files.containsKey('data/versions.jsonl')
+          ? _decodeJsonLines(files['data/versions.jsonl'])
+              .map(RecordVersion.fromJson)
+              .toList()
+          : const [],
+      auditEvents: files.containsKey('data/audit-events.jsonl')
+          ? _decodeJsonLines(files['data/audit-events.jsonl'])
+              .map(AuditEvent.fromJson)
+              .toList()
+          : const [],
     );
     InMemoryConnectedDomainRepository(initial: snapshot);
     return snapshot;
@@ -270,6 +345,13 @@ String _roleFor(String path) => switch (path) {
       'data/records.jsonl' => 'records',
       'data/manuscript-nodes.jsonl' => 'manuscript-nodes',
       'data/links.jsonl' => 'links',
+      'data/record-types.jsonl' => 'record-type-definitions',
+      'data/connection-types.jsonl' => 'connection-type-definitions',
+      'data/branches.jsonl' => 'branches',
+      'data/branch-record-overlays.jsonl' => 'branch-record-overlays',
+      'data/branch-link-overlays.jsonl' => 'branch-link-overlays',
+      'data/versions.jsonl' => 'record-versions',
+      'data/audit-events.jsonl' => 'audit-events',
       _ => throw ArgumentError.value(path, 'path', 'Unknown archive role'),
     };
 

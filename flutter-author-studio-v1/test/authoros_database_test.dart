@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:author_studio_v1/core/connected_domain.dart';
+import 'package:author_studio_v1/core/connection_types.dart';
+import 'package:author_studio_v1/core/record_types.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -41,6 +43,8 @@ void main() {
     final restored = await versionTwoRepository.snapshot();
 
     expect(restored.records.single.id, 'character-ari');
+    expect(restored.records.single.templateId, 'protagonist');
+    expect(restored.records.single.templateVersion, 1);
     expect(
       restored.records.single.extensionData['futureField'],
       {'retained': true},
@@ -75,6 +79,85 @@ void main() {
       'link-ari-opening',
     );
     await database.close();
+  });
+
+  test('custom record type definition survives close and reopen', () async {
+    final database = AuthorOsDatabase(NativeDatabase(databaseFile));
+    final repository = DriftConnectedDomainRepository(database);
+    const definition = RecordTypeDefinition(
+      id: 'case',
+      name: 'Case',
+      categoryId: 'plot',
+      scopeType: RecordScopeType.project,
+      scopeId: 'project-1',
+      fields: [
+        RecordFieldDefinition(
+          id: 'caseNumber',
+          label: 'Case number',
+          type: RecordFieldType.shortText,
+          order: 0,
+          required: true,
+        ),
+      ],
+      sections: [
+        RecordTemplateSection(
+          id: 'identity',
+          title: 'Identity',
+          order: 0,
+          fieldIds: ['caseNumber'],
+        ),
+      ],
+      extensionData: {'futureSetting': true},
+    );
+
+    await repository.putRecordTypeDefinition(definition);
+    await database.close();
+
+    final reopened = AuthorOsDatabase(NativeDatabase(databaseFile));
+    final reopenedRepository = DriftConnectedDomainRepository(reopened);
+    final restored = await reopenedRepository.recordTypeDefinitionById('case');
+
+    expect(restored?.scopeType, RecordScopeType.project);
+    expect(restored?.scopeId, 'project-1');
+    expect(restored?.fields.single.id, 'caseNumber');
+    expect(restored?.extensionData['futureSetting'], isTrue);
+    expect(
+      await reopenedRepository.recordTypeDefinitionsByScope(
+        scopeType: RecordScopeType.project,
+        scopeId: 'project-1',
+      ),
+      hasLength(1),
+    );
+    await reopened.close();
+  });
+
+  test('custom connection type definition survives close and reopen', () async {
+    final database = AuthorOsDatabase(NativeDatabase(databaseFile));
+    final repository = DriftConnectedDomainRepository(database);
+    const definition = ConnectionTypeDefinition(
+      id: 'swornTo',
+      displayName: 'Sworn to',
+      sourceTypeIds: ['character'],
+      targetTypeIds: ['character', 'faction'],
+      inverseLabel: 'Holds oath from',
+      temporalSupport: true,
+      scopeId: 'project-1',
+      sourcePackId: 'user',
+      extensionData: {'futureRule': true},
+    );
+
+    await repository.putConnectionTypeDefinition(definition);
+    await database.close();
+
+    final reopened = AuthorOsDatabase(NativeDatabase(databaseFile));
+    final reopenedRepository = DriftConnectedDomainRepository(reopened);
+    final restored =
+        await reopenedRepository.connectionTypeDefinitionsByScope('project-1');
+
+    expect(restored.single.id, 'swornTo');
+    expect(restored.single.temporalSupport, isTrue);
+    expect(restored.single.extensionData['futureRule'], isTrue);
+    await reopened.close();
   });
 
   test('foreign keys reject dangling links', () async {
@@ -219,6 +302,8 @@ ConnectedDomainSnapshot _connectedSlice() {
         scopeType: RecordScopeType.project,
         scopeId: 'project-1',
         title: 'Ari Vale',
+        templateId: 'protagonist',
+        templateVersion: 1,
         fields: const {
           'summary': 'A harbor cartographer.',
         },

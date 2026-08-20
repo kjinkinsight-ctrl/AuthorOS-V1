@@ -1,4 +1,11 @@
-enum RecordScopeType { library, universe, series, project, manuscript }
+import 'record_scope.dart';
+import 'record_types.dart';
+import 'connection_types.dart';
+import 'branch_domain.dart';
+import 'branch_engine.dart';
+import 'version_audit.dart';
+
+export 'record_scope.dart';
 
 enum AuthorRecordStatus { active, archived, deleted }
 
@@ -22,8 +29,15 @@ class AuthorRecord {
     required this.title,
     required this.createdAt,
     required this.updatedAt,
+    this.projectId,
+    this.seriesId,
+    this.bookId,
+    this.branchId,
+    this.canonStatus = CanonStatus.draft,
     this.status = AuthorRecordStatus.active,
     this.schemaVersion = 1,
+    this.templateId,
+    this.templateVersion,
     this.revision = 1,
     this.fields = const {},
     this.tags = const [],
@@ -34,9 +48,16 @@ class AuthorRecord {
   final String typeId;
   final RecordScopeType scopeType;
   final String scopeId;
+  final String? projectId;
+  final String? seriesId;
+  final String? bookId;
+  final String? branchId;
+  final CanonStatus canonStatus;
   final String title;
   final AuthorRecordStatus status;
   final int schemaVersion;
+  final String? templateId;
+  final int? templateVersion;
   final int revision;
   final Map<String, Object?> fields;
   final List<String> tags;
@@ -46,6 +67,8 @@ class AuthorRecord {
 
   AuthorRecord copyWith({
     String? title,
+    String? branchId,
+    CanonStatus? canonStatus,
     AuthorRecordStatus? status,
     int? revision,
     Map<String, Object?>? fields,
@@ -57,9 +80,16 @@ class AuthorRecord {
         typeId: typeId,
         scopeType: scopeType,
         scopeId: scopeId,
+        projectId: projectId,
+        seriesId: seriesId,
+        bookId: bookId,
+        branchId: branchId ?? this.branchId,
+        canonStatus: canonStatus ?? this.canonStatus,
         title: title ?? this.title,
         status: status ?? this.status,
         schemaVersion: schemaVersion,
+        templateId: templateId,
+        templateVersion: templateVersion,
         revision: revision ?? this.revision,
         fields: fields ?? this.fields,
         tags: tags ?? this.tags,
@@ -73,9 +103,16 @@ class AuthorRecord {
         'typeId': typeId,
         'scopeType': scopeType.name,
         'scopeId': scopeId,
+        'projectId': projectId,
+        'seriesId': seriesId,
+        'bookId': bookId,
+        'branchId': branchId,
+        'canonStatus': canonStatus.name,
         'title': title,
         'status': status.name,
         'schemaVersion': schemaVersion,
+        'templateId': templateId,
+        'templateVersion': templateVersion,
         'revision': revision,
         'fields': fields,
         'tags': tags,
@@ -93,6 +130,23 @@ class AuthorRecord {
           'record scope',
         ),
         scopeId: _requiredString(json['scopeId'], 'Record scope id'),
+        projectId: _optionalString(
+          json['projectId'] ?? _legacyField(json, 'projectId'),
+        ),
+        seriesId: _optionalString(
+          json['seriesId'] ?? _legacyField(json, 'seriesId'),
+        ),
+        bookId: _optionalString(
+          json['bookId'] ?? _legacyField(json, 'bookId'),
+        ),
+        branchId: _optionalString(
+          json['branchId'] ?? _legacyField(json, 'branchId'),
+        ),
+        canonStatus: _enumValue(
+          CanonStatus.values,
+          _legacyCanonStatus(json),
+          'canon status',
+        ),
         title: _requiredString(json['title'], 'Record title'),
         status: _enumValue(
           AuthorRecordStatus.values,
@@ -100,6 +154,8 @@ class AuthorRecord {
           'record status',
         ),
         schemaVersion: _positiveInt(json['schemaVersion']),
+        templateId: _optionalString(json['templateId']),
+        templateVersion: _optionalPositiveInt(json['templateVersion']),
         revision: _positiveInt(json['revision']),
         fields: _objectMap(json['fields']),
         tags: _stringList(json['tags']),
@@ -223,11 +279,25 @@ class ConnectedDomainSnapshot {
     required this.records,
     required this.manuscriptNodes,
     required this.links,
+    this.recordTypeDefinitions = const [],
+    this.connectionTypeDefinitions = const [],
+    this.branches = const [],
+    this.branchRecordOverlays = const [],
+    this.branchLinkOverlays = const [],
+    this.versions = const [],
+    this.auditEvents = const [],
   });
 
   final List<AuthorRecord> records;
   final List<ManuscriptNodeReference> manuscriptNodes;
   final List<RecordLink> links;
+  final List<RecordTypeDefinition> recordTypeDefinitions;
+  final List<ConnectionTypeDefinition> connectionTypeDefinitions;
+  final List<StoryBranch> branches;
+  final List<BranchRecordOverlay> branchRecordOverlays;
+  final List<BranchLinkOverlay> branchLinkOverlays;
+  final List<RecordVersion> versions;
+  final List<AuditEvent> auditEvents;
 
   Map<String, Object?> toJson() => {
         'schemaVersion': 1,
@@ -235,6 +305,19 @@ class ConnectedDomainSnapshot {
         'manuscriptNodes':
             manuscriptNodes.map((node) => node.toJson()).toList(),
         'links': links.map((link) => link.toJson()).toList(),
+        'recordTypeDefinitions': recordTypeDefinitions
+            .map((definition) => definition.toJson())
+            .toList(),
+        'connectionTypeDefinitions': connectionTypeDefinitions
+            .map((definition) => definition.toJson())
+            .toList(),
+        'branches': branches.map((branch) => branch.toJson()).toList(),
+        'branchRecordOverlays':
+            branchRecordOverlays.map((overlay) => overlay.toJson()).toList(),
+        'branchLinkOverlays':
+            branchLinkOverlays.map((overlay) => overlay.toJson()).toList(),
+        'versions': versions.map((version) => version.toJson()).toList(),
+        'auditEvents': auditEvents.map((event) => event.toJson()).toList(),
       };
 
   factory ConnectedDomainSnapshot.fromJson(Map<String, dynamic> json) {
@@ -247,6 +330,22 @@ class ConnectedDomainSnapshot {
           .map(ManuscriptNodeReference.fromJson)
           .toList(),
       links: _mapList(json['links']).map(RecordLink.fromJson).toList(),
+      recordTypeDefinitions: _mapList(json['recordTypeDefinitions'])
+          .map(RecordTypeDefinition.fromJson)
+          .toList(),
+      connectionTypeDefinitions: _mapList(json['connectionTypeDefinitions'])
+          .map(ConnectionTypeDefinition.fromJson)
+          .toList(),
+      branches: _mapList(json['branches']).map(StoryBranch.fromJson).toList(),
+      branchRecordOverlays: _mapList(json['branchRecordOverlays'])
+          .map(BranchRecordOverlay.fromJson)
+          .toList(),
+      branchLinkOverlays: _mapList(json['branchLinkOverlays'])
+          .map(BranchLinkOverlay.fromJson)
+          .toList(),
+      versions: _mapList(json['versions']).map(RecordVersion.fromJson).toList(),
+      auditEvents:
+          _mapList(json['auditEvents']).map(AuditEvent.fromJson).toList(),
     );
   }
 }
@@ -262,6 +361,13 @@ class InMemoryConnectedDomainRepository {
   final Map<String, AuthorRecord> _records = {};
   final Map<String, ManuscriptNodeReference> _manuscriptNodes = {};
   final Map<String, RecordLink> _links = {};
+  final Map<String, RecordTypeDefinition> _recordTypeDefinitions = {};
+  final Map<String, ConnectionTypeDefinition> _connectionTypeDefinitions = {};
+  final Map<String, StoryBranch> _branches = {};
+  final List<BranchRecordOverlay> _branchRecordOverlays = [];
+  final List<BranchLinkOverlay> _branchLinkOverlays = [];
+  final Map<String, RecordVersion> _versions = {};
+  final Map<String, AuditEvent> _auditEvents = {};
 
   T transaction<T>(T Function(ConnectedDomainTransaction transaction) action) {
     final records = Map<String, AuthorRecord>.from(_records);
@@ -304,6 +410,20 @@ class InMemoryConnectedDomainRepository {
           ..sort((left, right) => left.id.compareTo(right.id)),
         links: _links.values.toList()
           ..sort((left, right) => left.id.compareTo(right.id)),
+        recordTypeDefinitions: _recordTypeDefinitions.values.toList()
+          ..sort((left, right) => left.id.compareTo(right.id)),
+        connectionTypeDefinitions: _connectionTypeDefinitions.values.toList()
+          ..sort((left, right) => left.id.compareTo(right.id)),
+        branches: _branches.values.toList()
+          ..sort((left, right) => left.id.compareTo(right.id)),
+        branchRecordOverlays: List<BranchRecordOverlay>.from(
+          _branchRecordOverlays,
+        ),
+        branchLinkOverlays: List<BranchLinkOverlay>.from(_branchLinkOverlays),
+        versions: _versions.values.toList()
+          ..sort((left, right) => left.createdAt.compareTo(right.createdAt)),
+        auditEvents: _auditEvents.values.toList()
+          ..sort((left, right) => left.createdAt.compareTo(right.createdAt)),
       );
 
   void _replaceWith(ConnectedDomainSnapshot snapshot) {
@@ -313,6 +433,43 @@ class InMemoryConnectedDomainRepository {
       snapshot.manuscriptNodes.map((value) => MapEntry(value.id, value)),
     );
     _links.addEntries(snapshot.links.map((value) => MapEntry(value.id, value)));
+    RecordTypeRegistry(snapshot.recordTypeDefinitions);
+    _recordTypeDefinitions.addEntries(
+      snapshot.recordTypeDefinitions.map((value) => MapEntry(value.id, value)),
+    );
+    ConnectionTypeRegistry(snapshot.connectionTypeDefinitions);
+    _connectionTypeDefinitions.addEntries(
+      snapshot.connectionTypeDefinitions
+          .map((value) => MapEntry(value.id, value)),
+    );
+    if (snapshot.branches.isNotEmpty ||
+        snapshot.branchRecordOverlays.isNotEmpty ||
+        snapshot.branchLinkOverlays.isNotEmpty) {
+      BranchEngine(
+        branches: snapshot.branches,
+        recordOverlays: snapshot.branchRecordOverlays,
+        linkOverlays: snapshot.branchLinkOverlays,
+      );
+    }
+    _branches.addEntries(
+      snapshot.branches.map((value) => MapEntry(value.id, value)),
+    );
+    _branchRecordOverlays.addAll(snapshot.branchRecordOverlays);
+    _branchLinkOverlays.addAll(snapshot.branchLinkOverlays);
+    if ({for (final version in snapshot.versions) version.id}.length !=
+        snapshot.versions.length) {
+      throw StateError('Version ids must be unique.');
+    }
+    if ({for (final event in snapshot.auditEvents) event.id}.length !=
+        snapshot.auditEvents.length) {
+      throw StateError('Audit event ids must be unique.');
+    }
+    _versions.addEntries(
+      snapshot.versions.map((value) => MapEntry(value.id, value)),
+    );
+    _auditEvents.addEntries(
+      snapshot.auditEvents.map((value) => MapEntry(value.id, value)),
+    );
   }
 }
 
@@ -391,6 +548,16 @@ String _requiredString(Object? value, String label) {
   return normalized;
 }
 
+String? _optionalString(Object? value) {
+  final normalized = value is String ? value.trim() : '';
+  return normalized.isEmpty ? null : normalized;
+}
+
+int? _optionalPositiveInt(Object? value) {
+  if (value == null) return null;
+  return _positiveInt(value);
+}
+
 int _positiveInt(Object? value) {
   final number = value is num ? value.toInt() : int.tryParse('$value');
   if (number == null || number < 1) {
@@ -426,3 +593,26 @@ List<String> _stringList(Object? value) =>
 List<Map<String, dynamic>> _mapList(Object? value) => value is List
     ? value.map((item) => Map<String, dynamic>.from(item as Map)).toList()
     : [];
+
+Object? _legacyField(Map<String, dynamic> json, String fieldId) {
+  final fields = json['fields'];
+  if (fields is! Map) return null;
+  return fields[fieldId] ?? fields['_codex.$fieldId'];
+}
+
+Object _legacyCanonStatus(Map<String, dynamic> json) {
+  final explicit = json['canonStatus'];
+  if (explicit != null) return explicit;
+  final fields = json['fields'];
+  final raw = fields is Map
+      ? fields['_codex.canonStatus'] ?? fields['_world.canonStatus']
+      : null;
+  return switch (raw) {
+    'canon' => CanonStatus.canon.name,
+    'proposed' => CanonStatus.proposed.name,
+    'deprecated' => CanonStatus.deprecated.name,
+    'nonCanon' => CanonStatus.nonCanon.name,
+    'alternate' => CanonStatus.alternate.name,
+    _ => CanonStatus.draft.name,
+  };
+}

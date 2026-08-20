@@ -13,6 +13,8 @@ import 'onboarding.dart';
 import 'supabase_service.dart';
 
 export 'character_studio.dart';
+export 'story_codex.dart';
+export 'story_codex_workspace.dart';
 
 enum StoryCodexType {
   character,
@@ -1453,8 +1455,8 @@ class _ChapterStudioViewState extends State<ChapterStudioView> {
       );
 }
 
-class StoryCodexView extends StatefulWidget {
-  const StoryCodexView({
+class LegacyStoryCodexView extends StatefulWidget {
+  const LegacyStoryCodexView({
     super.key,
     required this.projectId,
   });
@@ -1462,10 +1464,10 @@ class StoryCodexView extends StatefulWidget {
   final String projectId;
 
   @override
-  State<StoryCodexView> createState() => _StoryCodexViewState();
+  State<LegacyStoryCodexView> createState() => _LegacyStoryCodexViewState();
 }
 
-class _StoryCodexViewState extends State<StoryCodexView> {
+class _LegacyStoryCodexViewState extends State<LegacyStoryCodexView> {
   final TextEditingController searchController = TextEditingController();
   List<StoryCodexEntry> entries = [];
   bool loading = true;

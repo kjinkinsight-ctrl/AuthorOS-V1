@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'package:author_studio_v1/app_updater.dart';
 import 'package:author_studio_v1/continuity.dart';
 import 'package:author_studio_v1/main.dart';
+import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/release_destinations.dart';
 import 'package:author_studio_v1/timeline.dart';
 import 'package:author_studio_v1/visual_planning.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -25,9 +28,18 @@ class _FakeVersionClient extends http.BaseClient {
 }
 
 void main() {
+  late AuthorOsDatabase manuscriptDatabase;
+  late ManuscriptStore manuscriptStore;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    manuscriptDatabase = AuthorOsDatabase(NativeDatabase.memory());
+    manuscriptStore = ManuscriptStore(
+      repository: DriftConnectedDomainRepository(manuscriptDatabase),
+    );
   });
+
+  tearDown(() => manuscriptDatabase.close());
 
   test('version checker flags a newer remote app version', () async {
     final checker = AppVersionChecker(
@@ -152,6 +164,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: AuthorStudioShell(
         project: project,
+        manuscriptStore: manuscriptStore,
         themeId: 'paper',
         accentId: 'default',
         onThemeChanged: (_, __) {},
@@ -180,6 +193,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: AuthorStudioShell(
         project: project,
+        manuscriptStore: manuscriptStore,
         themeId: 'paper',
         accentId: 'default',
         onThemeChanged: (_, __) {},
@@ -226,7 +240,7 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(const AuthorStudioApp());
+    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
     await tester.pumpAndSettle();
 
     expect(find.text('Login / Profile Selection'), findsOneWidget);
@@ -246,7 +260,7 @@ void main() {
       'author_studio.onboarding_complete': true,
     });
 
-    await tester.pumpWidget(const AuthorStudioApp());
+    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
     await tester.pumpAndSettle();
 
     expect(find.text('Continue with selected profile'), findsOneWidget);
@@ -270,7 +284,7 @@ void main() {
 
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(const AuthorStudioApp());
+    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Create new profile'));
@@ -468,11 +482,14 @@ void main() {
 
   testWidgets('story codex view renders searchable world and character records',
       (tester) async {
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: StoryCodexView(
             projectId: 'northstar',
+            repository: DriftConnectedDomainRepository(database),
           ),
         ),
       ),
@@ -480,8 +497,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Story Codex'), findsOneWidget);
-    expect(find.text('Search world and character knowledge'), findsOneWidget);
-    expect(find.text('Add entry'), findsOneWidget);
+    expect(
+      find.text('Search title, summary, content, tags, or type'),
+      findsOneWidget,
+    );
+    expect(find.text('New Entry'), findsOneWidget);
   });
 
   testWidgets('screenplay selection previews and opens the screenplay kit',
@@ -493,7 +513,7 @@ void main() {
 
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(const AuthorStudioApp());
+    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Create new profile'));
@@ -536,7 +556,7 @@ void main() {
 
     SharedPreferences.setMockInitialValues({});
 
-    await tester.pumpWidget(const AuthorStudioApp());
+    await tester.pumpWidget(AuthorStudioApp(manuscriptStore: manuscriptStore));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Create new profile'));
@@ -638,6 +658,9 @@ void main() {
 
   testWidgets('character board renders cast cards with archive-aware status',
       (tester) async {
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repository = DriftConnectedDomainRepository(database);
     final project = NovelStarterKit.create(
       title: 'Northstar',
       genre: 'Fantasy',
@@ -646,7 +669,7 @@ void main() {
     );
 
     await tester.pumpWidget(MaterialApp(
-      home: CharacterBoardView(project: project),
+      home: CharacterBoardView(project: project, repository: repository),
     ));
     await tester.pumpAndSettle();
 

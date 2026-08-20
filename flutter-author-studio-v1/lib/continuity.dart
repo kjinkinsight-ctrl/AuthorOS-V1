@@ -8,9 +8,12 @@ enum ContinuityWarningType {
   impossibleTravel,
   invalidRange,
   impossibleSequence,
+  missingRelationship,
 }
 
 enum ContinuitySeverity { notice, warning, critical }
+
+enum ContinuityActionKind { create, link, review }
 
 class ContinuityEventSnapshot {
   const ContinuityEventSnapshot({
@@ -65,6 +68,7 @@ class ContinuityIntegrityIssue {
     required this.title,
     required this.message,
     required this.recommendation,
+    required this.eventIds,
   });
 
   final ContinuityWarningType type;
@@ -72,6 +76,15 @@ class ContinuityIntegrityIssue {
   final String title;
   final String message;
   final String recommendation;
+  final List<String> eventIds;
+
+  ContinuityActionKind get actionKind => switch (type) {
+        ContinuityWarningType.unknownCharacter ||
+        ContinuityWarningType.unknownLocation =>
+          ContinuityActionKind.create,
+        ContinuityWarningType.missingRelationship => ContinuityActionKind.link,
+        _ => ContinuityActionKind.review,
+      };
 }
 
 class ContinuityIntegritySummary {
@@ -109,6 +122,8 @@ class ContinuityAnalyzer {
         return 'Fix the start and end day values so the scene timeline never ends before it begins.';
       case ContinuityWarningType.impossibleSequence:
         return 'Reorder the event chronology so the sequence follows the actual story timeline.';
+      case ContinuityWarningType.missingRelationship:
+        return 'Link the existing records so their relationship is represented with stable IDs.';
     }
   }
 
@@ -121,6 +136,7 @@ class ContinuityAnalyzer {
               title: warning.title,
               message: warning.message,
               recommendation: _recommendationFor(warning),
+              eventIds: warning.eventIds,
             ))
         .toList();
 
@@ -333,12 +349,14 @@ class ContinuityTimelinePanel extends StatefulWidget {
     required this.warnings,
     this.selectedEventId,
     this.onEventSelected,
+    this.onRecommendationSelected,
   });
 
   final List<ContinuityEventSnapshot> events;
   final List<ContinuityWarning> warnings;
   final String? selectedEventId;
   final ValueChanged<String>? onEventSelected;
+  final ValueChanged<ContinuityIntegrityIssue>? onRecommendationSelected;
 
   @override
   State<ContinuityTimelinePanel> createState() =>
@@ -494,12 +512,42 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            'Next step: ${issue.recommendation}',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.onSurface,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Next step: ${issue.recommendation}',
+                                  style: TextStyle(
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (widget.onRecommendationSelected != null) ...[
+                                const SizedBox(width: 12),
+                                FilledButton.icon(
+                                  key: Key(
+                                    'continuity-action-${issue.actionKind.name}-${issue.type.name}-${issue.eventIds.join('-')}',
+                                  ),
+                                  onPressed: () =>
+                                      widget.onRecommendationSelected!(issue),
+                                  icon: Icon(switch (issue.actionKind) {
+                                    ContinuityActionKind.create =>
+                                      Icons.add_circle_outline,
+                                    ContinuityActionKind.link => Icons.link,
+                                    ContinuityActionKind.review =>
+                                      Icons.rate_review_outlined,
+                                  }),
+                                  label: Text(switch (issue.actionKind) {
+                                    ContinuityActionKind.create => 'Create',
+                                    ContinuityActionKind.link => 'Link',
+                                    ContinuityActionKind.review => 'Review',
+                                  }),
+                                ),
+                              ],
+                            ],
                           ),
                         ],
                       ),

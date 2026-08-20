@@ -256,6 +256,38 @@ void main() {
     expect(
         summary.issues.any((issue) => issue.recommendation.isNotEmpty), isTrue);
     expect(summary.issues.first.recommendation, isNotEmpty);
+    expect(summary.issues.first.eventIds, isNotEmpty);
+  });
+
+  testWidgets('continuity recommendation reports the affected event',
+      (tester) async {
+    ContinuityIntegrityIssue? selectedIssue;
+    const warning = ContinuityWarning(
+      type: ContinuityWarningType.missingPovPresence,
+      severity: ContinuitySeverity.warning,
+      title: 'POV character is absent',
+      message: 'Mara is not marked present.',
+      eventIds: ['scene-1'],
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: ContinuityTimelinePanel(
+            events: const [],
+            warnings: const [warning],
+            onRecommendationSelected: (issue) => selectedIssue = issue,
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.byKey(
+      const Key('continuity-action-review-missingPovPresence-scene-1'),
+    ));
+
+    expect(selectedIssue?.type, ContinuityWarningType.missingPovPresence);
+    expect(selectedIssue?.eventIds, ['scene-1']);
   });
 
   testWidgets('large timelines render incrementally', (tester) async {

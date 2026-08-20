@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:author_studio_v1/archive/authoros_archive.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
+import 'package:author_studio_v1/core/connection_types.dart';
+import 'package:author_studio_v1/core/record_types.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,12 +20,25 @@ void main() {
     final restored = service.importSnapshot(bytes);
 
     expect(restored.records.single.id, 'character-ari');
+    expect(restored.records.single.templateId, 'protagonist');
+    expect(restored.records.single.templateVersion, 1);
     expect(restored.manuscriptNodes.single.id, 'scene-opening');
     expect(restored.links.single.id, 'link-ari-opening');
+    expect(
+      restored.recordTypeDefinitions.map((definition) => definition.id),
+      ['case', 'magic-spell'],
+    );
+    expect(
+      restored
+          .recordTypeDefinitions.last.extensionData['futureTemplateSetting'],
+      isTrue,
+    );
     expect(
       restored.records.single.extensionData['futureField'],
       {'retained': true},
     );
+    expect(restored.connectionTypeDefinitions.single.id, 'swornTo');
+    expect(restored.connectionTypeDefinitions.single.scopeId, 'project-1');
   });
 
   test('unchanged creative content has a stable fingerprint', () {
@@ -149,6 +164,8 @@ ConnectedDomainSnapshot _snapshot() {
         scopeType: RecordScopeType.project,
         scopeId: 'project-1',
         title: 'Ari Vale',
+        templateId: 'protagonist',
+        templateVersion: 1,
         fields: const {'summary': 'A harbor cartographer.'},
         tags: const ['protagonist'],
         createdAt: timestamp,
@@ -177,6 +194,65 @@ ConnectedDomainSnapshot _snapshot() {
         scopeId: 'project-1',
         createdAt: timestamp,
         updatedAt: timestamp,
+      ),
+    ],
+    recordTypeDefinitions: const [
+      RecordTypeDefinition(
+        id: 'magic-spell',
+        name: 'Magic Spell',
+        categoryId: 'magic',
+        fields: [
+          RecordFieldDefinition(
+            id: 'cost',
+            label: 'Cost',
+            type: RecordFieldType.shortText,
+            order: 0,
+            required: true,
+          ),
+        ],
+        sections: [
+          RecordTemplateSection(
+            id: 'rules',
+            title: 'Rules',
+            order: 0,
+            fieldIds: ['cost'],
+          ),
+        ],
+        extensionData: {'futureTemplateSetting': true},
+      ),
+      RecordTypeDefinition(
+        id: 'case',
+        name: 'Case',
+        categoryId: 'plot',
+        fields: [
+          RecordFieldDefinition(
+            id: 'caseNumber',
+            label: 'Case number',
+            type: RecordFieldType.shortText,
+            order: 0,
+            required: true,
+          ),
+        ],
+        sections: [
+          RecordTemplateSection(
+            id: 'identity',
+            title: 'Identity',
+            order: 0,
+            fieldIds: ['caseNumber'],
+          ),
+        ],
+      ),
+    ],
+    connectionTypeDefinitions: const [
+      ConnectionTypeDefinition(
+        id: 'swornTo',
+        displayName: 'Sworn to',
+        sourceTypeIds: ['character'],
+        targetTypeIds: ['character', 'faction'],
+        inverseLabel: 'Holds oath from',
+        scopeId: 'project-1',
+        sourcePackId: 'user',
+        extensionData: {'futureRule': true},
       ),
     ],
   );

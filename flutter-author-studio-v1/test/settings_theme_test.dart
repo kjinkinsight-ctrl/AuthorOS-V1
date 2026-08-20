@@ -1,6 +1,9 @@
 import 'package:author_studio_v1/main.dart';
+import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/release_destinations.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -73,6 +76,11 @@ void main() {
 
   testWidgets('dashboard surfaces follow the active light color scheme',
       (tester) async {
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    final manuscriptStore = ManuscriptStore(
+      repository: DriftConnectedDomainRepository(database),
+    );
+    addTearDown(database.close);
     tester.view.physicalSize = const Size(1440, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -95,6 +103,7 @@ void main() {
         theme: ThemeData(useMaterial3: true, colorScheme: colorScheme),
         home: AuthorStudioShell(
           project: project,
+          manuscriptStore: manuscriptStore,
           themeId: 'light',
           accentId: 'default',
           onThemeChanged: (_, __) {},

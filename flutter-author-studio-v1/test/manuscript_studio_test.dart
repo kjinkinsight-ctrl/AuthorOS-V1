@@ -1,6 +1,8 @@
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/manuscript_studio.dart';
 import 'package:author_studio_v1/onboarding.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +14,11 @@ void main() {
 
   testWidgets('scene text and reordered scenes persist after navigation',
       (tester) async {
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    final store = ManuscriptStore(
+      repository: DriftConnectedDomainRepository(database),
+    );
+    addTearDown(database.close);
     tester.view.physicalSize = const Size(1500, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -42,11 +49,12 @@ void main() {
     );
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: ManuscriptStudioView(
             project: project,
             startSprint: false,
+            store: store,
           ),
         ),
       ),
@@ -73,7 +81,7 @@ void main() {
       of: find.textContaining('Scene 02 - Meeting').first,
       matching: find.byType(ListTile),
     );
-    final storedBeforeMove = await const ManuscriptStore().loadStudio(
+    final storedBeforeMove = await store.loadStudio(
       project.id,
       manuscriptTitle: project.title,
       defaultChapters: const [],
@@ -90,7 +98,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 800));
     await tester.pumpAndSettle();
 
-    final stored = await const ManuscriptStore().loadStudio(
+    final stored = await store.loadStudio(
       project.id,
       manuscriptTitle: project.title,
       defaultChapters: const [],

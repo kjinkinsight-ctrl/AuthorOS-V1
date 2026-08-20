@@ -1,3 +1,5 @@
+import 'package:author_studio_v1/core/built_in_record_types.dart';
+import 'package:author_studio_v1/core/timeline_record_types.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/timeline.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,31 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  test('timeline record catalogue is data-driven and inherits temporal fields',
+      () {
+    final registry = BuiltInRecordTypes.registry();
+    final event = registry.resolve('timeline-battle');
+    final fieldIds = event.fields.map((field) => field.id);
+
+    expect(event.baseTypeId, TimelineRecordTypes.baseTypeId);
+    expect(
+        fieldIds, containsAll(['name', 'start', 'precision', 'narrativeTime']));
+    expect(
+      TimelineRecordTypes.definitions.map((definition) => definition.id),
+      containsAll([
+        'timeline',
+        'timeline-era',
+        'timeline-event',
+        'timeline-event-group',
+        'timeline-date-range',
+        'timeline-war',
+        'timeline-birth',
+        'timeline-custom-event',
+        TimelineRecordTypes.calendarTypeId,
+      ]),
+    );
   });
 
   StarterProject project(String id) => StarterProject(

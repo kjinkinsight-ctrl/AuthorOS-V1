@@ -4,6 +4,11 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
 import '../core/connected_domain.dart';
+import '../core/connection_types.dart';
+import '../core/record_types.dart';
+import '../core/branch_domain.dart';
+import '../core/search_models.dart';
+import '../core/version_audit.dart';
 
 part 'authoros_database.g.dart';
 
@@ -18,14 +23,24 @@ class ConnectedEntities extends Table {
 
 @TableIndex(name: 'author_records_type', columns: {#typeId})
 @TableIndex(name: 'author_records_scope', columns: {#scopeId})
+@TableIndex(name: 'author_records_project', columns: {#projectId})
+@TableIndex(name: 'author_records_series_book', columns: {#seriesId, #bookId})
+@TableIndex(name: 'author_records_branch', columns: {#branchId})
 class AuthorRecordRows extends Table {
   TextColumn get id => text().references(ConnectedEntities, #id)();
   TextColumn get typeId => text()();
   TextColumn get scopeType => text()();
   TextColumn get scopeId => text()();
+  TextColumn get projectId => text().nullable()();
+  TextColumn get seriesId => text().nullable()();
+  TextColumn get bookId => text().nullable()();
+  TextColumn get branchId => text().nullable()();
+  TextColumn get canonStatus => text().nullable()();
   TextColumn get title => text()();
   TextColumn get status => text()();
   IntColumn get schemaVersion => integer()();
+  TextColumn get templateId => text().nullable()();
+  IntColumn get templateVersion => integer().nullable()();
   IntColumn get revision => integer()();
   TextColumn get fieldsJson => text()();
   TextColumn get tagsJson => text()();
@@ -75,12 +90,137 @@ class RecordLinkRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+@TableIndex(name: 'record_type_definitions_category', columns: {#categoryId})
+@TableIndex(
+  name: 'record_type_definitions_scope',
+  columns: {#scopeType, #scopeId},
+)
+class RecordTypeDefinitionRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get categoryId => text()();
+  TextColumn get baseTypeId => text().nullable()();
+  TextColumn get scopeType => text()();
+  TextColumn get scopeId => text()();
+  IntColumn get templateVersion => integer()();
+  BoolColumn get builtIn => boolean()();
+  TextColumn get definitionJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+@TableIndex(name: 'connection_type_definitions_scope', columns: {#scopeId})
+class ConnectionTypeDefinitionRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get displayName => text()();
+  TextColumn get scopeId => text()();
+  BoolColumn get builtIn => boolean()();
+  TextColumn get definitionJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id, scopeId};
+}
+
+@TableIndex(name: 'story_branches_project', columns: {#projectId})
+@TableIndex(name: 'story_branches_parent', columns: {#parentBranchId})
+class StoryBranchRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get projectId => text()();
+  TextColumn get parentBranchId => text().nullable()();
+  TextColumn get name => text()();
+  TextColumn get kind => text()();
+  TextColumn get status => text()();
+  TextColumn get branchJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+@TableIndex(name: 'branch_record_overlays_branch', columns: {#branchId})
+class BranchRecordOverlayRows extends Table {
+  TextColumn get branchId => text().references(StoryBranchRows, #id)();
+  TextColumn get recordId => text()();
+  TextColumn get state => text()();
+  TextColumn get overlayJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {branchId, recordId};
+}
+
+@TableIndex(name: 'branch_link_overlays_branch', columns: {#branchId})
+class BranchLinkOverlayRows extends Table {
+  TextColumn get branchId => text().references(StoryBranchRows, #id)();
+  TextColumn get linkId => text()();
+  TextColumn get state => text()();
+  TextColumn get overlayJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {branchId, linkId};
+}
+
+@TableIndex(name: 'record_versions_entity', columns: {#projectId, #entityId})
+@TableIndex(name: 'record_versions_record', columns: {#projectId, #recordId})
+@TableIndex(name: 'record_versions_branch', columns: {#projectId, #branchId})
+@TableIndex(name: 'record_versions_created', columns: {#projectId, #createdAt})
+class RecordVersionRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get entityId => text()();
+  TextColumn get entityKind => text()();
+  TextColumn get recordId => text()();
+  TextColumn get recordType => text()();
+  TextColumn get projectId => text()();
+  TextColumn get seriesId => text().nullable()();
+  TextColumn get bookId => text().nullable()();
+  TextColumn get branchId => text().nullable()();
+  TextColumn get changeType => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  TextColumn get previousVersionId => text().nullable()();
+  TextColumn get versionJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+@TableIndex(name: 'audit_events_entity', columns: {#projectId, #entityId})
+@TableIndex(name: 'audit_events_record', columns: {#projectId, #recordId})
+@TableIndex(
+    name: 'audit_events_series_book', columns: {#projectId, #seriesId, #bookId})
+@TableIndex(name: 'audit_events_branch', columns: {#projectId, #branchId})
+@TableIndex(name: 'audit_events_change', columns: {#projectId, #changeType})
+@TableIndex(name: 'audit_events_created', columns: {#projectId, #createdAt})
+class AuditEventRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get versionId => text()();
+  TextColumn get entityId => text()();
+  TextColumn get entityKind => text()();
+  TextColumn get recordId => text()();
+  TextColumn get recordType => text()();
+  TextColumn get projectId => text()();
+  TextColumn get seriesId => text().nullable()();
+  TextColumn get bookId => text().nullable()();
+  TextColumn get branchId => text().nullable()();
+  TextColumn get changeType => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  TextColumn get eventJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     ConnectedEntities,
     AuthorRecordRows,
     ManuscriptNodeRows,
     RecordLinkRows,
+    RecordTypeDefinitionRows,
+    ConnectionTypeDefinitionRows,
+    StoryBranchRows,
+    BranchRecordOverlayRows,
+    BranchLinkOverlayRows,
+    RecordVersionRows,
+    AuditEventRows,
   ],
 )
 class AuthorOsDatabase extends _$AuthorOsDatabase {
@@ -93,7 +233,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
       : _schemaVersion = currentSchemaVersion,
         super(driftDatabase(name: 'authoros_creative'));
 
-  static const currentSchemaVersion = 2;
+  static const currentSchemaVersion = 8;
   final int _schemaVersion;
 
   @override
@@ -112,6 +252,74 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
             await _createSearchIndex();
             await _rebuildSearchIndex();
           }
+          if (from < 3 && to >= 3) {
+            await migrator.createTable(recordTypeDefinitionRows);
+          }
+          if (from < 4 && to >= 4) {
+            await migrator.createTable(connectionTypeDefinitionRows);
+          }
+          if (from < 5 && to >= 5) {
+            final columns = await customSelect(
+              'PRAGMA table_info(author_record_rows)',
+            ).get();
+            final names =
+                columns.map((row) => row.read<String>('name')).toSet();
+            if (!names.contains('template_id')) {
+              await migrator.addColumn(
+                authorRecordRows,
+                authorRecordRows.templateId,
+              );
+            }
+            if (!names.contains('template_version')) {
+              await migrator.addColumn(
+                authorRecordRows,
+                authorRecordRows.templateVersion,
+              );
+            }
+          }
+          if (from < 6 && to >= 6) {
+            final columns = await customSelect(
+              'PRAGMA table_info(author_record_rows)',
+            ).get();
+            final names =
+                columns.map((row) => row.read<String>('name')).toSet();
+            final additions = <String, GeneratedColumn>{
+              'project_id': authorRecordRows.projectId,
+              'series_id': authorRecordRows.seriesId,
+              'book_id': authorRecordRows.bookId,
+              'branch_id': authorRecordRows.branchId,
+              'canon_status': authorRecordRows.canonStatus,
+            };
+            for (final entry in additions.entries) {
+              if (!names.contains(entry.key)) {
+                await migrator.addColumn(authorRecordRows, entry.value);
+              }
+            }
+            await migrator.createTable(storyBranchRows);
+            await migrator.createTable(branchRecordOverlayRows);
+            await migrator.createTable(branchLinkOverlayRows);
+            await customStatement(
+              'CREATE INDEX IF NOT EXISTS author_records_project '
+              'ON author_record_rows(project_id)',
+            );
+            await customStatement(
+              'CREATE INDEX IF NOT EXISTS author_records_series_book '
+              'ON author_record_rows(series_id, book_id)',
+            );
+            await customStatement(
+              'CREATE INDEX IF NOT EXISTS author_records_branch '
+              'ON author_record_rows(branch_id)',
+            );
+          }
+          if (from < 7 && to >= 7) {
+            await customStatement('DROP TABLE IF EXISTS author_search');
+            await _createSearchIndex();
+            await _rebuildSearchIndex();
+          }
+          if (from < 8 && to >= 8) {
+            await migrator.createTable(recordVersionRows);
+            await migrator.createTable(auditEventRows);
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -124,8 +332,18 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     await customStatement('''
       CREATE VIRTUAL TABLE IF NOT EXISTS author_search USING fts5(
         entity_id UNINDEXED,
+        entity_kind UNINDEXED,
+        project_id UNINDEXED,
+        series_id UNINDEXED,
+        book_id UNINDEXED,
+        branch_id UNINDEXED,
+        canon_status UNINDEXED,
+        lifecycle_status UNINDEXED,
+        type_id UNINDEXED,
+        template_id UNINDEXED,
         title,
-        body
+        body,
+        tags
       )
     ''');
   }
@@ -133,15 +351,89 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
   Future<void> _rebuildSearchIndex() async {
     await customStatement('DELETE FROM author_search');
     await customStatement('''
-      INSERT INTO author_search(entity_id, title, body)
-      SELECT id, title, fields_json || ' ' || tags_json
+      INSERT INTO author_search(
+        entity_id, entity_kind, project_id, series_id, book_id, branch_id,
+        canon_status, lifecycle_status, type_id, template_id, title, body, tags
+      )
+      SELECT id, 'record', COALESCE(project_id, scope_id), series_id, book_id,
+        branch_id, COALESCE(canon_status, 'draft'), status, type_id,
+        template_id, title, fields_json, tags_json
       FROM author_record_rows
     ''');
     await customStatement('''
-      INSERT INTO author_search(entity_id, title, body)
-      SELECT id, title, extension_json
+      INSERT INTO author_search(
+        entity_id, entity_kind, project_id, canon_status, lifecycle_status,
+        type_id, title, body, tags
+      )
+      SELECT id, 'manuscriptNode', project_id, 'canon', 'active', node_type,
+        title, extension_json, '[]'
       FROM manuscript_node_rows
     ''');
+    final overlays = await customSelect('''
+      SELECT o.overlay_json, b.project_id
+      FROM branch_record_overlay_rows o
+      JOIN story_branch_rows b ON b.id = o.branch_id
+    ''').get();
+    for (final row in overlays) {
+      final overlay = BranchRecordOverlay.fromJson(
+        Map<String, dynamic>.from(
+          jsonDecode(row.read<String>('overlay_json')) as Map,
+        ),
+      );
+      await _indexBranchOverlay(overlay, row.read<String>('project_id'));
+    }
+  }
+
+  Future<void> _indexBranchOverlay(
+    BranchRecordOverlay overlay,
+    String projectId,
+  ) async {
+    final created = overlay.createdRecord;
+    final canonical = await customSelect('''
+      SELECT series_id, book_id, canon_status, status, type_id, template_id,
+        title, tags_json
+      FROM author_record_rows WHERE id = ?
+    ''', variables: [Variable<String>(overlay.recordId)]).getSingleOrNull();
+    final entityId = branchSearchEntityId(overlay.branchId, overlay.recordId);
+    await customStatement(
+      'DELETE FROM author_search WHERE entity_id = ?',
+      [entityId],
+    );
+    if (overlay.state == BranchRecordState.hidden) return;
+    await customStatement('''
+      INSERT INTO author_search(
+        entity_id, entity_kind, project_id, series_id, book_id, branch_id,
+        canon_status, lifecycle_status, type_id, template_id, title, body, tags
+      ) VALUES (?, 'branchRecord', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', [
+      entityId,
+      projectId,
+      created?.seriesId ?? canonical?.readNullable<String>('series_id'),
+      created?.bookId ?? canonical?.readNullable<String>('book_id'),
+      overlay.branchId,
+      (overlay.canonStatus ?? created?.canonStatus)?.name ??
+          canonical?.readNullable<String>('canon_status') ??
+          CanonStatus.draft.name,
+      created?.status.name ??
+          canonical?.readNullable<String>('status') ??
+          AuthorRecordStatus.active.name,
+      created?.typeId ?? canonical?.readNullable<String>('type_id'),
+      created?.templateId ?? canonical?.readNullable<String>('template_id'),
+      overlay.title ??
+          created?.title ??
+          canonical?.readNullable<String>('title') ??
+          '',
+      jsonEncode({
+        ...?created?.fields,
+        ...overlay.fields,
+        'removedFieldIds': overlay.removedFieldIds,
+      }),
+      jsonEncode(
+        overlay.tags ??
+            created?.tags ??
+            _decodeStringList(canonical?.readNullable<String>('tags_json')),
+      ),
+    ]);
   }
 }
 
@@ -149,6 +441,35 @@ class DriftConnectedDomainRepository {
   const DriftConnectedDomainRepository(this.database);
 
   final AuthorOsDatabase database;
+
+  Future<void> putManuscriptNodes(
+    Iterable<ManuscriptNodeReference> nodes,
+  ) async {
+    final nodeList = nodes.toList();
+    await database.transaction(() async {
+      for (final node in nodeList) {
+        await _putEntity(node.id, 'manuscriptNode', node.projectId);
+        await _putManuscriptNode(node);
+      }
+    });
+  }
+
+  Future<void> putRecordsAndLinks({
+    required Iterable<AuthorRecord> records,
+    required Iterable<RecordLink> links,
+  }) async {
+    final recordList = records.toList();
+    final linkList = links.toList();
+    await database.transaction(() async {
+      for (final record in recordList) {
+        await _putEntity(record.id, 'record', record.scopeId);
+        await _putRecord(record);
+      }
+      for (final link in linkList) {
+        await _putLink(link);
+      }
+    });
+  }
 
   Future<void> putRecord(AuthorRecord record) async {
     await database.transaction(() async {
@@ -161,6 +482,344 @@ class DriftConnectedDomainRepository {
     await database.transaction(() async {
       await _putLink(link);
     });
+  }
+
+  Future<void> putRecordWithHistory({
+    required AuthorRecord record,
+    required Iterable<RecordLink> links,
+    required RecordVersion version,
+    required AuditEvent auditEvent,
+  }) async {
+    await database.transaction(() async {
+      await _putEntity(record.id, 'record', record.scopeId);
+      await _putRecord(record);
+      for (final link in links) {
+        await _putLink(link);
+      }
+      await _appendHistory(version, auditEvent);
+    });
+  }
+
+  Future<void> putLinkWithHistory({
+    required RecordLink link,
+    required RecordVersion version,
+    required AuditEvent auditEvent,
+  }) async {
+    await database.transaction(() async {
+      await _putLink(link);
+      await _appendHistory(version, auditEvent);
+    });
+  }
+
+  Future<void> deleteLinkWithHistory({
+    required String linkId,
+    required RecordVersion version,
+    required AuditEvent auditEvent,
+  }) async {
+    await database.transaction(() async {
+      await (database.delete(database.recordLinkRows)
+            ..where((table) => table.id.equals(linkId)))
+          .go();
+      await _appendHistory(version, auditEvent);
+    });
+  }
+
+  Future<void> putBranchWithHistory({
+    required StoryBranch branch,
+    required RecordVersion version,
+    required AuditEvent auditEvent,
+  }) async {
+    await database.transaction(() async {
+      await putBranch(branch);
+      await _appendHistory(version, auditEvent);
+    });
+  }
+
+  Future<void> putBranchRecordOverlayWithHistory({
+    required BranchRecordOverlay overlay,
+    required RecordVersion version,
+    required AuditEvent auditEvent,
+  }) async {
+    await database.transaction(() async {
+      await putBranchRecordOverlay(overlay);
+      await _appendHistory(version, auditEvent);
+    });
+  }
+
+  Future<void> putBranchLinkOverlayWithHistory({
+    required BranchLinkOverlay overlay,
+    required RecordVersion version,
+    required AuditEvent auditEvent,
+  }) async {
+    await database.transaction(() async {
+      await putBranchLinkOverlay(overlay);
+      await _appendHistory(version, auditEvent);
+    });
+  }
+
+  Future<void> appendHistory(
+    RecordVersion version,
+    AuditEvent auditEvent,
+  ) =>
+      database.transaction(() => _appendHistory(version, auditEvent));
+
+  Future<RecordVersion?> versionById(String id, String projectId) async {
+    final row = await (database.select(database.recordVersionRows)
+          ..where((table) =>
+              table.id.equals(id) & table.projectId.equals(projectId)))
+        .getSingleOrNull();
+    return row == null ? null : _versionFromRow(row);
+  }
+
+  Future<List<RecordVersion>> versionHistory(HistoryFilter filter) async {
+    final query = database.select(database.recordVersionRows)
+      ..where((table) {
+        var predicate = table.projectId.equals(filter.projectId);
+        if (filter.recordId != null) {
+          predicate = predicate & table.recordId.equals(filter.recordId!);
+        }
+        if (filter.recordType != null) {
+          predicate = predicate & table.recordType.equals(filter.recordType!);
+        }
+        if (filter.seriesId != null) {
+          predicate = predicate & table.seriesId.equals(filter.seriesId!);
+        }
+        if (filter.bookId != null) {
+          predicate = predicate & table.bookId.equals(filter.bookId!);
+        }
+        if (filter.seriesId != null) {
+          predicate = predicate & table.seriesId.equals(filter.seriesId!);
+        }
+        if (filter.bookId != null) {
+          predicate = predicate & table.bookId.equals(filter.bookId!);
+        }
+        if (filter.branchId != null) {
+          predicate = predicate & table.branchId.equals(filter.branchId!);
+        } else if (filter.recordId != null) {
+          predicate = predicate & table.branchId.isNull();
+        }
+        if (filter.changeType != null) {
+          predicate =
+              predicate & table.changeType.equals(filter.changeType!.name);
+        }
+        if (filter.from != null) {
+          predicate =
+              predicate & table.createdAt.isBiggerOrEqualValue(filter.from!);
+        }
+        if (filter.to != null) {
+          predicate =
+              predicate & table.createdAt.isSmallerOrEqualValue(filter.to!);
+        }
+        return predicate;
+      })
+      ..orderBy([
+        (table) => OrderingTerm.asc(table.createdAt),
+        (table) => OrderingTerm.asc(table.id),
+      ])
+      ..limit(filter.limit);
+    return (await query.get()).map(_versionFromRow).toList();
+  }
+
+  Future<List<AuditEvent>> auditHistory(HistoryFilter filter) async {
+    final query = database.select(database.auditEventRows)
+      ..where((table) {
+        var predicate = table.projectId.equals(filter.projectId);
+        if (filter.recordId != null) {
+          predicate = predicate & table.recordId.equals(filter.recordId!);
+        }
+        if (filter.recordType != null) {
+          predicate = predicate & table.recordType.equals(filter.recordType!);
+        }
+        if (filter.branchId != null) {
+          predicate = predicate & table.branchId.equals(filter.branchId!);
+        } else if (filter.recordId != null) {
+          predicate = predicate & table.branchId.isNull();
+        }
+        if (filter.changeType != null) {
+          predicate =
+              predicate & table.changeType.equals(filter.changeType!.name);
+        }
+        if (filter.from != null) {
+          predicate =
+              predicate & table.createdAt.isBiggerOrEqualValue(filter.from!);
+        }
+        if (filter.to != null) {
+          predicate =
+              predicate & table.createdAt.isSmallerOrEqualValue(filter.to!);
+        }
+        return predicate;
+      })
+      ..orderBy([
+        (table) => OrderingTerm.asc(table.createdAt),
+        (table) => OrderingTerm.asc(table.id),
+      ])
+      ..limit(filter.limit);
+    return (await query.get()).map(_auditFromRow).toList();
+  }
+
+  Future<RecordVersion?> latestVersion({
+    required String projectId,
+    required String entityId,
+    String? branchId,
+  }) async {
+    final query = database.select(database.recordVersionRows)
+      ..where((table) {
+        var predicate =
+            table.projectId.equals(projectId) & table.entityId.equals(entityId);
+        predicate = branchId == null
+            ? predicate & table.branchId.isNull()
+            : predicate & table.branchId.equals(branchId);
+        return predicate;
+      })
+      ..orderBy([
+        (table) => OrderingTerm.desc(table.createdAt),
+        (table) => OrderingTerm.desc(table.id),
+      ])
+      ..limit(1);
+    final row = await query.getSingleOrNull();
+    return row == null ? null : _versionFromRow(row);
+  }
+
+  Future<void> putRecordTypeDefinition(
+    RecordTypeDefinition definition,
+  ) async {
+    RecordTypeRegistry([definition]);
+    await database
+        .into(database.recordTypeDefinitionRows)
+        .insertOnConflictUpdate(
+          RecordTypeDefinitionRowsCompanion.insert(
+            id: definition.id,
+            name: definition.name,
+            categoryId: definition.categoryId,
+            baseTypeId: Value(definition.baseTypeId),
+            scopeType: definition.scopeType.name,
+            scopeId: definition.scopeId,
+            templateVersion: definition.templateVersion,
+            builtIn: definition.builtIn,
+            definitionJson: jsonEncode(definition.toJson()),
+          ),
+        );
+  }
+
+  Future<RecordTypeDefinition?> recordTypeDefinitionById(String id) async {
+    final row = await (database.select(database.recordTypeDefinitionRows)
+          ..where((table) => table.id.equals(id)))
+        .getSingleOrNull();
+    return row == null ? null : _definitionFromRow(row);
+  }
+
+  Future<void> putConnectionTypeDefinition(
+    ConnectionTypeDefinition definition,
+  ) async {
+    ConnectionTypeRegistry([definition]);
+    await database
+        .into(database.connectionTypeDefinitionRows)
+        .insertOnConflictUpdate(
+          ConnectionTypeDefinitionRowsCompanion.insert(
+            id: definition.id,
+            displayName: definition.displayName,
+            scopeId: definition.scopeId,
+            builtIn: definition.builtIn,
+            definitionJson: jsonEncode(definition.toJson()),
+          ),
+        );
+  }
+
+  Future<List<ConnectionTypeDefinition>> connectionTypeDefinitionsByScope(
+    String scopeId,
+  ) async {
+    final rows = await (database.select(database.connectionTypeDefinitionRows)
+          ..where((table) => table.scopeId.equals(scopeId))
+          ..orderBy([(table) => OrderingTerm.asc(table.displayName)]))
+        .get();
+    return rows.map(_connectionDefinitionFromRow).toList();
+  }
+
+  Future<void> putBranch(StoryBranch branch) async {
+    await database.into(database.storyBranchRows).insertOnConflictUpdate(
+          StoryBranchRowsCompanion.insert(
+            id: branch.id,
+            projectId: branch.projectId,
+            parentBranchId: Value(branch.parentBranchId),
+            name: branch.name,
+            kind: branch.kind.name,
+            status: branch.status.name,
+            branchJson: jsonEncode(branch.toJson()),
+          ),
+        );
+  }
+
+  Future<void> putBranchRecordOverlay(BranchRecordOverlay overlay) async {
+    await database
+        .into(database.branchRecordOverlayRows)
+        .insertOnConflictUpdate(
+          BranchRecordOverlayRowsCompanion.insert(
+            branchId: overlay.branchId,
+            recordId: overlay.recordId,
+            state: overlay.state.name,
+            overlayJson: jsonEncode(overlay.toJson()),
+          ),
+        );
+    final branch = await (database.select(database.storyBranchRows)
+          ..where((table) => table.id.equals(overlay.branchId)))
+        .getSingle();
+    await database._indexBranchOverlay(overlay, branch.projectId);
+  }
+
+  Future<void> putBranchLinkOverlay(BranchLinkOverlay overlay) async {
+    await database.into(database.branchLinkOverlayRows).insertOnConflictUpdate(
+          BranchLinkOverlayRowsCompanion.insert(
+            branchId: overlay.branchId,
+            linkId: overlay.linkId,
+            state: overlay.state.name,
+            overlayJson: jsonEncode(overlay.toJson()),
+          ),
+        );
+  }
+
+  Future<List<StoryBranch>> branchesByProject(String projectId) async {
+    final rows = await (database.select(database.storyBranchRows)
+          ..where((table) => table.projectId.equals(projectId))
+          ..orderBy([(table) => OrderingTerm.asc(table.name)]))
+        .get();
+    return rows.map(_branchFromRow).toList();
+  }
+
+  Future<List<BranchRecordOverlay>> branchRecordOverlays(
+    Iterable<String> branchIds,
+  ) async {
+    final ids = branchIds.toList();
+    if (ids.isEmpty) return [];
+    final rows = await (database.select(database.branchRecordOverlayRows)
+          ..where((table) => table.branchId.isIn(ids)))
+        .get();
+    return rows.map(_branchRecordOverlayFromRow).toList();
+  }
+
+  Future<List<BranchLinkOverlay>> branchLinkOverlays(
+    Iterable<String> branchIds,
+  ) async {
+    final ids = branchIds.toList();
+    if (ids.isEmpty) return [];
+    final rows = await (database.select(database.branchLinkOverlayRows)
+          ..where((table) => table.branchId.isIn(ids)))
+        .get();
+    return rows.map(_branchLinkOverlayFromRow).toList();
+  }
+
+  Future<List<RecordTypeDefinition>> recordTypeDefinitionsByScope({
+    required RecordScopeType scopeType,
+    required String scopeId,
+  }) async {
+    final rows = await (database.select(database.recordTypeDefinitionRows)
+          ..where(
+            (table) =>
+                table.scopeType.equals(scopeType.name) &
+                table.scopeId.equals(scopeId),
+          )
+          ..orderBy([(table) => OrderingTerm.asc(table.name)]))
+        .get();
+    return rows.map(_definitionFromRow).toList();
   }
 
   Future<List<AuthorRecord>> recordsByTypeAndScope({
@@ -177,10 +836,45 @@ class DriftConnectedDomainRepository {
     return rows.map(_recordFromRow).toList();
   }
 
+  Future<List<AuthorRecord>> recordsByScope(String scopeId) async {
+    final rows = await (database.select(database.authorRecordRows)
+          ..where((table) => table.scopeId.equals(scopeId))
+          ..orderBy([(table) => OrderingTerm.asc(table.title)]))
+        .get();
+    return rows.map(_recordFromRow).toList();
+  }
+
+  Future<List<AuthorRecord>> recordsByProject(String projectId) async {
+    final rows = await (database.select(database.authorRecordRows)
+          ..where(
+            (table) =>
+                table.projectId.equals(projectId) |
+                table.scopeId.equals(projectId),
+          )
+          ..orderBy([(table) => OrderingTerm.asc(table.title)]))
+        .get();
+    return rows.map(_recordFromRow).toList();
+  }
+
+  Future<List<AuthorRecord>> recordsByTagAndScope({
+    required String tagId,
+    required String scopeId,
+  }) async {
+    final records = await recordsByScope(scopeId);
+    return records.where((record) => record.tags.contains(tagId)).toList();
+  }
+
   Future<void> replaceSnapshot(ConnectedDomainSnapshot snapshot) async {
     InMemoryConnectedDomainRepository(initial: snapshot);
     await database.transaction(() async {
+      await database.delete(database.auditEventRows).go();
+      await database.delete(database.recordVersionRows).go();
       await database.delete(database.recordLinkRows).go();
+      await database.delete(database.branchLinkOverlayRows).go();
+      await database.delete(database.branchRecordOverlayRows).go();
+      await database.delete(database.storyBranchRows).go();
+      await database.delete(database.connectionTypeDefinitionRows).go();
+      await database.delete(database.recordTypeDefinitionRows).go();
       await database.delete(database.authorRecordRows).go();
       await database.delete(database.manuscriptNodeRows).go();
       await database.delete(database.connectedEntities).go();
@@ -238,13 +932,133 @@ class DriftConnectedDomainRepository {
     return rows.map(_linkFromRow).toList();
   }
 
-  Future<List<String>> searchEntityIds(String query) async {
+  Future<List<RecordLink>> outgoingLinks(String entityId) async {
+    final rows = await (database.select(database.recordLinkRows)
+          ..where((table) => table.sourceId.equals(entityId))
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    return rows.map(_linkFromRow).toList();
+  }
+
+  Future<List<RecordLink>> incomingLinks(String entityId) async {
+    final rows = await (database.select(database.recordLinkRows)
+          ..where((table) => table.targetId.equals(entityId))
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    return rows.map(_linkFromRow).toList();
+  }
+
+  Future<String?> entityScopeId(String entityId) async {
+    final row = await (database.select(database.connectedEntities)
+          ..where((table) => table.id.equals(entityId)))
+        .getSingleOrNull();
+    return row?.scopeId;
+  }
+
+  Future<String?> entityTypeId(String entityId) async {
+    final record = await recordById(entityId);
+    if (record != null) {
+      return record.typeId;
+    }
+    return (await manuscriptNodeById(entityId))?.nodeType;
+  }
+
+  Future<String?> entityProjectId(String entityId) async {
+    final record = await recordById(entityId);
+    if (record != null) {
+      return record.projectId ??
+          record.fields['projectId'] as String? ??
+          record.fields['_codex.projectId'] as String? ??
+          record.scopeId;
+    }
+    return (await manuscriptNodeById(entityId))?.projectId;
+  }
+
+  Future<void> deleteLink(String linkId) async {
+    await (database.delete(database.recordLinkRows)
+          ..where((table) => table.id.equals(linkId)))
+        .go();
+  }
+
+  Future<List<SearchIndexHit>> searchIndex(
+    String query, {
+    required String exactQuery,
+    required UniversalSearchFilter filter,
+  }) async {
     if (database.schemaVersion < 2 || query.trim().isEmpty) {
       return [];
     }
+    final conditions = <String>[
+      'author_search MATCH ?',
+      'project_id = ?',
+      filter.branchId == null
+          ? "entity_kind != 'branchRecord' AND branch_id IS NULL"
+          : "(entity_kind = 'branchRecord' AND branch_id = ? OR "
+              "entity_kind != 'branchRecord' AND branch_id IS NULL)",
+    ];
+    final variables = <Variable>[
+      Variable<String>(query.trim()),
+      Variable<String>(filter.projectId),
+      if (filter.branchId != null) Variable<String>(filter.branchId!),
+    ];
+    void addFilter(String column, String? value) {
+      if (value == null) return;
+      conditions.add('$column = ?');
+      variables.add(Variable<String>(value));
+    }
+
+    addFilter('type_id', filter.recordType);
+    addFilter('series_id', filter.seriesId);
+    addFilter('book_id', filter.bookId);
+    if (filter.branchId == null) {
+      addFilter('canon_status', filter.canonStatus?.name);
+    }
+    addFilter('lifecycle_status', filter.lifecycleStatus?.name);
+    final rows = await database.customSelect('''
+      SELECT entity_id, entity_kind, title,
+        snippet(author_search, 11, '<b>', '</b>', '...', 20) AS snippet,
+        CASE WHEN lower(title) = lower(?) THEN -1000.0
+          ELSE bm25(author_search) END AS search_rank,
+        CASE
+          WHEN lower(title) = lower(?) THEN 'title'
+          ELSE 'content'
+        END AS matched_field
+      FROM author_search
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY CASE WHEN lower(title) = lower(?) THEN 0 ELSE 1 END,
+        search_rank
+      LIMIT ?
+    ''', variables: [
+      Variable<String>(exactQuery.trim()),
+      Variable<String>(exactQuery.trim()),
+      ...variables,
+      Variable<String>(exactQuery.trim()),
+      Variable<int>(
+        filter.branchId != null && filter.canonStatus != null
+            ? filter.limit * 5
+            : filter.limit,
+      ),
+    ]).get();
+    return rows.map((row) {
+      final rawKind = row.read<String>('entity_kind');
+      return SearchIndexHit(
+        entityId: row.read<String>('entity_id'),
+        kind: SearchEntityKind.values.firstWhere(
+          (kind) => kind.name == rawKind,
+        ),
+        title: row.read<String>('title'),
+        snippet: row.read<String>('snippet'),
+        rank: row.read<double>('search_rank'),
+        matchedField: row.read<String>('matched_field'),
+      );
+    }).toList();
+  }
+
+  Future<List<String>> searchEntityIds(String query) async {
+    if (database.schemaVersion < 2 || query.trim().isEmpty) return [];
     final rows = await database.customSelect(
-      'SELECT entity_id FROM author_search WHERE author_search MATCH ? '
-      'ORDER BY rank',
+      "SELECT entity_id FROM author_search WHERE author_search MATCH ? "
+      "AND entity_kind != 'branchRecord' ORDER BY rank",
       variables: [Variable<String>(query.trim())],
     ).get();
     return rows.map((row) => row.read<String>('entity_id')).toList();
@@ -260,14 +1074,51 @@ class DriftConnectedDomainRepository {
     final linkRows = await (database.select(database.recordLinkRows)
           ..orderBy([(table) => OrderingTerm.asc(table.id)]))
         .get();
+    final definitionRows =
+        await (database.select(database.recordTypeDefinitionRows)
+              ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+            .get();
+    final connectionDefinitionRows =
+        await (database.select(database.connectionTypeDefinitionRows)
+              ..orderBy([
+                (table) => OrderingTerm.asc(table.scopeId),
+                (table) => OrderingTerm.asc(table.id),
+              ]))
+            .get();
+    final branchRows = await (database.select(database.storyBranchRows)
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    final branchRecordRows =
+        await database.select(database.branchRecordOverlayRows).get();
+    final branchLinkRows =
+        await database.select(database.branchLinkOverlayRows).get();
+    final versionRows = await (database.select(database.recordVersionRows)
+          ..orderBy([(table) => OrderingTerm.asc(table.createdAt)]))
+        .get();
+    final auditRows = await (database.select(database.auditEventRows)
+          ..orderBy([(table) => OrderingTerm.asc(table.createdAt)]))
+        .get();
     return ConnectedDomainSnapshot(
       records: recordRows.map(_recordFromRow).toList(),
       manuscriptNodes: nodeRows.map(_nodeFromRow).toList(),
       links: linkRows.map(_linkFromRow).toList(),
+      recordTypeDefinitions: definitionRows.map(_definitionFromRow).toList(),
+      connectionTypeDefinitions:
+          connectionDefinitionRows.map(_connectionDefinitionFromRow).toList(),
+      branches: branchRows.map(_branchFromRow).toList(),
+      branchRecordOverlays:
+          branchRecordRows.map(_branchRecordOverlayFromRow).toList(),
+      branchLinkOverlays:
+          branchLinkRows.map(_branchLinkOverlayFromRow).toList(),
+      versions: versionRows.map(_versionFromRow).toList(),
+      auditEvents: auditRows.map(_auditFromRow).toList(),
     );
   }
 
   Future<void> _insertSnapshot(ConnectedDomainSnapshot snapshot) async {
+    for (final branch in snapshot.branches) {
+      await putBranch(branch);
+    }
     for (final record in snapshot.records) {
       await _putEntity(record.id, 'record', record.scopeId);
       await _putRecord(record);
@@ -279,7 +1130,74 @@ class DriftConnectedDomainRepository {
     for (final link in snapshot.links) {
       await _putLink(link);
     }
+    for (final definition in snapshot.recordTypeDefinitions) {
+      await putRecordTypeDefinition(definition);
+    }
+    for (final definition in snapshot.connectionTypeDefinitions) {
+      await putConnectionTypeDefinition(definition);
+    }
+    for (final overlay in snapshot.branchRecordOverlays) {
+      await putBranchRecordOverlay(overlay);
+    }
+    for (final overlay in snapshot.branchLinkOverlays) {
+      await putBranchLinkOverlay(overlay);
+    }
+    for (final version in snapshot.versions) {
+      await _insertVersion(version);
+    }
+    for (final event in snapshot.auditEvents) {
+      await _insertAuditEvent(event);
+    }
   }
+
+  Future<void> _appendHistory(
+    RecordVersion version,
+    AuditEvent auditEvent,
+  ) async {
+    if (auditEvent.versionId != version.id ||
+        auditEvent.projectId != version.projectId ||
+        auditEvent.entityId != version.entityId) {
+      throw StateError('Audit event does not match its version.');
+    }
+    await _insertVersion(version);
+    await _insertAuditEvent(auditEvent);
+  }
+
+  Future<void> _insertVersion(RecordVersion version) => database
+      .into(database.recordVersionRows)
+      .insert(RecordVersionRowsCompanion.insert(
+        id: version.id,
+        entityId: version.entityId,
+        entityKind: version.entityKind.name,
+        recordId: version.recordId,
+        recordType: version.recordType,
+        projectId: version.projectId,
+        seriesId: Value(version.seriesId),
+        bookId: Value(version.bookId),
+        branchId: Value(version.branchId),
+        changeType: version.changeType.name,
+        createdAt: version.createdAt,
+        previousVersionId: Value(version.previousVersionId),
+        versionJson: jsonEncode(version.toJson()),
+      ));
+
+  Future<void> _insertAuditEvent(AuditEvent event) => database
+      .into(database.auditEventRows)
+      .insert(AuditEventRowsCompanion.insert(
+        id: event.id,
+        versionId: event.versionId,
+        entityId: event.entityId,
+        entityKind: event.entityKind.name,
+        recordId: event.recordId,
+        recordType: event.recordType,
+        projectId: event.projectId,
+        seriesId: Value(event.seriesId),
+        bookId: Value(event.bookId),
+        branchId: Value(event.branchId),
+        changeType: event.changeType.name,
+        createdAt: event.createdAt,
+        eventJson: jsonEncode(event.toJson()),
+      ));
 
   Future<void> _putEntity(String id, String kind, String scopeId) =>
       database.into(database.connectedEntities).insertOnConflictUpdate(
@@ -297,9 +1215,16 @@ class DriftConnectedDomainRepository {
             typeId: record.typeId,
             scopeType: record.scopeType.name,
             scopeId: record.scopeId,
+            projectId: Value(record.projectId),
+            seriesId: Value(record.seriesId),
+            bookId: Value(record.bookId),
+            branchId: Value(record.branchId),
+            canonStatus: Value(record.canonStatus.name),
             title: record.title,
             status: record.status.name,
             schemaVersion: record.schemaVersion,
+            templateId: Value(record.templateId),
+            templateVersion: Value(record.templateVersion),
             revision: record.revision,
             fieldsJson: jsonEncode(record.fields),
             tagsJson: jsonEncode(record.tags),
@@ -309,10 +1234,38 @@ class DriftConnectedDomainRepository {
           ),
         );
     await _indexEntity(
-      record.id,
-      record.title,
-      '${record.fields.values.join(' ')} ${record.tags.join(' ')}',
+      entityId: record.id,
+      kind: SearchEntityKind.record,
+      projectId: record.projectId ?? record.scopeId,
+      seriesId: record.seriesId,
+      bookId: record.bookId,
+      branchId: record.branchId,
+      canonStatus: record.canonStatus,
+      lifecycleStatus: record.status,
+      typeId: record.typeId,
+      templateId: record.templateId,
+      title: record.title,
+      body: jsonEncode(record.fields),
+      tags: record.tags,
     );
+    if (database.schemaVersion >= 7) {
+      final overlays = await database.customSelect('''
+        SELECT o.overlay_json, b.project_id
+        FROM branch_record_overlay_rows o
+        JOIN story_branch_rows b ON b.id = o.branch_id
+        WHERE o.record_id = ?
+      ''', variables: [Variable<String>(record.id)]).get();
+      for (final row in overlays) {
+        await database._indexBranchOverlay(
+          BranchRecordOverlay.fromJson(
+            Map<String, dynamic>.from(
+              jsonDecode(row.read<String>('overlay_json')) as Map,
+            ),
+          ),
+          row.read<String>('project_id'),
+        );
+      }
+    }
   }
 
   Future<void> _putManuscriptNode(ManuscriptNodeReference node) async {
@@ -329,9 +1282,14 @@ class DriftConnectedDomainRepository {
           ),
         );
     await _indexEntity(
-      node.id,
-      node.title,
-      node.extensionData.values.join(' '),
+      entityId: node.id,
+      kind: SearchEntityKind.manuscriptNode,
+      projectId: node.projectId,
+      canonStatus: CanonStatus.canon,
+      lifecycleStatus: AuthorRecordStatus.active,
+      typeId: node.nodeType,
+      title: node.title,
+      body: jsonEncode(node.extensionData),
     );
   }
 
@@ -353,18 +1311,48 @@ class DriftConnectedDomainRepository {
             ),
           );
 
-  Future<void> _indexEntity(String id, String title, String body) async {
+  Future<void> _indexEntity({
+    required String entityId,
+    required SearchEntityKind kind,
+    required String projectId,
+    required CanonStatus canonStatus,
+    required AuthorRecordStatus lifecycleStatus,
+    required String typeId,
+    required String title,
+    required String body,
+    String? seriesId,
+    String? bookId,
+    String? branchId,
+    String? templateId,
+    List<String> tags = const [],
+  }) async {
     if (database.schemaVersion < 2) {
       return;
     }
     await database.customStatement(
-      'DELETE FROM author_search WHERE entity_id = ?',
-      [id],
+      'DELETE FROM author_search WHERE entity_id = ? AND entity_kind = ?',
+      [entityId, kind.name],
     );
-    await database.customStatement(
-      'INSERT INTO author_search(entity_id, title, body) VALUES (?, ?, ?)',
-      [id, title, body],
-    );
+    await database.customStatement('''
+      INSERT INTO author_search(
+        entity_id, entity_kind, project_id, series_id, book_id, branch_id,
+        canon_status, lifecycle_status, type_id, template_id, title, body, tags
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', [
+      entityId,
+      kind.name,
+      projectId,
+      seriesId,
+      bookId,
+      branchId,
+      canonStatus.name,
+      lifecycleStatus.name,
+      typeId,
+      templateId,
+      title,
+      body,
+      jsonEncode(tags),
+    ]);
   }
 
   AuthorRecord _recordFromRow(AuthorRecordRow row) => AuthorRecord.fromJson({
@@ -372,9 +1360,16 @@ class DriftConnectedDomainRepository {
         'typeId': row.typeId,
         'scopeType': row.scopeType,
         'scopeId': row.scopeId,
+        'projectId': row.projectId,
+        'seriesId': row.seriesId,
+        'bookId': row.bookId,
+        'branchId': row.branchId,
+        'canonStatus': row.canonStatus,
         'title': row.title,
         'status': row.status,
         'schemaVersion': row.schemaVersion,
+        'templateId': row.templateId,
+        'templateVersion': row.templateVersion,
         'revision': row.revision,
         'fields': jsonDecode(row.fieldsJson),
         'tags': jsonDecode(row.tagsJson),
@@ -409,4 +1404,52 @@ class DriftConnectedDomainRepository {
         'updatedAt': row.updatedAt.toUtc().toIso8601String(),
         'extensionData': jsonDecode(row.extensionJson),
       });
+
+  RecordTypeDefinition _definitionFromRow(RecordTypeDefinitionRow row) =>
+      RecordTypeDefinition.fromJson(
+        Map<String, dynamic>.from(jsonDecode(row.definitionJson) as Map),
+      );
+
+  ConnectionTypeDefinition _connectionDefinitionFromRow(
+    ConnectionTypeDefinitionRow row,
+  ) =>
+      ConnectionTypeDefinition.fromJson(
+        Map<String, dynamic>.from(jsonDecode(row.definitionJson) as Map),
+      );
+
+  StoryBranch _branchFromRow(StoryBranchRow row) => StoryBranch.fromJson(
+        Map<String, dynamic>.from(jsonDecode(row.branchJson) as Map),
+      );
+
+  BranchRecordOverlay _branchRecordOverlayFromRow(
+    BranchRecordOverlayRow row,
+  ) =>
+      BranchRecordOverlay.fromJson(
+        Map<String, dynamic>.from(jsonDecode(row.overlayJson) as Map),
+      );
+
+  BranchLinkOverlay _branchLinkOverlayFromRow(BranchLinkOverlayRow row) =>
+      BranchLinkOverlay.fromJson(
+        Map<String, dynamic>.from(jsonDecode(row.overlayJson) as Map),
+      );
+
+  RecordVersion _versionFromRow(RecordVersionRow row) => RecordVersion.fromJson(
+        Map<String, dynamic>.from(jsonDecode(row.versionJson) as Map),
+      );
+
+  AuditEvent _auditFromRow(AuditEventRow row) => AuditEvent.fromJson(
+        Map<String, dynamic>.from(jsonDecode(row.eventJson) as Map),
+      );
+}
+
+final AuthorOsDatabase authorOsDatabase = AuthorOsDatabase.defaults();
+final DriftConnectedDomainRepository authorOsRepository =
+    DriftConnectedDomainRepository(authorOsDatabase);
+
+List<String> _decodeStringList(String? value) {
+  if (value == null) return const [];
+  final decoded = jsonDecode(value);
+  return decoded is List
+      ? decoded.map((item) => item.toString()).toList()
+      : const [];
 }

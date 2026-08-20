@@ -14,11 +14,13 @@ class ManuscriptStudioView extends StatefulWidget {
     required this.project,
     required this.startSprint,
     this.minimalMode = false,
+    this.store = const ManuscriptStore(),
   });
 
   final StarterProject project;
   final bool startSprint;
   final bool minimalMode;
+  final ManuscriptStore store;
 
   @override
   State<ManuscriptStudioView> createState() => _ManuscriptStudioViewState();
@@ -117,7 +119,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     final snapshot = _manuscript;
     if (snapshot != null) {
       // Save without setState to avoid lifecycle assertions during disposal.
-      const ManuscriptStore().saveStudio(snapshot);
+      widget.store.saveStudio(snapshot);
     }
     _editorController.removeListener(_onEditorChanged);
     _editorController.dispose();
@@ -126,10 +128,9 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   }
 
   Future<void> _load() async {
-    const store = ManuscriptStore();
     _readingRhythm = await const ReadingRhythmStore().load(widget.project.id);
     final migratedChapters =
-        await store.loadLegacyChapterSeeds(widget.project.id);
+        await widget.store.loadLegacyChapterSeeds(widget.project.id);
     final chapterSeeds = migratedChapters.isNotEmpty
         ? migratedChapters
         : widget.project.chapters
@@ -144,7 +145,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
             )
             .toList();
 
-    final data = await store.loadStudio(
+    final data = await widget.store.loadStudio(
       widget.project.id,
       manuscriptTitle: widget.project.title,
       defaultChapters: chapterSeeds,
@@ -328,7 +329,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         _saving = true;
       });
     }
-    await const ManuscriptStore().saveStudio(manuscript);
+    await widget.store.saveStudio(manuscript);
     if (updateUi && mounted) {
       setState(() {
         _saving = false;

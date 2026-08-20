@@ -2,11 +2,24 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:author_studio_v1/manuscript_store.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final fixtureDirectory = Directory('test/fixtures');
+  late AuthorOsDatabase database;
+  late ManuscriptStore store;
+
+  setUp(() {
+    database = AuthorOsDatabase(NativeDatabase.memory());
+    store = ManuscriptStore(
+      repository: DriftConnectedDomainRepository(database),
+    );
+  });
+
+  tearDown(() => database.close());
 
   test('legacy migration fixture set has every required scenario', () {
     final fixtures = _loadFixtures(fixtureDirectory);
@@ -78,7 +91,7 @@ void main() {
     final fixture = _fixture(fixtureDirectory, 'legacy-simple');
     SharedPreferences.setMockInitialValues(_materializePreferences(fixture));
 
-    final manuscript = await const ManuscriptStore().loadStudio(
+    final manuscript = await store.loadStudio(
       fixture['projectId'] as String,
       manuscriptTitle: 'Fallback title',
       defaultChapters: const [],
@@ -95,7 +108,7 @@ void main() {
     final fixture = _fixture(fixtureDirectory, 'legacy-partial');
     SharedPreferences.setMockInitialValues(_materializePreferences(fixture));
 
-    final manuscript = await const ManuscriptStore().loadStudio(
+    final manuscript = await store.loadStudio(
       fixture['projectId'] as String,
       manuscriptTitle: 'Fallback title',
       defaultChapters: const [],
@@ -113,7 +126,7 @@ void main() {
     final fixture = _fixture(fixtureDirectory, 'legacy-malformed');
     SharedPreferences.setMockInitialValues(_materializePreferences(fixture));
 
-    final manuscript = await const ManuscriptStore().loadStudio(
+    final manuscript = await store.loadStudio(
       fixture['projectId'] as String,
       manuscriptTitle: 'Recovered project',
       defaultChapters: const [

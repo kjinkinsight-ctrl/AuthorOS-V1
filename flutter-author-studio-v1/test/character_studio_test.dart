@@ -1,13 +1,23 @@
 import 'package:author_studio_v1/character_studio.dart';
+import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/onboarding.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  late AuthorOsDatabase database;
+  late DriftConnectedDomainRepository repository;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    database = AuthorOsDatabase(NativeDatabase.memory());
+    repository = DriftConnectedDomainRepository(database);
   });
+
+  tearDown(() => database.close());
 
   test('deep character record and connections round trip through project store',
       () async {
@@ -34,7 +44,24 @@ void main() {
       portraitPath: 'portraits/kali.png',
       referenceImages: ['references/kali-coat.png'],
     );
-    const store = CharacterStudioStore('project-one');
+    final store = CharacterStudioStore('project-one', repository: repository);
+    final timestamp = DateTime.utc(2026, 8, 18);
+    for (final targetId in [
+      'character-cassian',
+      'scene-1',
+      'scene-8',
+      'event-2',
+    ]) {
+      await repository.putRecord(AuthorRecord(
+        id: targetId,
+        typeId: 'connection-target',
+        scopeType: RecordScopeType.project,
+        scopeId: 'project-one',
+        title: targetId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ));
+    }
 
     await store.save([record]);
     final restored = await store.load();
@@ -47,7 +74,10 @@ void main() {
     expect(restored.single.connections['scenes'], ['scene-1', 'scene-8']);
     expect(restored.single.portraitPath, 'portraits/kali.png');
     expect(restored.single.referenceImages, ['references/kali-coat.png']);
-    expect(await const CharacterStudioStore('project-two').load(), isEmpty);
+    expect(
+      await CharacterStudioStore('project-two', repository: repository).load(),
+      isEmpty,
+    );
   });
 
   testWidgets('author can add and persist a structured character',
@@ -68,8 +98,14 @@ void main() {
     );
 
     await tester.pumpWidget(
-      const MaterialApp(
-          home: Scaffold(body: CharacterBoardView(project: project))),
+      MaterialApp(
+        home: Scaffold(
+          body: CharacterBoardView(
+            project: project,
+            repository: repository,
+          ),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -83,8 +119,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Kali Vale'), findsWidgets);
-    final saved =
-        await const CharacterStudioStore('character-studio-project').load();
+    final saved = await CharacterStudioStore(
+      'character-studio-project',
+      repository: repository,
+    ).load();
     expect(saved, hasLength(1));
     expect(saved.single.name, 'Kali Vale');
     expect(saved.single.template, 'Standard Character');

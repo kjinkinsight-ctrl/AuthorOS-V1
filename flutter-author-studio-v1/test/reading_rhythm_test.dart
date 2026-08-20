@@ -1,15 +1,27 @@
 import 'package:author_studio_v1/main.dart';
+import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/reading_rhythm.dart';
 import 'package:author_studio_v1/release_destinations.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  late AuthorOsDatabase database;
+  late ManuscriptStore manuscriptStore;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    database = AuthorOsDatabase(NativeDatabase.memory());
+    manuscriptStore = ManuscriptStore(
+      repository: DriftConnectedDomainRepository(database),
+    );
   });
+
+  tearDown(() => database.close());
 
   test('reading rhythm presets have distinct drafting geometry', () {
     expect(
@@ -56,6 +68,7 @@ void main() {
         theme: ThemeData.dark(useMaterial3: true),
         home: AuthorStudioShell(
           project: project,
+          manuscriptStore: manuscriptStore,
           openFirstDraft: true,
           themeId: 'obsidian',
           accentId: 'default',
@@ -99,6 +112,7 @@ void main() {
         theme: ThemeData.dark(useMaterial3: true),
         home: AuthorStudioShell(
           project: project,
+          manuscriptStore: manuscriptStore,
           themeId: 'obsidian',
           accentId: 'default',
           onThemeChanged: (_, __) {},

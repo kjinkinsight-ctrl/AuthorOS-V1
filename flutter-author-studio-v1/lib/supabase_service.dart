@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'onboarding.dart';
 
 class AppSupabase {
+  static const _initializationTimeout = Duration(seconds: 5);
   static const String _defaultUrl = 'https://dzhfhypgkukvfliubykv.supabase.co';
   static const String _defaultAnonKey =
       'oLQ9HlLF/6GHNuryu4XEfcm59wPOFBp/x6TiZe+FBQWBk8P+smALpCSCDG8qtWeMnKTkRX1C+PYdC1ycSUNSTA==';
@@ -20,21 +21,33 @@ class AppSupabase {
         defaultValue: _defaultAnonKey,
       );
 
-  static bool get hasCredentials =>
+  static bool _available = false;
+
+  static bool get _isConfigured =>
       resolvedUrl.isNotEmpty && resolvedAnonKey.isNotEmpty;
 
+  static bool get hasCredentials => _available;
+
   static Future<void> initialize() async {
-    if (!hasCredentials) {
+    if (!_isConfigured) {
       debugPrint(
         'Supabase credentials are not configured. Falling back to local persistence until SUPABASE_URL and SUPABASE_ANON_KEY are provided.',
       );
       return;
     }
 
-    await Supabase.initialize(
-      url: resolvedUrl,
-      publishableKey: resolvedAnonKey,
-    );
+    try {
+      await Supabase.initialize(
+        url: resolvedUrl,
+        publishableKey: resolvedAnonKey,
+      ).timeout(_initializationTimeout);
+      _available = true;
+    } catch (error) {
+      _available = false;
+      debugPrint(
+        'Supabase initialization failed. Continuing with local persistence: $error',
+      );
+    }
   }
 
   static SupabaseClient get client {

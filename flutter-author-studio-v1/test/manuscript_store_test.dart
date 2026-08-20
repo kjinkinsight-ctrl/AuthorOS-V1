@@ -1,15 +1,24 @@
 import 'package:author_studio_v1/manuscript_store.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  late AuthorOsDatabase database;
+  late ManuscriptStore store;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    database = AuthorOsDatabase(NativeDatabase.memory());
+    store = ManuscriptStore(
+      repository: DriftConnectedDomainRepository(database),
+    );
   });
 
-  test('manuscript store persists drafts independently by project', () async {
-    const store = ManuscriptStore();
+  tearDown(() => database.close());
 
+  test('manuscript store persists drafts independently by project', () async {
     await store.save('project-a', 'The opening line.');
     await store.save('project-b', 'A different manuscript.');
 
@@ -24,7 +33,6 @@ void main() {
       'author_studio.manuscript.project-legacy': 'Legacy draft line one.',
     });
 
-    const store = ManuscriptStore();
     final manuscript = await store.loadStudio(
       'project-legacy',
       manuscriptTitle: 'Legacy Project',
@@ -53,7 +61,7 @@ void main() {
 
   test('structured manuscript persists chapter and scene ordering explicitly',
       () async {
-    const store = ManuscriptStore();
+    final repository = store.repository!;
     final now = DateTime(2026, 8, 16);
 
     final manuscript = ManuscriptProjectSummary(
@@ -150,11 +158,20 @@ void main() {
     expect(
         exported.indexOf('Scene B1'), lessThan(exported.indexOf('Scene B2')));
     expect(loaded.wordCount, greaterThan(0));
+
+    final chapterNode = await repository.manuscriptNodeById('chapter-a');
+    final sceneNode = await repository.manuscriptNodeById('scene-a1');
+    expect(chapterNode?.nodeType, 'chapter');
+    expect(chapterNode?.projectId, 'project-ordered');
+    expect(chapterNode?.extensionData['order'], 1);
+    expect(sceneNode?.nodeType, 'scene');
+    expect(sceneNode?.extensionData['chapterId'], 'chapter-a');
+    expect(sceneNode?.extensionData, isNot(contains('content')));
+    expect(await repository.searchEntityIds('Scene A1'), ['scene-a1']);
   });
 
   test('large structured manuscript reloads with every scene addressable',
       () async {
-    const store = ManuscriptStore();
     final now = DateTime(2026, 8, 16);
     final chapters = [
       for (var chapterIndex = 0; chapterIndex < 120; chapterIndex++)

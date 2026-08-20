@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/connected_domain.dart';
+import 'persistence/authoros_database.dart';
+
 class ManuscriptId {
   ManuscriptId._();
 
@@ -547,7 +550,12 @@ class ManuscriptChapterSeed {
 }
 
 class ManuscriptStore {
-  const ManuscriptStore();
+  const ManuscriptStore({this.repository});
+
+  final DriftConnectedDomainRepository? repository;
+
+  DriftConnectedDomainRepository get _repository =>
+      repository ?? authorOsRepository;
 
   static String _key(String projectId) => 'author_studio.manuscript.$projectId';
 
@@ -654,6 +662,37 @@ class ManuscriptStore {
         manuscript.exportAsSingleText(),
       );
     }
+
+    await _repository.putManuscriptNodes([
+      for (final chapter in manuscript.chapters)
+        ManuscriptNodeReference(
+          id: chapter.id,
+          projectId: manuscript.projectId,
+          nodeType: 'chapter',
+          title: chapter.title,
+          createdAt: chapter.createdAt,
+          updatedAt: chapter.updatedAt,
+          extensionData: {
+            'order': chapter.order,
+            'status': chapter.status.id,
+          },
+        ),
+      for (final chapter in manuscript.chapters)
+        for (final scene in chapter.scenes)
+          ManuscriptNodeReference(
+            id: scene.id,
+            projectId: manuscript.projectId,
+            nodeType: 'scene',
+            title: scene.title,
+            createdAt: scene.createdAt,
+            updatedAt: scene.updatedAt,
+            extensionData: {
+              'chapterId': chapter.id,
+              'order': scene.order,
+              'status': scene.status.id,
+            },
+          ),
+    ]);
   }
 
   Future<ManuscriptProjectSummary> _migrateLegacyToStudio(

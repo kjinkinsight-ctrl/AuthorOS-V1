@@ -44,6 +44,7 @@ flutter:
           weight: 700
   assets:
     - assets/author-studio-logo.png
+    - assets/welcome-hero.png
     - assets/fonts/Inter-400.ttf
     - assets/fonts/Inter-700.ttf
     - assets/fonts/Merriweather-400.ttf

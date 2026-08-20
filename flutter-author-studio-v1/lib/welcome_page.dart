@@ -420,6 +420,10 @@ class _EntryTile extends StatelessWidget {
 }
 
 /// The centre panel: artwork when supplied, otherwise a painted monogram.
+///
+/// The artwork already carries the monogram, wordmark, tagline and quote, so
+/// nothing is drawn over it. The painted fallback below reproduces those same
+/// elements for builds that ship without the image.
 class _WelcomeHero extends StatelessWidget {
   const _WelcomeHero({this.image});
 
@@ -428,67 +432,73 @@ class _WelcomeHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final artwork = image;
-    return DecoratedBox(
+    if (artwork != null) {
+      return DecoratedBox(
+        key: const Key('welcome-hero-artwork'),
+        decoration: BoxDecoration(
+          color: _WelcomePalette.background,
+          image: DecorationImage(image: artwork, fit: BoxFit.cover),
+        ),
+        child: const SizedBox.expand(),
+      );
+    }
+
+    return const DecoratedBox(
+      key: Key('welcome-hero-painted'),
       decoration: BoxDecoration(
-        gradient: const RadialGradient(
+        gradient: RadialGradient(
           center: Alignment(0, -0.25),
           radius: 1.1,
           colors: [Color(0xFF1C1512), _WelcomePalette.background],
         ),
-        image: artwork == null
-            ? null
-            : DecorationImage(image: artwork, fit: BoxFit.cover),
       ),
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.all(32),
-        // Scrim so the wordmark stays legible over artwork.
-        decoration: artwork == null
-            ? null
-            : const BoxDecoration(color: Color(0x7A0B0908)),
-        child: const SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _Monogram(),
-              SizedBox(height: 22),
-              Text(
-                'Author OS',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'Merriweather',
-                  color: _WelcomePalette.goldBright,
-                  fontSize: 52,
-                  fontWeight: FontWeight.w700,
-                  height: 1.1,
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _Monogram(),
+                SizedBox(height: 22),
+                Text(
+                  'Author OS',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'Merriweather',
+                    color: _WelcomePalette.goldBright,
+                    fontSize: 52,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
                 ),
-              ),
-              SizedBox(height: 14),
-              Text(
-                'PLAN  •  BUILD  •  WRITE  •  EXPLORE  •  CREATE',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _WelcomePalette.gold,
-                  fontSize: 12,
-                  letterSpacing: 3.2,
-                  height: 1.4,
+                SizedBox(height: 14),
+                Text(
+                  'PLAN  •  BUILD  •  WRITE  •  EXPLORE  •  CREATE',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _WelcomePalette.gold,
+                    fontSize: 12,
+                    letterSpacing: 3.2,
+                    height: 1.4,
+                  ),
                 ),
-              ),
-              SizedBox(height: 20),
-              SizedBox(width: 260, child: _Ornament()),
-              SizedBox(height: 20),
-              Text(
-                'Every great story starts\nwith a blank page.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'Merriweather',
-                  color: _WelcomePalette.cream,
-                  fontSize: 16,
-                  fontStyle: FontStyle.italic,
-                  height: 1.6,
+                SizedBox(height: 20),
+                SizedBox(width: 260, child: _Ornament()),
+                SizedBox(height: 20),
+                Text(
+                  'Every great story starts\nwith a blank page.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'Merriweather',
+                    color: _WelcomePalette.cream,
+                    fontSize: 16,
+                    fontStyle: FontStyle.italic,
+                    height: 1.6,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

@@ -95,6 +95,39 @@ void main() {
     expect(find.text('Kai'), findsOneWidget);
   });
 
+  testWidgets('hero artwork replaces the painted monogram', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WelcomePage(
+          onAction: (_) {},
+          heroImage: const AssetImage('assets/welcome-hero.png'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('welcome-hero-artwork')), findsOneWidget);
+    expect(find.byKey(const Key('welcome-hero-painted')), findsNothing);
+
+    // The artwork already carries these, so they must not be drawn over it.
+    expect(
+      find.text('PLAN  •  BUILD  •  WRITE  •  EXPLORE  •  CREATE'),
+      findsNothing,
+    );
+    expect(
+      find.text('Every great story starts\nwith a blank page.'),
+      findsNothing,
+    );
+
+    // Sidebar and quick start still belong to the app, not the artwork.
+    expect(find.text('Your complete book creation studio.'), findsOneWidget);
+    expect(find.byKey(const Key('welcome-continue-writing')), findsOneWidget);
+  });
+
   testWidgets('the page lays out on a narrow browser window', (tester) async {
     final recorded = <WelcomeAction>[];
     await _pumpWelcome(

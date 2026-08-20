@@ -1106,6 +1106,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       return WelcomePage(
         onAction: _openFromWelcome,
         authorName: existingProfileName,
+        heroImage: const AssetImage('assets/welcome-hero.png'),
       );
     }
 

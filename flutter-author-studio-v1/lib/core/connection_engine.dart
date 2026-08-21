@@ -31,6 +31,7 @@ class ConnectionEngine {
     String label = '',
     RecordLinkDirection direction = RecordLinkDirection.directed,
     Map<String, Object?> metadata = const {},
+    Map<String, Object?> extensionData = const {},
     DateTime? timestamp,
   }) async {
     if (sourceId.trim().isEmpty ||
@@ -65,6 +66,7 @@ class ConnectionEngine {
       direction: direction,
       label: label,
       metadata: metadata,
+      extensionData: extensionData,
       createdAt: now,
       updatedAt: now,
     );

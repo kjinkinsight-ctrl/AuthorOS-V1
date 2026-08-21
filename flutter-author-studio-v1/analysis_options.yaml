@@ -11,6 +11,12 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    # A dead Isar benchmark harness: it imports package:isar_community, which
+    # is not a dependency, so it cannot compile and reports 21 analyzer errors.
+    # Its generated half was already excluded; excluding the source alongside
+    # it keeps `flutter analyze` reporting real problems only. Delete the file
+    # or restore the dependency to remove this exclusion.
+    - tool/storage_benchmark.dart
     - tool/storage_benchmark.g.dart
 
 linter:

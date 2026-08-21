@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'local_image.dart';
 
 enum ManuscriptExportPreset {
   standardManuscript,
@@ -356,32 +357,28 @@ class _ManuscriptExportDialogState extends State<ManuscriptExportDialog> {
                         ),
                       ),
                       clipBehavior: Clip.antiAlias,
-                      child: authorAvatarPath.isNotEmpty
-                          ? Image.file(
-                              File(authorAvatarPath),
-                              fit: BoxFit.cover,
-                              width: 54,
-                              height: 54,
-                            )
-                          : Container(
-                              alignment: Alignment.center,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer,
-                              child: Text(
-                                authorDisplayName.trim().isEmpty
-                                    ? 'A'
-                                    : authorDisplayName
-                                        .trim()
-                                        .split(RegExp(r'\s+'))
-                                        .first[0]
-                                        .toUpperCase(),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 22,
-                                ),
-                              ),
+                      child: LocalImage(
+                        path: authorAvatarPath,
+                        width: 54,
+                        height: 54,
+                        fallback: Container(
+                          alignment: Alignment.center,
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          child: Text(
+                            authorDisplayName.trim().isEmpty
+                                ? 'A'
+                                : authorDisplayName
+                                    .trim()
+                                    .split(RegExp(r'\s+'))
+                                    .first[0]
+                                    .toUpperCase(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 22,
                             ),
+                          ),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(

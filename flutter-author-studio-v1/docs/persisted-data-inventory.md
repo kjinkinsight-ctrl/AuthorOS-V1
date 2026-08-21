@@ -90,12 +90,13 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 
 ### `author_studio.research_panel.{projectId}`
 
-- Owner: `ResearchReferenceStore` in `main.dart`
-- Storage type: JSON map string keyed by research group/category
+- Owner: `ProjectResearchStore` in `main.dart`
+- Storage type: JSON map string keyed by `ResearchTab` name (`research`, `notes`, `timeline`)
 - Values: arrays of `ResearchReference`
-- Known fields: reference title/label and URL/location values defined by `ResearchReference.toJson`
-- 2.0 destination: research records and links to manuscript/story records
-- Migration concerns: invalid URLs, duplicate references, unknown categories
+- Known fields: `title`, `detail`, `tag` — three strings, no URLs or record ids, as defined by `ResearchReference.toJson`
+- 2.0 destination: `research-entry` records owned by Research Studio, plus links to manuscript/story records
+- Migration concerns: duplicate references, unknown tabs, and `timeline` tab entries that are free text about chronology rather than timeline records
+- Status: **not yet migrated.** Research Studio (August 2026) builds on canonical `research-entry` records and never reads or writes this key; the panel and its data are left intact. This key is not covered by the archive, sync, or backup subsystems, so its contents are absent from project archives until a migration lands. See `docs/research-studio-expansion-map.md` §7.
 - Fixture coverage: web URL, local path, empty group, unknown fields
 
 ### `author_studio.collection.{collection}`

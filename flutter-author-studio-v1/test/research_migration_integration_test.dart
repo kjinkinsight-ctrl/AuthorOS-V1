@@ -2,6 +2,7 @@ import 'package:author_studio_v1/analytics_service.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
 import 'package:author_studio_v1/core/record_service.dart';
+import 'package:author_studio_v1/core/research_record_types.dart';
 import 'package:author_studio_v1/core/search_models.dart';
 import 'package:author_studio_v1/core/universal_search.dart';
 import 'package:author_studio_v1/main.dart'
@@ -11,6 +12,7 @@ import 'package:author_studio_v1/migrations/legacy_research_store.dart';
 import 'package:author_studio_v1/migrations/research_migration.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:author_studio_v1/research_service.dart';
 import 'package:author_studio_v1/theme/theme_definition.dart';
 import 'package:author_studio_v1/theme/theme_persistence.dart';
 import 'package:drift/native.dart';
@@ -170,7 +172,7 @@ void main() {
 
       expect(byTitle.map((result) => result.title), ['Ashfall harbour tolls']);
       expect(byBody.map((result) => result.title), ['Ashfall harbour tolls']);
-      expect(byTitle.single.recordType, researchRecordTypeId);
+      expect(byTitle.single.recordType, ResearchRecordTypes.baseTypeId);
       expect(byTitle.single.projectId, 'project-a');
       expect(
         searchDestinationForType(byTitle.single.recordType),
@@ -270,6 +272,232 @@ void main() {
         ),
         throwsStateError,
       );
+    });
+  });
+
+  group('research studio', () {
+    Future<List<AuthorRecord>> migrateAndList(String projectId) async {
+      await serviceFor(projectId).migrate(timestamp: timestamp);
+      return ResearchService(projectId: projectId, repository: repository)
+          .query
+          .all();
+    }
+
+    test('migrated entries appear in the Studio library as native research',
+        () async {
+      await _seed('project-a', {
+        ResearchTab.research: const [
+          ResearchReference(
+            title: 'Ashfall harbour tolls',
+            detail: 'Doubled after the flood.',
+            tag: 'World',
+          ),
+        ],
+        ResearchTab.notes: const [
+          ResearchReference(title: 'Mara', detail: '', tag: 'Character'),
+        ],
+      });
+      final research = ResearchService(
+        projectId: 'project-a',
+        repository: repository,
+      );
+
+      final all = await migrateAndList('project-a');
+
+      expect(all, hasLength(2));
+      for (final record in all) {
+        expect(await research.isResearchRecord(record), isTrue);
+        expect(record.typeId, ResearchRecordTypes.baseTypeId);
+      }
+      // Indistinguishable from a Studio-authored entry apart from provenance.
+      expect(
+        all.map(ResearchService.kindOf).toSet(),
+        {ResearchRecordTypes.defaultKind},
+      );
+      expect(
+        all.map(ResearchService.statusOf).toSet(),
+        {ResearchRecordTypes.defaultStatus},
+      );
+    });
+
+    test('the Studio filters find migrated entries', () async {
+      await _seed('project-a', {
+        ResearchTab.research: const [
+          ResearchReference(title: 'Tolls', detail: 'a', tag: 'World'),
+          ResearchReference(title: 'Rites', detail: 'b', tag: 'Religion'),
+          ResearchReference(title: 'Loose', detail: 'c', tag: 'saltmarsh'),
+        ],
+      });
+      await migrateAndList('project-a');
+      final query = ResearchService(
+        projectId: 'project-a',
+        repository: repository,
+      ).query;
+
+      expect(
+        (await query.byCategory('World')).map((record) => record.title),
+        ['Tolls'],
+      );
+      expect(
+        (await query.byCategory('Religion')).map((record) => record.title),
+        ['Rites'],
+      );
+      // A tag that names no category falls back to the schema default and is
+      // still findable by the tag the author actually wrote.
+      expect(
+        (await query.byCategory(ResearchRecordTypes.defaultCategory))
+            .map((record) => record.title),
+        ['Loose'],
+      );
+      expect(
+        (await query.byTag('saltmarsh')).map((record) => record.title),
+        ['Loose'],
+      );
+      expect(
+        (await query.byKind(ResearchRecordTypes.defaultKind)),
+        hasLength(3),
+      );
+      expect(
+        (await query.byStatus(ResearchRecordTypes.defaultStatus)),
+        hasLength(3),
+      );
+      expect(await query.important(), isEmpty);
+      expect(await query.categoryCounts(), containsPair('World', 1));
+      expect(await query.tags(), containsAll(['World', 'Religion', 'saltmarsh']));
+    });
+
+    test('Studio search finds a migrated entry', () async {
+      await _seed('project-a', {
+        ResearchTab.research: const [
+          ResearchReference(
+            title: 'Ashfall harbour tolls',
+            detail: 'Doubled after the flood of the ninth year.',
+            tag: 'World',
+          ),
+        ],
+      });
+      await migrateAndList('project-a');
+      final research = ResearchService(
+        projectId: 'project-a',
+        repository: repository,
+      );
+
+      expect(
+        (await research.searchResearch('Ashfall')).map((r) => r.title),
+        ['Ashfall harbour tolls'],
+      );
+      expect(
+        (await research.searchResearch('flood')).map((r) => r.title),
+        ['Ashfall harbour tolls'],
+      );
+    });
+
+    test('Studio sorting orders migrated entries', () async {
+      await _seed('project-a', {
+        ResearchTab.research: const [
+          ResearchReference(title: 'Beta', detail: '', tag: ''),
+          ResearchReference(title: 'Alpha', detail: '', tag: ''),
+        ],
+      });
+      final all = await migrateAndList('project-a');
+
+      expect(
+        ResearchQueryService.sorted(all, ResearchSort.alphabetical)
+            .map((record) => record.title),
+        ['Alpha', 'Beta'],
+      );
+    });
+
+    test('every Studio action works on a migrated entry', () async {
+      await _seed('project-a', {
+        ResearchTab.research: const [
+          ResearchReference(title: 'Tide tables', detail: 'Spring.', tag: 'World'),
+        ],
+      });
+      final research = ResearchService(
+        projectId: 'project-a',
+        repository: repository,
+      );
+      final id = (await migrateAndList('project-a')).single.id;
+
+      final important = await research.setImportant(id, true,
+          timestamp: timestamp.add(const Duration(minutes: 1)));
+      expect(ResearchService.isImportant(important), isTrue);
+      expect(await research.query.important(), hasLength(1));
+
+      final reopened = ResearchDraft.fromRecord(important);
+      final edited = await research.updateResearch(
+        ResearchDraft(
+          id: reopened.id,
+          title: 'Tide tables, revised',
+          typeId: reopened.typeId,
+          kind: reopened.kind,
+          category: reopened.category,
+          status: reopened.status,
+          important: reopened.important,
+          summary: reopened.summary,
+          notes: reopened.notes,
+          sourceUrl: reopened.sourceUrl,
+          citation: reopened.citation,
+          tags: reopened.tags,
+        ),
+        timestamp: timestamp.add(const Duration(minutes: 2)),
+      );
+      expect(edited.title, 'Tide tables, revised');
+      expect(ResearchService.summaryOf(edited), 'Spring.');
+      // An edit through the Studio must not strip migration provenance.
+      expect(isMigratedResearchRecord(edited), isTrue);
+      expect(migratedResearchLegacyTab(edited), 'research');
+
+      final duplicate = await research.duplicateResearch(
+        id,
+        newId: '$id-copy',
+        timestamp: timestamp.add(const Duration(minutes: 3)),
+      );
+      expect(ResearchService.summaryOf(duplicate), 'Spring.');
+
+      final archived = await research.archiveResearch(id,
+          timestamp: timestamp.add(const Duration(minutes: 4)));
+      expect(archived.status, AuthorRecordStatus.archived);
+      expect(ResearchService.statusOf(archived),
+          ResearchRecordTypes.archivedStatus);
+
+      final restored = await research.restoreResearch(id,
+          timestamp: timestamp.add(const Duration(minutes: 5)));
+      expect(restored.status, AuthorRecordStatus.active);
+
+      final deleted = await research.deleteResearch(id,
+          timestamp: timestamp.add(const Duration(minutes: 6)));
+      expect(deleted.status, AuthorRecordStatus.deleted);
+      expect(
+        (await research.query.all()).map((record) => record.id),
+        isNot(contains(id)),
+      );
+    });
+
+    test('a migrated entry connects through the Studio', () async {
+      await _seed('project-a', {
+        ResearchTab.research: const [
+          ResearchReference(title: 'Field notes', detail: '', tag: ''),
+        ],
+      });
+      final research = ResearchService(
+        projectId: 'project-a',
+        repository: repository,
+      );
+      final id = (await migrateAndList('project-a')).single.id;
+      await RecordService(projectId: 'project-a', repository: repository)
+          .createRecord(_record('character', 'character'));
+
+      await research.connect(
+        sourceId: id,
+        targetId: 'character',
+        typeId: 'documents',
+        timestamp: timestamp,
+      );
+
+      final connected = await research.connectedRecords(id);
+      expect(connected.map((c) => c.record.id), ['character']);
     });
   });
 

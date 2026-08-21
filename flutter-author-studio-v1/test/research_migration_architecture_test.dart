@@ -2,9 +2,13 @@ import 'dart:io';
 
 import 'package:author_studio_v1/analytics_service.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
+import 'package:author_studio_v1/core/research_record_types.dart';
 import 'package:author_studio_v1/migrations/legacy_research_store.dart';
 import 'package:author_studio_v1/migrations/research_migration.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Guardrails: the migration must reuse the record system, not grow a second
 /// one beside it. These read the shipping source, so a future change that
@@ -91,24 +95,37 @@ void main() {
     );
   });
 
-  test('there is exactly one research entry model', () {
-    final entryModel =
-        RegExp(r'class Research(Entry|Record|Item|Note|Reference)\w*');
-    final models = libraryFiles
-        .where((file) => entryModel.hasMatch(file.readAsStringSync()))
+  test('the migration introduces no research model of its own', () {
+    final declared = RegExp(r'^class (\w+)', multiLine: true)
+        .allMatches(migration.readAsStringSync())
+        .map((match) => match.group(1)!)
+        .toList();
+
+    // Result, state, and an internal pairing type — nothing that models a
+    // research entry. Research is persisted as AuthorRecord and nothing else.
+    expect(declared, [
+      'ResearchMigrationFailure',
+      'ResearchMigrationOutcome',
+      'ResearchMigrationState',
+      'LegacyResearchMigrationService',
+      '_LegacyResearchEntry',
+    ]);
+  });
+
+  test('the legacy DTO is the only model of legacy research content', () {
+    final holders = libraryFiles
+        .where((file) => file.readAsStringSync().contains('this.detail,'))
         .map((file) => file.path)
         .toList();
 
-    // `ResearchReference` is the legacy DTO the migration reads. No second
-    // canonical research model exists: migrated research is an AuthorRecord.
-    expect(models, ['lib/migrations/legacy_research_store.dart']);
+    expect(holders, ['lib/migrations/legacy_research_store.dart']);
   });
 
   test('migrated research uses the canonical built-in research type', () {
     final definition =
-        BuiltInRecordTypes.registry().resolve(researchRecordTypeId);
+        BuiltInRecordTypes.registry().resolve(ResearchRecordTypes.baseTypeId);
 
-    expect(researchRecordTypeId, 'research-entry');
+    expect(ResearchRecordTypes.baseTypeId, 'research-entry');
     expect(definition.categoryId, 'research');
     expect(definition.builtIn, isTrue);
     // Every field the migration writes belongs to the existing template.
@@ -118,51 +135,72 @@ void main() {
     );
   });
 
-  test('migration writes no invented record fields', () {
-    final definition =
-        BuiltInRecordTypes.registry().resolve(researchRecordTypeId);
-    final templateFieldIds =
-        definition.fields.map((field) => field.id).toSet();
-    final source = migration.readAsStringSync();
-    final fieldsBlock = source.substring(
-      source.indexOf('      fields: {'),
-      source.indexOf('      // An empty legacy tag'),
-    );
-    final writtenLiterals = RegExp(r"'([A-Za-z][\w.]*)':")
-        .allMatches(fieldsBlock)
-        .map((match) => match.group(1)!)
+  test('migration writes no record field the research template does not own',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repository = DriftConnectedDomainRepository(database);
+    await const ProjectResearchStore(projectId: 'project-a').save({
+      ResearchTab.research: const [
+        ResearchReference(title: 'Audited', detail: 'body', tag: 'World'),
+      ],
+    });
+
+    await LegacyResearchMigrationService(
+      projectId: 'project-a',
+      repository: repository,
+    ).migrate(timestamp: DateTime.utc(2026, 8, 21));
+    final record = (await repository.recordsByScope('project-a')).single;
+    final templateFieldIds = BuiltInRecordTypes.registry()
+        .resolve(ResearchRecordTypes.baseTypeId)
+        .fields
+        .map((field) => field.id)
         .toSet();
 
-    expect(writtenLiterals, isNotEmpty);
+    expect(record.fields.keys, isNotEmpty);
     expect(
-      writtenLiterals.difference(templateFieldIds),
+      record.fields.keys.toSet().difference(templateFieldIds),
       isEmpty,
-      reason: 'Only existing template fields may be written by the migration.',
+      reason: 'The migration may only write fields the template declares.',
     );
-    // The Codex-namespaced fields are the existing Story Codex convention.
-    expect(fieldsBlock, contains('CodexFields.summary'));
-    expect(fieldsBlock, contains('CodexFields.projectId'));
   });
 
-  test('the legacy tab is preserved rather than mapped to an invented field',
-      () {
+  test('the field map is Research Studio\'s, not a parallel one', () {
     final source = migration.readAsStringSync();
 
-    // No `researchCategory` field exists in the canonical schema, so the tab
-    // lives in provenance where nothing is lost and no schema is invented.
-    expect(source.contains('researchCategory'), isFalse);
+    // The record's fields come from ResearchDraft, so the migration cannot
+    // drift away from what the Studio itself writes.
+    expect(source, contains('ResearchDraft('));
+    expect(source, contains('draft.fields()'));
+    expect(source, contains('ResearchRecordTypes.baseTypeId'));
+  });
+
+  test('the legacy tag maps to the real category field, and the tab is kept',
+      () {
+    final source = migration.readAsStringSync();
+    final fieldIds = BuiltInRecordTypes.registry()
+        .resolve(ResearchRecordTypes.baseTypeId)
+        .fields
+        .map((field) => field.id);
+
+    // `researchCategory` is a real field on the canonical research template,
+    // so the legacy tag is routed into it through ResearchDraft rather than
+    // being dropped or given a field of the migration's own invention.
+    expect(fieldIds, contains(ResearchRecordTypes.categoryFieldId));
+    expect(source, contains('category: tag,'));
+
+    // The tab names no field in the schema — not a category, not a kind — so
+    // it is preserved verbatim in provenance instead.
     expect(source, contains("'legacyTab'"));
     expect(
-      BuiltInRecordTypes.registry()
-          .resolve(researchRecordTypeId)
-          .fields
-          .map((field) => field.id),
-      isNot(contains('researchCategory')),
+      ResearchRecordTypes.categories.map((c) => c.toLowerCase()),
+      isNot(contains('timeline')),
     );
   });
 
   test('analytics still counts the canonical record types', () {
-    expect(AnalyticsService.researchTypeIds, contains(researchRecordTypeId));
+    expect(AnalyticsService.researchTypeIds, contains(ResearchRecordTypes.baseTypeId));
     expect(
       File('lib/analytics_service.dart').readAsStringSync().contains(
             'author_studio.research_panel',

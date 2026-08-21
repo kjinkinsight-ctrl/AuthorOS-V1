@@ -1,10 +1,11 @@
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/record_service.dart';
-import 'package:author_studio_v1/core/story_codex_domain.dart';
+import 'package:author_studio_v1/core/research_record_types.dart';
 import 'package:author_studio_v1/core/version_audit.dart';
 import 'package:author_studio_v1/migrations/legacy_research_store.dart';
 import 'package:author_studio_v1/migrations/research_migration.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:author_studio_v1/research_service.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,14 +66,16 @@ void main() {
 
     expect(outcome.migratedCount, 1);
     expect(outcome.completed, isTrue);
-    expect(record.typeId, researchRecordTypeId);
+    expect(record.typeId, ResearchRecordTypes.baseTypeId);
     expect(record.title, 'Bridge district lore');
     expect(record.fields['name'], 'Bridge district lore');
     expect(record.fields['summary'], 'Lanterns and rain on slate roads.');
-    expect(
-      record.fields[CodexFields.summary],
-      'Lanterns and rain on slate roads.',
-    );
+    // The legacy tag is a real Research Studio category, so it lands there as
+    // well as staying a record tag.
+    expect(ResearchService.categoryOf(record), 'World');
+    expect(ResearchService.kindOf(record), ResearchRecordTypes.defaultKind);
+    expect(ResearchService.statusOf(record), ResearchRecordTypes.defaultStatus);
+    expect(ResearchService.isImportant(record), isFalse);
     expect(record.tags, ['World']);
     expect(record.scopeType, RecordScopeType.project);
     expect(record.scopeId, 'project-a');
@@ -251,8 +254,10 @@ void main() {
     final record = (await repository.recordsByScope('project-a')).single;
 
     expect(record.tags, isEmpty);
-    expect(record.fields.containsKey('summary'), isFalse);
-    expect(record.fields.containsKey(CodexFields.summary), isFalse);
+    expect(record.fields['summary'], '');
+    // A tag that names no category falls back to the schema's own default,
+    // rather than inventing a category the author never chose.
+    expect(ResearchService.categoryOf(record), ResearchRecordTypes.defaultCategory);
     expect(record.title, 'Bare entry');
   });
 
@@ -551,12 +556,12 @@ Future<void> _clearMarker(String projectId) async {
 
 AuthorRecord _authoredResearch() => AuthorRecord(
       id: 'authored-research',
-      typeId: researchRecordTypeId,
+      typeId: ResearchRecordTypes.baseTypeId,
       scopeType: RecordScopeType.project,
       scopeId: 'project-a',
       projectId: 'project-a',
       title: 'Author written research',
-      templateId: researchRecordTypeId,
+      templateId: ResearchRecordTypes.baseTypeId,
       templateVersion: 1,
       fields: const {
         'name': 'Author written research',

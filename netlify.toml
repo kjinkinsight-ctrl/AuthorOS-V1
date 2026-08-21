@@ -1,0 +1,67 @@
+# Netlify build for the AuthorOS web application (https://kjii.info).
+#
+# The site is the existing Flutter application in flutter-author-studio-v1,
+# compiled to the web. Netlify's build image does not ship Flutter, so
+# scripts/netlify-build.sh provisions a pinned stable SDK from Google's release
+# archive, copies in the two files drift needs to run SQLite in a browser, then
+# runs `flutter build web --release --no-web-resources-cdn`. The flag keeps
+# CanvasKit on this origin rather than fetching it from gstatic.com at runtime.
+
+[build]
+  # Everything below is resolved relative to the Flutter project, not the
+  # repository root (the repo also holds indiauthors-platform, which this site
+  # does not build).
+  base    = "flutter-author-studio-v1"
+  publish = "build/web"
+  command = "bash ../scripts/netlify-build.sh"
+
+[build.environment]
+  # Pinned so a deploy is reproducible. Bump deliberately, and re-run
+  # `flutter test` + `flutter build web --release` locally when you do.
+  FLUTTER_VERSION = "3.47.1"
+
+# AuthorOS is a single-page application: every path is served by the same
+# document, and the app decides what to show. Without this, a refresh or a
+# shared link on anything other than "/" would return Netlify's 404 page.
+# Netlify applies this only when no built file matches the request, so
+# main.dart.js, assets, canvaskit and icons are still served normally.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options        = "SAMEORIGIN"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+
+# sqlite3.wasm must be served with the right type for WebAssembly streaming
+# compilation; Netlify does not map the extension by default.
+[[headers]]
+  for = "/sqlite3.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"
+
+# The Flutter entrypoints are not content-hashed, so they must never be served
+# from cache without revalidation or a deploy would not reach existing tabs.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/flutter_bootstrap.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/main.dart.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/flutter_service_worker.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

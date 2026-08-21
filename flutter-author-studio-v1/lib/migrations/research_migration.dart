@@ -5,8 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/connected_domain.dart';
 import '../core/record_service.dart';
-import '../core/story_codex_domain.dart';
+import '../core/research_record_types.dart';
 import '../persistence/authoros_database.dart';
+import '../research_service.dart';
 import 'legacy_research_store.dart';
 
 /// Moves the Manuscript Studio research side panel's SharedPreferences data
@@ -23,12 +24,12 @@ import 'legacy_research_store.dart';
 /// * **non-destructive** — the legacy SharedPreferences payload is left in
 ///   place as a safety net.
 ///
-/// Nothing here is a second research system: records are written through
+/// Nothing here is a second research system: the field shape comes from
+/// Research Studio's own [ResearchDraft], records are written through
 /// [RecordService], read through [DriftConnectedDomainRepository], indexed by
-/// the existing FTS index, and counted by the existing analytics query.
-
-/// The canonical record type migrated research becomes.
-const researchRecordTypeId = 'research-entry';
+/// the existing FTS index, and counted by the existing analytics query. A
+/// migrated entry is indistinguishable from one the author typed into
+/// Research Studio, apart from the provenance it carries.
 
 /// Bumped only when a future milestone needs to re-run the migration.
 const researchMigrationVersion = 1;
@@ -225,6 +226,11 @@ class LegacyResearchMigrationService {
     }
 
     final now = (timestamp ?? DateTime.now()).toUtc();
+    // Resolved once: every migrated record is stamped with the research
+    // template's current version, exactly as `ResearchService` stamps one.
+    final templateVersion = (await records.registry())
+        .resolve(ResearchRecordTypes.baseTypeId)
+        .templateVersion;
     final migrated = <String>[];
     final skipped = <String>[];
     final failures = <ResearchMigrationFailure>[];
@@ -239,7 +245,12 @@ class LegacyResearchMigrationService {
           continue;
         }
         await records.createRecord(
-          _recordFor(entry, recordId: recordId, timestamp: now),
+          _recordFor(
+            entry,
+            recordId: recordId,
+            templateVersion: templateVersion,
+            timestamp: now,
+          ),
         );
         migrated.add(recordId);
       } catch (error) {
@@ -270,57 +281,77 @@ class LegacyResearchMigrationService {
   }
 
   /// The canonical records this project has from the legacy panel.
-  Future<List<AuthorRecord>> migratedRecords() async {
-    final records = await repository.recordsByTypeAndScope(
-      typeId: researchRecordTypeId,
-      scopeId: projectId,
-    );
-    return records.where(isMigratedResearchRecord).toList();
-  }
+  ///
+  /// Reads through Research Studio's own query service rather than a private
+  /// one, so this sees exactly what the Studio sees.
+  Future<List<AuthorRecord>> migratedRecords() async =>
+      (await ResearchService(projectId: projectId, repository: repository)
+              .query
+              .all())
+          .where(isMigratedResearchRecord)
+          .toList();
 
+  /// Builds the canonical record for one legacy entry.
+  ///
+  /// The field map comes from Research Studio's [ResearchDraft], not from a
+  /// hand-rolled map: a migrated entry has to be the same shape as one the
+  /// author types into the Studio, and duplicating that mapping here is how
+  /// the two would drift apart.
   AuthorRecord _recordFor(
     _LegacyResearchEntry entry, {
     required String recordId,
+    required int templateVersion,
     required DateTime timestamp,
   }) {
     final reference = entry.reference;
     final title = reference.title.trim().isEmpty
         ? researchMigrationFallbackTitle
         : reference.title.trim();
-    final detail = reference.detail;
     final tag = reference.tag.trim();
+    final draft = ResearchDraft(
+      id: recordId,
+      title: title,
+      // The legacy "Details" box is the entry's body text.
+      summary: reference.detail,
+      // The legacy tag is the author's own subject label, and real panel data
+      // carries values like `World` and `Character` that are already category
+      // names. `ResearchDraft` resolves it case-insensitively and falls back
+      // to the schema's own default when it names nothing the Studio knows.
+      category: tag,
+      // The tag is also kept verbatim as a record tag, so a tag that is not a
+      // category name is still the author's to search and filter by. An empty
+      // legacy tag stays empty: no phantom tag is invented.
+      tags: tag.isEmpty ? const [] : [tag],
+      // Kind, status, and important take the schema's defaults. The legacy
+      // panel had no equivalent of any of them, and `defaultKind` is defined
+      // for exactly this case: research written before the Studio existed.
+    );
     return AuthorRecord(
       id: recordId,
-      typeId: researchRecordTypeId,
+      typeId: ResearchRecordTypes.baseTypeId,
+      templateId: ResearchRecordTypes.baseTypeId,
+      templateVersion: templateVersion,
+      schemaVersion: templateVersion,
       scopeType: RecordScopeType.project,
       scopeId: projectId,
       projectId: projectId,
       title: title,
-      templateId: researchRecordTypeId,
-      templateVersion: 1,
-      fields: {
-        // `name` is the template's title-backed field.
-        'name': title,
-        // The legacy "Details" box is the entry's body text. Written to the
-        // template's own `summary` field and to the Codex summary the record
-        // surfaces read, exactly as `StoryCodexService` writes new entries.
-        if (detail.isNotEmpty) 'summary': detail,
-        if (detail.isNotEmpty) CodexFields.summary: detail,
-        CodexFields.templateId: researchRecordTypeId,
-        CodexFields.projectId: projectId,
-      },
-      // An empty legacy tag stays empty: no phantom tag is invented.
-      tags: tag.isEmpty ? const [] : [tag],
+      fields: draft.fields(),
+      tags: draft.tags,
       createdAt: timestamp,
       updatedAt: timestamp,
       extensionData: {
-        'storyCodex': true,
+        // The Studio's own marker: this is a native research record.
+        'researchStudio': true,
         researchMigrationExtensionKey: {
           'version': researchMigrationVersion,
           'source': ProjectResearchStore.keyPrefix,
           'legacyKey': entry.legacyKey,
-          // The legacy panel's tab has no field in the canonical research
-          // schema. It is kept verbatim here rather than dropped.
+          // The legacy panel's tab (research / notes / timeline) names no
+          // field in the canonical research schema — it is not a category and
+          // not a kind. It is kept verbatim here rather than dropped, or
+          // forced into a field where it would read as something the author
+          // never chose.
           'legacyTab': entry.tab.name,
           'legacyTag': reference.tag,
         },

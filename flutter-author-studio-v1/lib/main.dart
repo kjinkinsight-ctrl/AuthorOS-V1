@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,15 +10,19 @@ import 'backup_health.dart';
 import 'character_studio.dart';
 import 'core/search_models.dart' show SearchDestination;
 import 'create_profile_page.dart';
+import 'local_image.dart';
 import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
+import 'map_studio_view.dart';
 import 'migrations/legacy_research_store.dart';
 import 'migrations/research_migration.dart';
 import 'onboarding.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
+import 'research_service.dart';
+import 'research_studio_view.dart';
 import 'supabase_service.dart';
 import 'timeline_studio_view.dart';
 import 'plot_studio_view.dart';
@@ -327,7 +330,7 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
     if (_loadingTheme || _resolvedTheme == null || _themeSelection == null) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'Indie Author OS',
+        title: 'AuthorOS',
         theme: themeData,
         home: const Scaffold(
           body: Center(child: CircularProgressIndicator()),
@@ -337,7 +340,7 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Indie Author OS',
+      title: 'AuthorOS',
       theme: themeData,
       home: StudioThemeScope(
         theme: _resolvedTheme!,
@@ -643,8 +646,10 @@ enum StudioSection {
   characters,
   codex,
   world,
+  map,
   plot,
   timeline,
+  research,
   notes,
   settings,
 }
@@ -664,8 +669,10 @@ extension StudioSectionData on StudioSection {
         StudioSection.characters => 'Characters',
         StudioSection.codex => 'Story Codex',
         StudioSection.world => 'World',
+        StudioSection.map => 'Map',
         StudioSection.plot => 'Plot',
         StudioSection.timeline => 'Timeline',
+        StudioSection.research => 'Research',
         StudioSection.notes => 'Notes',
         StudioSection.settings => 'Settings',
       };
@@ -684,8 +691,10 @@ extension StudioSectionData on StudioSection {
         StudioSection.characters => Icons.groups_outlined,
         StudioSection.codex => Icons.auto_stories_outlined,
         StudioSection.world => Icons.public_outlined,
+        StudioSection.map => Icons.map_outlined,
         StudioSection.plot => Icons.route_outlined,
         StudioSection.timeline => Icons.timeline_outlined,
+        StudioSection.research => Icons.local_library_outlined,
         StudioSection.notes => Icons.sticky_note_2_outlined,
         StudioSection.settings => Icons.settings_outlined,
       };
@@ -756,8 +765,10 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.characters,
     StudioSection.codex,
     StudioSection.world,
+    StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.research,
     StudioSection.notes,
   ];
 
@@ -1029,7 +1040,7 @@ class _TopBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Indie Author OS',
+                  'AuthorOS',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: theme.colorScheme.onSurface,
@@ -1227,8 +1238,10 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.characters,
     StudioSection.codex,
     StudioSection.world,
+    StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.research,
     StudioSection.notes,
   ];
 
@@ -1262,7 +1275,7 @@ class _DesktopNavigation extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Indie Author OS',
+                  'AuthorOS',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
@@ -1291,15 +1304,18 @@ class _DesktopNavigation extends StatelessWidget {
                   onSelected: onSelected,
                   sections: sections,
                 ),
-                const SizedBox(height: 16),
-                _NavigationTile(
-                  section: StudioSection.settings,
-                  isSelected:
-                      selectedIndex == sections.indexOf(StudioSection.settings),
-                  onTap: () =>
-                      onSelected(sections.indexOf(StudioSection.settings)),
-                ),
               ],
+            ),
+          ),
+          // Settings is pinned below the scrolling groups so it stays
+          // reachable however many Studios the workspace grows to hold.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: _NavigationTile(
+              section: StudioSection.settings,
+              isSelected:
+                  selectedIndex == sections.indexOf(StudioSection.settings),
+              onTap: () => onSelected(sections.indexOf(StudioSection.settings)),
             ),
           ),
         ],
@@ -1639,6 +1655,7 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
+        StudioSection.map => MapStudioView(project: project),
         StudioSection.plot => PlotStudioView(
           project: project,
           service: PlotService(
@@ -1659,6 +1676,13 @@ class _SectionView extends StatelessWidget {
                 SearchDestination.storyCodex => StudioSection.codex,
                 SearchDestination.record => StudioSection.timeline,
               },
+            ),
+          ),
+        StudioSection.research => ResearchStudioView(
+            project: project,
+            service: ResearchService(
+              projectId: project.id,
+              repository: authorOsRepository,
             ),
           ),
         StudioSection.notes => const _NotesStudioView(),
@@ -2197,26 +2221,24 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                     ),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: avatarPath.isNotEmpty
-                      ? Image.file(
-                          File(avatarPath),
-                          fit: BoxFit.cover,
-                          width: 72,
-                          height: 72,
-                        )
-                      : Container(
-                          alignment: Alignment.center,
-                          color: Theme.of(context).colorScheme.primaryContainer,
-                          child: Text(
-                            authorName.isNotEmpty
-                                ? authorName[0].toUpperCase()
-                                : 'A',
-                            style: const TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
+                  child: LocalImage(
+                    path: avatarPath,
+                    width: 72,
+                    height: 72,
+                    fallback: Container(
+                      alignment: Alignment.center,
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      child: Text(
+                        authorName.isNotEmpty
+                            ? authorName[0].toUpperCase()
+                            : 'A',
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
                         ),
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -3183,26 +3205,23 @@ class _DashboardView extends StatelessWidget {
                             ),
                           ),
                           clipBehavior: Clip.antiAlias,
-                          child: profile.avatarPath.isNotEmpty
-                              ? Image.file(
-                                  File(profile.avatarPath),
-                                  fit: BoxFit.cover,
-                                  width: 62,
-                                  height: 62,
-                                )
-                              : Container(
-                                  alignment: Alignment.center,
-                                  color: theme.colorScheme.primaryContainer,
-                                  child: Text(
-                                    profile.initials,
-                                    style: TextStyle(
-                                      color:
-                                          theme.colorScheme.onPrimaryContainer,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 24,
-                                    ),
-                                  ),
+                          child: LocalImage(
+                            path: profile.avatarPath,
+                            width: 62,
+                            height: 62,
+                            fallback: Container(
+                              alignment: Alignment.center,
+                              color: theme.colorScheme.primaryContainer,
+                              child: Text(
+                                profile.initials,
+                                style: TextStyle(
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 24,
                                 ),
+                              ),
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(

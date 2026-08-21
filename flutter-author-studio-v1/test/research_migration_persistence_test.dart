@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:author_studio_v1/archive/authoros_archive.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/record_service.dart';
+import 'package:author_studio_v1/core/research_record_types.dart';
 import 'package:author_studio_v1/migrations/legacy_research_store.dart';
 import 'package:author_studio_v1/migrations/research_migration.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
@@ -137,7 +138,7 @@ void main() {
       newId: '$id-copy',
       timestamp: timestamp.add(const Duration(minutes: 2)),
     );
-    expect(duplicate.typeId, researchRecordTypeId);
+    expect(duplicate.typeId, ResearchRecordTypes.baseTypeId);
     expect(duplicate.fields['summary'], 'Spring and neap.');
 
     final deleted = await records.deleteRecord(
@@ -212,7 +213,7 @@ void main() {
     );
     final restored = archive.importSnapshot(bytes);
     final exported = restored.records
-        .where((record) => record.typeId == researchRecordTypeId)
+        .where((record) => record.typeId == ResearchRecordTypes.baseTypeId)
         .toList();
 
     expect(exported, hasLength(1));

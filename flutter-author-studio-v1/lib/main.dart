@@ -1251,15 +1251,26 @@ class _DesktopNavigation extends StatelessWidget {
                   onSelected: onSelected,
                   sections: sections,
                 ),
-                const SizedBox(height: 16),
-                _NavigationTile(
-                  section: StudioSection.settings,
-                  isSelected:
-                      selectedIndex == sections.indexOf(StudioSection.settings),
-                  onTap: () =>
-                      onSelected(sections.indexOf(StudioSection.settings)),
-                ),
               ],
+            ),
+          ),
+          // Settings is a fixed destination, not the tail of a growing list of
+          // Studios. It stays pinned to the foot of the rail so it cannot
+          // scroll out of reach as Studios are added.
+          Divider(
+            height: 1,
+            thickness: 1,
+            indent: 12,
+            endIndent: 12,
+            color: theme.colorScheme.outlineVariant,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            child: _NavigationTile(
+              section: StudioSection.settings,
+              isSelected:
+                  selectedIndex == sections.indexOf(StudioSection.settings),
+              onTap: () => onSelected(sections.indexOf(StudioSection.settings)),
             ),
           ),
         ],

@@ -1696,6 +1696,10 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
+        // Unreachable: the Knowledge Graph returns above, because a
+        // pan-and-zoom canvas cannot measure itself inside this scroll view.
+        // The switch still has to name it to stay exhaustive.
+        StudioSection.knowledgeGraph => const SizedBox.shrink(),
         StudioSection.research => ResearchStudioView(
             project: project,
             service: ResearchService(

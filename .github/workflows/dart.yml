@@ -1,9 +1,11 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# CI for the AuthorOS Flutter application.
+#
+# This replaces GitHub's stock Dart starter template, which ran `dart pub get`
+# at the repository root. There is no pubspec.yaml there — the app lives in
+# flutter-author-studio-v1/ — so the job failed at its first step on every run
+# since the workflow was added, without ever reaching a test.
 
-name: Dart
+name: Flutter
 
 on:
   push:
@@ -15,28 +17,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: flutter-author-studio-v1
+
     steps:
       - uses: actions/checkout@v4
 
-      # Note: This workflow uses the latest stable version of the Dart SDK.
-      # You can specify other versions if desired, see documentation here:
-      # https://github.com/dart-lang/setup-dart/blob/main/README.md
-      # - uses: dart-lang/setup-dart@v1
-      - uses: dart-lang/setup-dart@9a04e6d73cca37bd455e0608d7e5092f881fd603
+      # Pinned to the revision the project records in .metadata (6b182d2c75),
+      # so CI analyses and tests on the same SDK the app is developed against.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
-      # Uncomment this step to verify the use of 'dart format' on each commit.
-      # - name: Verify formatting
-      #   run: dart format --output=none --set-exit-if-changed .
-
-      # Consider passing '--fatal-infos' for slightly stricter analysis.
+      # Errors fail the build. Warnings and lint infos are reported but do not,
+      # because the tree carries a pre-existing backlog of them; tightening this
+      # to --fatal-warnings is a sensible follow-up once that backlog is cleared.
       - name: Analyze project source
-        run: dart analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      # Your project will need to have tests in test/ and a dependency on
-      # package:test for this step to succeed. Note that Flutter projects will
-      # want to change this to 'flutter test'.
       - name: Run tests
-        run: dart test
+        run: flutter test
+
+      # Drift runs SQLite as WebAssembly in the browser and loads it from the
+      # site root, so the web build needs these two files present. They are
+      # copied out of the resolved drift package, not committed.
+      - name: Provision drift web assets
+        run: bash ../scripts/provision-drift-web-assets.sh
+
+      # AuthorOS ships as a web application, so a release web build is part of
+      # the gate. Nothing exercised this path before, which is how browser-only
+      # breakage reached main unnoticed. --no-web-resources-cdn matches the
+      # deploy: CanvasKit is served from our own origin, not gstatic.com.
+      - name: Build web release
+        run: flutter build web --release --no-web-resources-cdn

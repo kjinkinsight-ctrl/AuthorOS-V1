@@ -170,6 +170,11 @@ class WorldBoardActivity {
 }
 
 /// The active project's context: identity, progress, and what hangs off it.
+///
+/// Every figure here is handed in already derived. The word count, goal,
+/// chapter and scene totals, and the progress toward the goal all come from
+/// the analytics summary the service reads, so this model measures nothing
+/// itself and cannot drift away from what the Analytics Studio shows.
 class WorldBoardProjectContext {
   const WorldBoardProjectContext({
     required this.projectId,
@@ -180,6 +185,8 @@ class WorldBoardProjectContext {
     required this.wordGoal,
     required this.chapterCount,
     required this.sceneCount,
+    required this.progress,
+    required this.wordsRemaining,
   });
 
   final String projectId;
@@ -187,25 +194,25 @@ class WorldBoardProjectContext {
   final String genre;
   final String projectType;
   final int wordCount;
+
+  /// The writing target in words, as analytics reports it. `0` means the
+  /// author set no goal.
   final int wordGoal;
+
   final int chapterCount;
   final int sceneCount;
 
-  /// Draft completion against the project's own word goal, `0.0..1.0`.
-  ///
-  /// A project without a goal reports no progress rather than a false 100%.
-  double get progress {
-    if (wordGoal <= 0) return 0;
-    final ratio = wordCount / wordGoal;
-    return ratio < 0 ? 0 : (ratio > 1 ? 1 : ratio);
-  }
+  /// Draft completion against the project's word goal, `0.0..1.0`, as
+  /// analytics clamped it. A project without a goal arrives as `0`, so the
+  /// bar reads empty rather than a false 100%.
+  final double progress;
 
+  /// Words left before the target is reached, as analytics clamped it. Never
+  /// negative, and `0` when there is no goal to fall short of.
+  final int wordsRemaining;
+
+  /// [progress] rendered as a whole percentage for the label beside the bar.
   int get progressPercent => (progress * 100).round();
-
-  int get wordsRemaining {
-    final remaining = wordGoal - wordCount;
-    return remaining < 0 ? 0 : remaining;
-  }
 
   bool get hasManuscript => wordCount > 0 || chapterCount > 0;
 }

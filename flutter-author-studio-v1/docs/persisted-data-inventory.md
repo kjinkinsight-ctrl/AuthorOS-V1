@@ -90,13 +90,24 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 
 ### `author_studio.research_panel.{projectId}`
 
-- Owner: `ResearchReferenceStore` in `main.dart`
-- Storage type: JSON map string keyed by research group/category
+- Owner: `ProjectResearchStore` in `lib/migrations/research_panel_store.dart` (moved from `main.dart` when the panel became read-only)
+- Storage type: JSON map string keyed by `ResearchTab` name (`research`, `notes`, `timeline`)
 - Values: arrays of `ResearchReference`
-- Known fields: reference title/label and URL/location values defined by `ResearchReference.toJson`
-- 2.0 destination: research records and links to manuscript/story records
-- Migration concerns: invalid URLs, duplicate references, unknown categories
-- Fixture coverage: web URL, local path, empty group, unknown fields
+- Known fields: `title`, `detail`, `tag` — three strings, no URLs or record ids, as defined by `ResearchReference.toJson`
+- 2.0 destination: `research-entry` records owned by Research Studio, plus links to manuscript/story records
+- Migration concerns: duplicate references, unknown tabs, and `timeline` tab entries that are free text about chronology rather than timeline records
+- Status: **migrated (August 2026), key retained.** `ResearchPanelMigrationService` lifts each reference into a canonical `research-entry` record on first open per project, and writes a receipt to `author_studio.research_panel.{projectId}.migrated`. The original key is deliberately never deleted or rewritten: it was never covered by the archive, sync, or backup subsystems, so it is the only copy of anything not yet migrated. Retain it for one support window, then retire. The migration is idempotent — record ids derive from project, tab, and title — so re-running is a no-op. See `docs/research-studio-expansion-map.md` §7.
+- Fixture coverage: `legacy-research-panel.json` (all three tabs, category and non-category tags), `legacy-research-panel-malformed.json` (unknown tab, missing title key, whitespace title, duplicate title)
+
+### `author_studio.research_panel.{projectId}.migrated`
+
+- Owner: `ProjectResearchStore` in `lib/migrations/research_panel_store.dart`
+- Storage type: JSON object string
+- Shape: `ResearchPanelMigrationMarker`
+- Fields: `version`, `migratedAt`, `createdRecordIds`, `skipped`
+- Class: operational metadata — a migration receipt, not creative content
+- 2.0 destination: none; retire alongside the legacy key it guards
+- Migration concerns: an unreadable marker is treated as absent, which is safe because the migration is idempotent
 
 ### `author_studio.collection.{collection}`
 

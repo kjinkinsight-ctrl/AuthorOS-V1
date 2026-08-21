@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -15,6 +14,8 @@ import 'create_profile_page.dart';
 import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
+import 'migrations/legacy_research_store.dart';
+import 'migrations/research_migration.dart';
 import 'onboarding.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
@@ -32,6 +33,20 @@ import 'theme/theme_definition.dart';
 import 'theme/theme_engine.dart';
 import 'theme/theme_persistence.dart';
 import 'theme/theme_tokens.dart';
+
+/// The Manuscript Studio research panel's legacy store now lives in
+/// `migrations/legacy_research_store.dart`. Re-exported so the shell's
+/// existing consumers keep importing it from here.
+export 'migrations/legacy_research_store.dart'
+    show ProjectResearchStore, ResearchReference, ResearchTab;
+export 'migrations/research_migration.dart'
+    show
+        LegacyResearchMigrationService,
+        ResearchMigrationOutcome,
+        ResearchMigrationFailure,
+        ResearchMigrationState,
+        ResearchMigrationRunner,
+        runLegacyResearchMigration;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -692,11 +707,19 @@ class AuthorStudioShell extends StatefulWidget {
     this.manuscriptStore = const ManuscriptStore(),
     this.onLogout = _defaultLogout,
     this.initialSection,
+    this.researchMigration = runLegacyResearchMigration,
   });
 
   final StarterProject project;
   final bool openFirstDraft;
   final bool startSprint;
+
+  /// Runs the legacy research migration for the project being opened.
+  ///
+  /// Project-scoped rather than a startup step: opening a project is the first
+  /// moment its legacy research is known to be needed. Injectable so tests can
+  /// point it at their own repository.
+  final ResearchMigrationRunner researchMigration;
 
   /// Section to open on first build; defaults to the manuscript.
   final StudioSection? initialSection;
@@ -750,6 +773,29 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     final requested = widget.initialSection ?? StudioSection.manuscript;
     final index = sections.indexOf(requested);
     selectedIndex = index >= 0 ? index : sections.indexOf(StudioSection.manuscript);
+    unawaited(_migrateLegacyResearch());
+  }
+
+  @override
+  void didUpdateWidget(AuthorStudioShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.project.id != widget.project.id) {
+      unawaited(_migrateLegacyResearch());
+    }
+  }
+
+  /// Drains the project's legacy research panel into canonical records.
+  ///
+  /// Deliberately not awaited: the migration reads its marker and the legacy
+  /// store before touching the database, so a project with nothing to migrate
+  /// costs nothing, and a project that does migrate never blocks the shell.
+  Future<void> _migrateLegacyResearch() async {
+    try {
+      await widget.researchMigration(widget.project.id);
+    } catch (_) {
+      // Opening a project must never fail because its migration did. Nothing
+      // was marked complete, so the next open retries.
+    }
   }
 
   void _selectSection(StudioSection section) {
@@ -1626,79 +1672,6 @@ class _SectionView extends StatelessWidget {
           ),
       },
     );
-  }
-}
-
-enum ResearchTab { research, notes, timeline }
-
-class ResearchReference {
-  const ResearchReference({
-    required this.title,
-    required this.detail,
-    required this.tag,
-  });
-
-  final String title;
-  final String detail;
-  final String tag;
-
-  Map<String, String> toJson() => {
-        'title': title,
-        'detail': detail,
-        'tag': tag,
-      };
-
-  factory ResearchReference.fromJson(Map<String, dynamic> json) =>
-      ResearchReference(
-        title: json['title'] as String? ?? 'Untitled reference',
-        detail: json['detail'] as String? ?? '',
-        tag: json['tag'] as String? ?? 'Research',
-      );
-}
-
-class ProjectResearchStore {
-  const ProjectResearchStore({required this.projectId});
-
-  final String projectId;
-
-  String get _key => 'author_studio.research_panel.$projectId';
-
-  Future<Map<ResearchTab, List<ResearchReference>>> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = prefs.getString(_key);
-    if (encoded == null || encoded.isEmpty) {
-      return {};
-    }
-
-    try {
-      final decoded = jsonDecode(encoded) as Map<String, dynamic>;
-      final result = <ResearchTab, List<ResearchReference>>{};
-      for (final entry in decoded.entries) {
-        final tab = ResearchTab.values.firstWhere(
-          (value) => value.name == entry.key,
-          orElse: () => ResearchTab.research,
-        );
-        final items = (entry.value as List)
-            .map((value) => ResearchReference.fromJson(
-                Map<String, dynamic>.from(value as Map)))
-            .toList();
-        result[tab] = items;
-      }
-      return result;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Future<void> save(
-      Map<ResearchTab, List<ResearchReference>> references) async {
-    final prefs = await SharedPreferences.getInstance();
-    final payload = <String, List<Map<String, String>>>{};
-    for (final entry in references.entries) {
-      payload[entry.key.name] =
-          entry.value.map((reference) => reference.toJson()).toList();
-    }
-    await prefs.setString(_key, jsonEncode(payload));
   }
 }
 

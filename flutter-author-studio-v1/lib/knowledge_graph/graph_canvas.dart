@@ -32,20 +32,45 @@ class GraphPalette {
     required this.title,
   });
 
+  /// Resolves from the Theme Engine, falling back to the ambient
+  /// `ColorScheme` when no scope is installed.
+  ///
+  /// The fallback is not cosmetic: it is what lets this widget be pumped in a
+  /// test, or rendered before the shell has installed a scope, without
+  /// throwing. The engine stays the source of truth wherever it is present.
   factory GraphPalette.of(BuildContext context) {
-    final scope = StudioThemeScope.of(context);
+    final scope = StudioThemeScope.maybeOf(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    TextStyle text(ThemeTextRole role, ThemeColorRef ref, TextStyle? fallback) =>
+        scope?.text(role, colorRef: ref) ??
+        (fallback ?? const TextStyle()).copyWith(
+          color: ref == ThemeColorRef.onSurfaceVariant
+              ? scheme.onSurfaceVariant
+              : scheme.onSurface,
+        );
+
     return GraphPalette(
-      background: scope.color(ThemeColorRef.background),
-      surface: scope.color(ThemeColorRef.surface),
-      primary: scope.color(ThemeColorRef.primary),
-      onSurface: scope.color(ThemeColorRef.onSurface),
-      onSurfaceVariant: scope.color(ThemeColorRef.onSurfaceVariant),
-      outline: scope.color(ThemeColorRef.outline),
-      outlineVariant: scope.color(ThemeColorRef.outlineVariant),
-      selection: scope.color(ThemeColorRef.selection),
-      label: scope.text(ThemeTextRole.label,
-          colorRef: ThemeColorRef.onSurfaceVariant),
-      title: scope.text(ThemeTextRole.ui, colorRef: ThemeColorRef.onSurface),
+      background: scope?.color(ThemeColorRef.background) ?? scheme.surface,
+      surface: scope?.color(ThemeColorRef.surface) ?? scheme.surface,
+      primary: scope?.color(ThemeColorRef.primary) ?? scheme.primary,
+      onSurface: scope?.color(ThemeColorRef.onSurface) ?? scheme.onSurface,
+      onSurfaceVariant: scope?.color(ThemeColorRef.onSurfaceVariant) ??
+          scheme.onSurfaceVariant,
+      outline: scope?.color(ThemeColorRef.outline) ?? scheme.outline,
+      outlineVariant: scope?.color(ThemeColorRef.outlineVariant) ??
+          scheme.outlineVariant,
+      selection: scope?.color(ThemeColorRef.selection) ?? scheme.primaryContainer,
+      label: text(
+        ThemeTextRole.label,
+        ThemeColorRef.onSurfaceVariant,
+        theme.textTheme.bodySmall,
+      ),
+      title: text(
+        ThemeTextRole.ui,
+        ThemeColorRef.onSurface,
+        theme.textTheme.bodyMedium,
+      ),
     );
   }
 

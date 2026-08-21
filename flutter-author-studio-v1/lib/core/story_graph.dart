@@ -427,7 +427,11 @@ class StoryGraphFilter {
     // scene-to-plot has no typed edge; dropping them for being wildcards would
     // leave that mode with nothing to draw.
     if (edgeTypeIds.isNotEmpty) return edgeTypeIds.contains(typeId);
-    if (typeId == 'relatedTo' && !includeRelatedTo) return false;
+    // `relatedTo` has its own switch, so that switch decides it outright — in
+    // both directions. It is itself a `*` -> `*` type, so leaving it to fall
+    // through to the wildcard rule below would let the general filter override
+    // the specific opt-in and the toggle would appear to do nothing.
+    if (typeId == 'relatedTo') return includeRelatedTo;
     if (!includeWildcardEdges && (definition?.permits('*', '*') ?? false)) {
       return false;
     }

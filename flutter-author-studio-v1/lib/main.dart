@@ -11,6 +11,7 @@ import 'character_studio.dart';
 import 'core/connected_domain.dart' show AuthorRecord;
 import 'core/search_models.dart' show SearchDestination;
 import 'create_profile_page.dart';
+import 'knowledge_graph/knowledge_graph_view.dart';
 import 'local_image.dart';
 import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
@@ -635,6 +636,7 @@ enum StudioSection {
   map,
   plot,
   timeline,
+  knowledgeGraph,
   research,
   notes,
   settings,
@@ -658,6 +660,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.map => 'Map',
         StudioSection.plot => 'Plot',
         StudioSection.timeline => 'Timeline',
+        StudioSection.knowledgeGraph => 'Knowledge Graph',
         StudioSection.research => 'Research',
         StudioSection.notes => 'Notes',
         StudioSection.settings => 'Settings',
@@ -680,6 +683,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.map => Icons.map_outlined,
         StudioSection.plot => Icons.route_outlined,
         StudioSection.timeline => Icons.timeline_outlined,
+        StudioSection.knowledgeGraph => Icons.share_outlined,
         StudioSection.research => Icons.local_library_outlined,
         StudioSection.notes => Icons.sticky_note_2_outlined,
         StudioSection.settings => Icons.settings_outlined,
@@ -746,6 +750,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.knowledgeGraph,
     StudioSection.research,
     StudioSection.notes,
   ];
@@ -1196,6 +1201,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.knowledgeGraph,
     StudioSection.research,
     StudioSection.notes,
   ];
@@ -1478,6 +1484,42 @@ class _SectionView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The graph is a pan-and-zoom canvas, so it cannot measure itself the way
+    // the scrolling sections below do. It takes the same full-bleed treatment
+    // the manuscript already uses rather than inventing a second one.
+    if (section == StudioSection.knowledgeGraph) {
+      final studio = Padding(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+        child: KnowledgeGraphView(
+          projectId: project.id,
+          // The shell's store already carries the repository the rest of the
+          // workspace reads through; reuse it so tests can inject an in-memory
+          // database without a new plumbing path.
+          repository: manuscriptStore.repository,
+          onNavigate: (target) => onNavigate(
+            switch (target.destination) {
+              SearchDestination.characterStudio => StudioSection.characters,
+              SearchDestination.worldStudio => StudioSection.world,
+              SearchDestination.timelineStudio => StudioSection.timeline,
+              SearchDestination.plotStudio => StudioSection.plot,
+              SearchDestination.storyCodex => StudioSection.codex,
+              SearchDestination.seriesStudio => StudioSection.projects,
+              SearchDestination.manuscriptStudio ||
+              SearchDestination.record =>
+                StudioSection.manuscript,
+            },
+          ),
+        ),
+      );
+      return SizedBox(
+        key: PageStorageKey(section),
+        height: minimalFocusMode
+            ? (MediaQuery.sizeOf(context).height - 140).clamp(520, 900)
+            : (MediaQuery.sizeOf(context).height - 180).clamp(560, 1200),
+        child: studio,
+      );
+    }
+
     if (section == StudioSection.manuscript) {
       final studio = Padding(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),

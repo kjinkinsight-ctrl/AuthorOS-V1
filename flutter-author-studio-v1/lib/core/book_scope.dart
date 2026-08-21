@@ -51,6 +51,73 @@ class BookScope {
   /// `chapterId` a scene node already carries.
   static const chapterBookKey = 'bookId';
 
+  /// The prefix an `entity-state` record uses for the entity field values it
+  /// overrides.
+  ///
+  /// Namespaced the way `_codex.` and `_world.` already are, so an override of
+  /// `summary` can never be mistaken for the state record's own summary. It
+  /// also means the overlay can carry a field belonging to any entity type
+  /// without the `entity-state` definition having to declare it.
+  static const stateFieldPrefix = '_state.';
+
+  /// The overridden entity fields carried by an `entity-state` record.
+  static Map<String, Object?> overridesOf(AuthorRecord state) => {
+        for (final entry in state.fields.entries)
+          if (entry.key.startsWith(stateFieldPrefix))
+            entry.key.substring(stateFieldPrefix.length): entry.value,
+      };
+
+  /// The entity fields an `entity-state` record drops for its book.
+  static Set<String> removalsOf(AuthorRecord state) {
+    final value = state.fields['removedFieldIds'];
+    if (value is! List) return const {};
+    return {
+      for (final item in value)
+        if (item.toString().trim().isNotEmpty) item.toString().trim(),
+    };
+  }
+
+  /// The entity an `entity-state` record varies.
+  static String? canonicalIdOf(AuthorRecord state) =>
+      _string(state.fields['canonicalRecordId']);
+
+  /// Series canon merged with one book's overlay.
+  ///
+  /// Derived on every read and never written back: merging it into canon would
+  /// destroy the distinction between what is true everywhere and what is only
+  /// true in one book. With no state record the result is canon itself, so a
+  /// project that never overrides anything pays nothing for this.
+  static EffectiveEntityFields effectiveFields(
+    AuthorRecord canon, {
+    String? bookId,
+    AuthorRecord? state,
+  }) {
+    if (state == null) {
+      return EffectiveEntityFields(
+        recordId: canon.id,
+        bookId: bookId,
+        fields: Map<String, Object?>.unmodifiable(canon.fields),
+        overriddenFieldIds: const {},
+        removedFieldIds: const {},
+      );
+    }
+    final overrides = overridesOf(state);
+    final removals = removalsOf(state);
+    final merged = <String, Object?>{
+      for (final entry in canon.fields.entries)
+        if (!removals.contains(entry.key)) entry.key: entry.value,
+      ...overrides,
+    };
+    return EffectiveEntityFields(
+      recordId: canon.id,
+      bookId: bookId,
+      fields: Map<String, Object?>.unmodifiable(merged),
+      overriddenFieldIds: overrides.keys.toSet(),
+      removedFieldIds: removals,
+      stateRecordId: state.id,
+    );
+  }
+
   /// Whether [record] is series canon — true for anything not tied to one book.
   static bool isSeriesCanon(AuthorRecord record) => bookIdOf(record) == null;
 

@@ -276,6 +276,188 @@ class SeriesService {
         timestamp: timestamp,
       );
 
+  // ------------------------------------------------------------ book usage --
+
+  /// Records that [recordId] appears in [bookId].
+  ///
+  /// The appearance is an ordinary `appearsIn` link, the same edge a scene or
+  /// chapter appearance uses. Usage detail rides in its metadata, which the
+  /// connection registry validates — an undeclared key is refused rather than
+  /// silently stored.
+  Future<RecordLink> recordBookAppearance(
+    String recordId,
+    String bookId, {
+    String role = '',
+    String status = '',
+    String firstAppearance = '',
+    String lastAppearance = '',
+    String notes = '',
+    DateTime? timestamp,
+  }) async {
+    await _requireBook(bookId);
+    return connections.connect(
+      sourceId: recordId,
+      targetId: bookId,
+      typeId: BookScope.appearsInTypeId,
+      metadata: {
+        if (role.trim().isNotEmpty) 'role': role.trim(),
+        if (status.trim().isNotEmpty) 'status': status.trim(),
+        if (firstAppearance.trim().isNotEmpty)
+          'firstAppearance': firstAppearance.trim(),
+        if (lastAppearance.trim().isNotEmpty)
+          'lastAppearance': lastAppearance.trim(),
+        if (notes.trim().isNotEmpty) 'notes': notes.trim(),
+      },
+      timestamp: timestamp,
+    );
+  }
+
+  Future<void> removeBookAppearance(String recordId, String bookId) async {
+    for (final link in await repository.outgoingLinks(recordId)) {
+      if (link.typeId == BookScope.appearsInTypeId && link.targetId == bookId) {
+        await connections.disconnect(link.id);
+      }
+    }
+  }
+
+  /// The books [recordId] appears in, in series order.
+  Future<List<AuthorRecord>> booksFor(String recordId) async {
+    final targets = <String>{
+      for (final link in await repository.outgoingLinks(recordId))
+        if (link.typeId == BookScope.appearsInTypeId) link.targetId,
+    };
+    final all = await books(includeArchived: true);
+    return all.where((book) => targets.contains(book.id)).toList();
+  }
+
+  /// The appearance link between [recordId] and [bookId], if there is one.
+  Future<RecordLink?> bookAppearance(String recordId, String bookId) async {
+    for (final link in await repository.outgoingLinks(recordId)) {
+      if (link.typeId == BookScope.appearsInTypeId && link.targetId == bookId) {
+        return link;
+      }
+    }
+    return null;
+  }
+
+  // ----------------------------------------------------------- book states --
+
+  /// Records how [recordId] differs from series canon inside [bookId].
+  ///
+  /// [overrides] holds only the fields whose values differ, and [removedFieldIds]
+  /// the ones this book drops. Everything else keeps coming from canon, so a
+  /// state record is a difference and never a copy — editing canon still reaches
+  /// every book that does not override the field.
+  Future<AuthorRecord> setEntityState(
+    String recordId,
+    String bookId, {
+    Map<String, Object?> overrides = const {},
+    Iterable<String> removedFieldIds = const [],
+    String reason = '',
+    DateTime? timestamp,
+  }) async {
+    final canon = await records.getRecord(recordId);
+    if (canon == null) {
+      throw StateError('Record $recordId does not exist in project $projectId.');
+    }
+    final book = await _requireBook(bookId);
+    final now = (timestamp ?? DateTime.now()).toUtc();
+    final id = entityStateId(recordId, bookId);
+    final title = '${canon.title} in ${book.title}';
+    final fields = <String, Object?>{
+      'name': title,
+      'canonicalRecordId': recordId,
+      'removedFieldIds': removedFieldIds.toSet().toList(),
+      if (reason.trim().isNotEmpty) 'changeReason': reason.trim(),
+      for (final entry in overrides.entries)
+        '${BookScope.stateFieldPrefix}${entry.key}': entry.value,
+    };
+
+    final existing = await records.getRecord(id);
+    if (existing != null) {
+      return records.updateRecord(
+        existing.copyWith(title: title, fields: fields, updatedAt: now),
+      );
+    }
+    final created = await records.createRecord(
+      AuthorRecord(
+        id: id,
+        typeId: BookScope.entityStateTypeId,
+        scopeType: RecordScopeType.project,
+        scopeId: projectId,
+        projectId: projectId,
+        bookId: bookId,
+        title: title,
+        templateId: BookScope.entityStateTypeId,
+        fields: fields,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await connections.connect(
+      sourceId: created.id,
+      targetId: recordId,
+      typeId: BookScope.documentsTypeId,
+      timestamp: now,
+    );
+    await connections.connect(
+      sourceId: created.id,
+      targetId: bookId,
+      typeId: BookScope.stateInBookTypeId,
+      timestamp: now,
+    );
+    return created;
+  }
+
+  /// Drops the book-specific state for [recordId] in [bookId].
+  ///
+  /// Canon is untouched — the entity simply stops differing in that book.
+  Future<void> clearEntityState(String recordId, String bookId) async {
+    final id = entityStateId(recordId, bookId);
+    if (await records.getRecord(id) == null) return;
+    await records.deleteRecord(id);
+  }
+
+  /// Every book-specific state recorded for [recordId].
+  Future<List<AuthorRecord>> entityStatesFor(String recordId) async {
+    final states = await repository.recordsByTypeAndScope(
+      typeId: BookScope.entityStateTypeId,
+      scopeId: projectId,
+    );
+    return states
+        .where((state) => BookScope.canonicalIdOf(state) == recordId)
+        .where((state) => state.status != AuthorRecordStatus.deleted)
+        .toList();
+  }
+
+  /// How [recordId] reads inside [bookId]: canon, with that book's overlay.
+  ///
+  /// Passing a null [bookId] returns canon itself. The result is derived on
+  /// every call and never written back.
+  Future<EffectiveEntityFields?> effectiveFieldsFor(
+    String recordId, {
+    String? bookId,
+  }) async {
+    final canon = await records.getRecord(recordId);
+    if (canon == null) return null;
+    if (bookId == null) {
+      return BookScope.effectiveFields(canon);
+    }
+    final state = await records.getRecord(entityStateId(recordId, bookId));
+    return BookScope.effectiveFields(
+      canon,
+      bookId: bookId,
+      state: state?.status == AuthorRecordStatus.deleted ? null : state,
+    );
+  }
+
+  /// The deterministic id of the state record for one entity in one book.
+  ///
+  /// Deterministic so setting a state twice updates rather than duplicating,
+  /// the same reasoning behind `ConnectionEngine`'s deterministic link ids.
+  String entityStateId(String recordId, String bookId) =>
+      'state-$recordId-$bookId';
+
   Future<AuthorRecord> _requireBook(String bookId) async {
     final record = await book(bookId);
     if (record == null) {

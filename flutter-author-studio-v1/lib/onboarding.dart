@@ -1021,7 +1021,13 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
       initialValue: value,
       dropdownColor: palette.panel,
       iconEnabledColor: palette.gold,
-      style: TextStyle(color: palette.onSurface, fontSize: 14),
+      // An explicit family: DropdownButton replaces the inherited text style
+      // wholesale, and a family-less style loses the theme's Inter face.
+      style: TextStyle(
+        fontFamily: 'Inter',
+        color: palette.onSurface,
+        fontSize: 14,
+      ),
       decoration: _inputDecoration(palette),
       items: options
           .map((option) =>

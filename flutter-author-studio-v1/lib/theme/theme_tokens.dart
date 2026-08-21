@@ -210,6 +210,7 @@ class StudioId {
   static const world = StudioId('world');
   static const timeline = StudioId('timeline');
   static const plot = StudioId('plot');
+  static const worldBoard = StudioId('world_board');
   static const manuscript = StudioId('manuscript');
 
   @override

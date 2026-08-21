@@ -25,6 +25,8 @@ import 'timeline.dart';
 import 'timeline_studio_view.dart';
 import 'plot_studio_view.dart';
 import 'welcome_page.dart';
+import 'world_board/world_board_models.dart';
+import 'world_board/world_board_view.dart';
 import 'world_workspace.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/resolved_theme.dart';
@@ -616,6 +618,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
 
 enum StudioSection {
   dashboard,
+  worldBoard,
   search,
   statistics,
   backup,
@@ -635,6 +638,7 @@ enum StudioSection {
 extension StudioSectionData on StudioSection {
   String get label => switch (this) {
         StudioSection.dashboard => 'Dashboard',
+        StudioSection.worldBoard => 'World Board',
         StudioSection.search => 'Search',
         StudioSection.statistics => 'Statistics',
         StudioSection.backup => 'Backup',
@@ -653,6 +657,7 @@ extension StudioSectionData on StudioSection {
 
   IconData get icon => switch (this) {
         StudioSection.dashboard => Icons.space_dashboard_outlined,
+        StudioSection.worldBoard => Icons.hub_outlined,
         StudioSection.search => Icons.search_outlined,
         StudioSection.statistics => Icons.bar_chart_outlined,
         StudioSection.backup => Icons.backup_outlined,
@@ -712,6 +717,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
 
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
+    StudioSection.worldBoard,
     StudioSection.search,
     StudioSection.statistics,
     StudioSection.backup,
@@ -1158,6 +1164,7 @@ class _DesktopNavigation extends StatelessWidget {
 
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
+    StudioSection.worldBoard,
     StudioSection.search,
     StudioSection.statistics,
     StudioSection.backup,
@@ -1503,6 +1510,20 @@ class _SectionView extends StatelessWidget {
         StudioSection.dashboard => _DashboardView(
             project: project,
             onNavigate: onNavigate,
+          ),
+        StudioSection.worldBoard => WorldBoardView(
+            project: project,
+            manuscriptStore: manuscriptStore,
+            onNavigate: (destination) => onNavigate(
+              switch (destination) {
+                WorldBoardDestination.projects => StudioSection.projects,
+                WorldBoardDestination.manuscript => StudioSection.manuscript,
+                WorldBoardDestination.characters => StudioSection.characters,
+                WorldBoardDestination.world => StudioSection.world,
+                WorldBoardDestination.timeline => StudioSection.timeline,
+                WorldBoardDestination.plot => StudioSection.plot,
+              },
+            ),
           ),
         StudioSection.search => SearchStudioView(project: project),
         StudioSection.statistics => StatisticsStudioView(project: project),

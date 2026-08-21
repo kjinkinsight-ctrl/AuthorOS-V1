@@ -13,6 +13,7 @@ import 'create_profile_page.dart';
 import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
+import 'map_studio_view.dart';
 import 'onboarding.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
@@ -625,6 +626,7 @@ enum StudioSection {
   characters,
   codex,
   world,
+  map,
   plot,
   timeline,
   notes,
@@ -645,6 +647,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.characters => 'Characters',
         StudioSection.codex => 'Story Codex',
         StudioSection.world => 'World',
+        StudioSection.map => 'Map',
         StudioSection.plot => 'Plot',
         StudioSection.timeline => 'Timeline',
         StudioSection.notes => 'Notes',
@@ -664,6 +667,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.characters => Icons.groups_outlined,
         StudioSection.codex => Icons.auto_stories_outlined,
         StudioSection.world => Icons.public_outlined,
+        StudioSection.map => Icons.map_outlined,
         StudioSection.plot => Icons.route_outlined,
         StudioSection.timeline => Icons.timeline_outlined,
         StudioSection.notes => Icons.sticky_note_2_outlined,
@@ -727,6 +731,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.characters,
     StudioSection.codex,
     StudioSection.world,
+    StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
     StudioSection.notes,
@@ -1174,6 +1179,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.characters,
     StudioSection.codex,
     StudioSection.world,
+    StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
     StudioSection.notes,
@@ -1578,6 +1584,7 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
+        StudioSection.map => MapStudioView(project: project),
         StudioSection.plot => PlotStudioView(
           project: project,
           service: PlotService(

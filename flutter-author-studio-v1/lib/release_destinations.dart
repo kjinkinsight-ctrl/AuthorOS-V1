@@ -2008,7 +2008,6 @@ class _LegacyStoryCodexViewState extends State<LegacyStoryCodexView> {
 
 class _LegacyCharacterBoardView extends StatefulWidget {
   const _LegacyCharacterBoardView({
-    super.key,
     required this.project,
   });
 

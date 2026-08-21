@@ -180,21 +180,25 @@ class _WorldBoardGrid extends StatelessWidget {
               ? sections.length
               : start + columns;
           rows.add(
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var index = 0; index < columns; index += 1) ...[
-                  if (index > 0) SizedBox(width: gap),
-                  Expanded(
-                    child: start + index < end
-                        ? WorldBoardMetricTile(
-                            metric: snapshot.metric(sections[start + index]),
-                            onOpen: onOpen,
-                          )
-                        : const SizedBox.shrink(),
-                  ),
+            // Equal-height tiles inside a column that measures itself: the
+            // shell scrolls the board, so the row must not demand a height.
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var index = 0; index < columns; index += 1) ...[
+                    if (index > 0) SizedBox(width: gap),
+                    Expanded(
+                      child: start + index < end
+                          ? WorldBoardMetricTile(
+                              metric: snapshot.metric(sections[start + index]),
+                              onOpen: onOpen,
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           );
           if (end < sections.length) rows.add(SizedBox(height: gap));

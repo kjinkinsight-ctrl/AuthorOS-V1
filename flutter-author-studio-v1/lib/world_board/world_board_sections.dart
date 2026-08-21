@@ -501,23 +501,22 @@ class _WorldBoardBranchRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // The connector: a rule dropping from the project node, stopped
-          // short on the final branch so the tree reads as closed.
           SizedBox(
             width: 20,
             child: Column(
               children: [
-                Expanded(
-                  flex: 0,
-                  child: Container(width: 1, height: 14, color: outline),
-                ),
-                Container(width: 1, height: 8, color: outline),
-                if (!isLast) Expanded(child: Container(width: 1, color: outline)),
+                // Drops past the horizontal tick below, then keeps running to
+                // the next branch — and stops on the last one, so the tree
+                // reads as closed rather than trailing off.
+                Container(width: 1, height: 22, color: outline),
+                if (!isLast)
+                  Expanded(child: Container(width: 1, color: outline)),
               ],
             ),
           ),
           Padding(
-            padding: EdgeInsets.only(top: scope.space('md')),
+            // Meets the vertical rule level with the branch icon beside it.
+            padding: EdgeInsets.only(top: scope.space('lg')),
             child: Container(width: 12, height: 1, color: outline),
           ),
           SizedBox(width: scope.space('sm')),
@@ -538,14 +537,17 @@ class _WorldBoardBranchRow extends StatelessWidget {
                             : scope.color(ThemeColorRef.primary),
                       ),
                       SizedBox(width: scope.space('sm')),
-                      Text(
-                        branch.section.label,
-                        style: scope
-                            .text(
-                              ThemeTextRole.ui,
-                              colorRef: ThemeColorRef.onSurface,
-                            )
-                            .copyWith(fontWeight: FontWeight.w600),
+                      Flexible(
+                        child: Text(
+                          branch.section.label,
+                          overflow: TextOverflow.ellipsis,
+                          style: scope
+                              .text(
+                                ThemeTextRole.ui,
+                                colorRef: ThemeColorRef.onSurface,
+                              )
+                              .copyWith(fontWeight: FontWeight.w600),
+                        ),
                       ),
                       SizedBox(width: scope.space('sm')),
                       if (!branch.isEmpty)
@@ -734,18 +736,20 @@ class _WorldBoardStatRow extends StatelessWidget {
         start + columns > children.length ? children.length : start + columns,
       );
       rows.add(
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var index = 0; index < columns; index += 1) ...[
-              if (index > 0) SizedBox(width: scope.space('sm')),
-              Expanded(
-                child: index < slice.length
-                    ? slice[index]
-                    : const SizedBox.shrink(),
-              ),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var index = 0; index < columns; index += 1) ...[
+                if (index > 0) SizedBox(width: scope.space('sm')),
+                Expanded(
+                  child: index < slice.length
+                      ? slice[index]
+                      : const SizedBox.shrink(),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       );
       if (start + columns < children.length) {
@@ -807,11 +811,14 @@ class _WorldBoardChip extends StatelessWidget {
             ),
             SizedBox(width: scope.space('xs')),
           ],
-          Text(
-            label,
-            style: scope.text(
-              ThemeTextRole.label,
-              colorRef: ThemeColorRef.onSurface,
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: scope.text(
+                ThemeTextRole.label,
+                colorRef: ThemeColorRef.onSurface,
+              ),
             ),
           ),
         ],

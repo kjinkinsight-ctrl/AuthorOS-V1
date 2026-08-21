@@ -67,9 +67,10 @@ class WorldBoardService {
 
   /// Loads everything the board renders.
   ///
-  /// The five record queries are independent, so they run together; the
-  /// manuscript is read through its own store because it does not live in the
-  /// record repository.
+  /// The record queries run in turn: they share one database connection, and
+  /// a board that opens in a few milliseconds does not need to race them. The
+  /// manuscript is read separately because it does not live in the record
+  /// repository.
   Future<WorldBoardSnapshot> load({DateTime? now}) async {
     final manuscript = await _loadManuscript();
 
@@ -91,8 +92,7 @@ class WorldBoardService {
     );
 
     final branches = <WorldBoardBranch>[
-      _branch(WorldBoardSection.manuscript, _chapterTitles(manuscript),
-          manuscript.chapterCount),
+      _branch(WorldBoardSection.manuscript, _chapterTitles(manuscript)),
       _branch(WorldBoardSection.characters, _titles(characters)),
       _branch(WorldBoardSection.worlds, _titles(worldRecords)),
       _branch(WorldBoardSection.timelines, _titles(timelineRecords)),
@@ -209,14 +209,10 @@ class WorldBoardService {
         caption: count == 0 ? '' : caption,
       );
 
-  WorldBoardBranch _branch(
-    WorldBoardSection section,
-    List<String> titles, [
-    int? count,
-  ]) =>
+  WorldBoardBranch _branch(WorldBoardSection section, List<String> titles) =>
       WorldBoardBranch(
         section: section,
-        count: count ?? titles.length,
+        count: titles.length,
         leaves: titles.take(branchSampleSize).toList(),
       );
 

@@ -89,9 +89,11 @@ extension WorldBoardSectionData on WorldBoardSection {
 
 /// One tile in the ecosystem grid.
 ///
-/// [count] is the honest number of records behind the section. [value] is how
-/// that count reads on the tile — for the manuscript it is a word count rather
-/// than a record tally, because words are what the author is tracking.
+/// [count] measures how much the section holds, and zero always means the
+/// section is genuinely empty. For the record-backed sections that is a record
+/// tally; for the manuscript it is the words and chapters that make a draft
+/// exist at all. [value] is what the tile actually shows — for the manuscript,
+/// a word count, because words are what the author is tracking.
 class WorldBoardMetric {
   const WorldBoardMetric({
     required this.section,
@@ -102,7 +104,7 @@ class WorldBoardMetric {
 
   final WorldBoardSection section;
 
-  /// Records behind this section. Zero means the empty state is the truth.
+  /// How much this section holds. Zero means the empty state is the truth.
   final int count;
 
   /// The headline as rendered, already formatted.

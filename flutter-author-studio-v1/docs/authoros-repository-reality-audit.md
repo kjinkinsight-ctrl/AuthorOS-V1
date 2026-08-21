@@ -4,6 +4,16 @@
 > was created, modified, renamed, or deleted while producing this document. This
 > file is the sole repository change.
 
+> **⚠ PARTIALLY SUPERSEDED — read [Git History Findings](#git-history-findings) first.**
+> The body of this document is pinned to `main` at **`88fbdce`**. `main` has since advanced
+> to **`953b5f6`** and the repository has **20 branches**, not the 4 this audit could see.
+> Concretely: **Map Studio now exists**, fully built and navigation-routed, on two unmerged
+> branches — the statement elsewhere in this document that it "has never been committed" was
+> correct when written (the work landed ~5 hours later) but is no longer true. Navigation is
+> now **18 sections, not 15**; the Theme Engine **is** wired; `PlotService` **is** consumed;
+> CI is **green**. **Community remains genuinely absent.** The Git History Findings section
+> carries the corrected findings and a table of exactly which sections are stale.
+
 ---
 
 ## Audit Date
@@ -747,25 +757,213 @@ Commit `6d52f8c` deleted an entire prior HTML/CSS/JS implementation (`index.html
 
 ## Git History Findings
 
-| System | Exists in history? | Committed? | Later deleted? | Docs only? | Other branch? |
+> **CORRECTED 2026-08-21T09:10Z.** The original version of this section was written from a
+> session that could see only `main` and three legacy branches. It asserted that no Map Studio
+> work existed "on any branch" and that there was "no hidden work on another branch." **Both
+> statements were wrong in form, and one was wrong in fact.** This section has been rewritten
+> from a full-repository audit of all 20 remote branches, cross-checked by an independent
+> adversarial verification pass per branch. Every other section of this document remains pinned
+> to `88fbdce` and is **not** updated — see *Staleness of the rest of this document* at the end
+> of this section for exactly which parts are now superseded.
+
+### Why the original finding was wrong
+
+The original audit ran `git log --all` against the **local object store**, which had been
+cloned with only `main` and three legacy branches present, and confirmed it against a
+`list_branches` call that returned four branches. Both agreed, so the conclusion looked
+well-evidenced. It was not: `--all` can only see refs that exist locally, and the remote
+tracking refs were stale. The lesson for future audits is to run `git fetch --prune` **first**
+and enumerate branches from the remote, never from a cold clone.
+
+### Timeline — what existed when
+
+The audit was written and committed at **2026-08-21T00:31:24Z** (`3bd2325`).
+
+| Work | First commit | vs. audit | Was the original claim fair? |
+|---|---|---|---|
+| Manuscript Studio Phase 2 (`572df94`) | 2026-08-20T06:55:06Z | **17h36m BEFORE** | ❌ **No — this was missed.** |
+| Theme Engine Phase 2 (`6556044`) | 2026-08-20T21:36:44Z | **2h55m BEFORE** | ❌ **No — this was missed.** |
+| Theme Engine Phase 3 (`04ecd43`) | 2026-08-21T01:56:45Z | 1h25m after | ✔ Did not exist yet |
+| Timeline Studio completion (`2ea4297`) | 2026-08-21T03:27:35Z | 2h56m after | ✔ Did not exist yet |
+| Research Studio (`0e53e7b`) | 2026-08-21T04:51:10Z | 4h20m after | ✔ Did not exist yet |
+| **Map Studio Phase 1 (`5e2adad`)** | **2026-08-21T05:54:28Z** | **5h23m after** | ✔ **Did not exist yet** |
+| **Map Studio Phase 2 (`894df64`)** | **2026-08-21T06:53:36Z** | **6h22m after** | ✔ Did not exist yet |
+| Writing session history (`c7d5d4e`) | 2026-08-21T06:27:47Z | 5h56m after | ✔ Did not exist yet |
+
+**The Map Studio conclusion was factually correct when written and was overtaken by events
+about five hours later.** The *scope* of the claim — "on any branch", "has ever been committed"
+— was not supportable and should never have been stated. The two genuinely missed branches are
+Manuscript Studio Phase 2 and Theme Engine Phase 2.
+
+### Corrected per-system history
+
+| System | Exists in history? | Where | Merged to `main`? |
+|---|---|---|---|
+| **Map Studio** | **YES** | 2 unmerged branches (PR #7, PR #13) | **No** |
+| **Community** | No | Nowhere | — |
+| **Analytics** | **YES** | Merged | **Yes** (`2ab1a2f`, `8efb094`) |
+| **Progression** | No | Nowhere | — |
+| **Theme Engine (shell integration)** | **YES** | Landed on `main` by a different route than the Phase 2 branch | **Yes** |
+| **Universal Records** | Yes (under other names) | `main` | Yes |
+| **Startup / Login** | **YES** — rebuilt | `main` | **Yes** |
+| **Research Studio** | **YES** — twice, incompatibly | `main` (PR #12) + rival branch (PR #6) | **Partly** |
+| **World Board** | **YES** | `main` | **Yes** |
+| **Writing session recording** | **YES** | Unmerged (PR #10) | No |
+| **AI** | No | Nowhere | — (intentional non-goal) |
+
+### Branch-by-branch audit
+
+20 remote branches. Each surveyed and then independently re-checked by a second agent
+instructed to refute the first. Verdicts below are the **post-verification** values.
+
+#### Merged into `main`
+
+| Branch | Verdict | Note |
+|---|---|---|
+| `claude/timeline-studio-completion-7wypb0` | IMPLEMENTED | PR #3. Rebuilt Timeline on `TimelineService`/Drift |
+| `claude/research-studio-expansion-q4p4en` | MERGED | PR #12. The Research Studio now on `main` |
+| `claude/ci-flutter-workflow-fix` | CI ONLY | PR #9. **The fix that made CI green** |
+| `kjinkinsight-ctrl-create-dart`, `-generator-ossf` | CI ONLY | PRs #1, #2 |
+
+#### Unmerged — real, verified implementation
+
+| Branch | PR | Verdict | Reachable? | Impl LOC | Tests |
 |---|---|---|---|---|---|
-| **Map Studio** | **No** | No | No | **Yes** | No |
-| **Community** | **No** | No | No | **Yes** | No |
-| **Analytics** | Partly (word-count statistics) | Yes | No | Mostly | No |
-| **Progression** | **No** | No | No | **Yes** | No |
-| **Theme Engine** | Yes | Yes (`lib/theme/`) | No | Phase 2 integration is docs-only | No |
-| **Universal Records** | Yes (under other names) | Yes | No | Brief's class names are docs-only | No |
-| **Startup / Login** | Yes | Yes | No | Intended flow is docs-only | No |
+| `claude/map-studio-phase-2-editor-yuaqep` | #13 | **IMPLEMENTED** | **Yes — routed** | 4,159 | 157 |
+| `claude/authoros-map-studio-phase-1-jqyahs` | #7 | **IMPLEMENTED** | **Yes — routed** | 2,392 | 79 |
+| `claude/research-studio-completion-w8v2nk` | #6 | IMPLEMENTED | Yes — routed | 3,182 | 58 |
+| `claude/manuscript-studio-phase-2-loyyd3` | #16 | Not audited in depth | — | 5,836 | 3 files |
+| `claude/writing-session-history-rkymgf` | #10 | IMPLEMENTED | Yes | 1,090 | 123 |
+| `claude/authoros-web-production-dycu55` | #8 | IMPLEMENTED | N/A | 230 | **0** |
+| `claude/theme-engine-phase-2-l6a8qr` | — | IMPLEMENTED | Yes | 186 | 29 |
+| `claude/world-board-analytics-integration-qu7hc9` | #11 | IMPLEMENTED | Yes | 142 | 28 |
+| `claude/theme-engine-phase-3-1x12nt` | — | **PARTIAL** | Partial | 537 | 49 |
+| 4 × CI branches | #14, #15 | CI ONLY | N/A | 0 | 0 |
 
-Supporting evidence:
+#### Map Studio — the correction that matters most
 
-- Only **two** branches exist (`main`, `claude/authoros-repository-audit-xv1trv`) and they point at the same commit. **There is no hidden work on another branch.**
-- `git log --all --diff-filter=D --name-only` shows **no Dart file has ever been deleted** from `flutter-author-studio-v1/`. Nothing was built and removed.
-- The only large deletion in history is the pre-Flutter HTML/JS app at `6d52f8c`.
-- Repository lineage: commit `64e5f7c` merges from `github.com/kjinkinsight-ctrl/Indie-Author-OS`; `85016a7` is "Initial AuthorOS commit"; `60cb323` is "feat(world): rebuild World Studio on the Universal Record workspace" — which is when `world_workspace.dart` superseded `world_studio.dart`, explaining orphan #3.
-- Commits `96329e8` ("g"), `66c7328` ("y"), `ca15674` ("latest app upgrades"), `5022e4a` ("commit all changes") are bulk checkpoints, so per-feature attribution before `85016a7` is unreliable.
+Both branches are **real, working, Drift-backed, navigation-routed Map Studios**, not
+scaffolding. Verified independently; the verifier could not refute either.
 
----
+- **Phase 1** (`5e2adad`) — `map_domain.dart` (461), `map_service.dart` (774),
+  `map_studio_view.dart` (1,127). Adds `map,` to `StudioSection`, a label, an icon, and a
+  `_SectionView` arm. Maps/places/markers are ordinary Universal Records written through
+  `RecordService` and `ConnectionEngine`, so they inherit validation, versioning, audit and
+  soft-delete. A test writes to a real on-disk database, closes it, reopens it and asserts
+  positions survive.
+- **Phase 2** (`894df64`) — a genuine visual editor on top: pan/zoom camera, drag-to-move
+  pins, region geometry clamped to map extent and persisted, marquee selection, six-slot
+  draw order.
+
+**Honest limits, from the audit:**
+- **There is no map image.** The canvas paints only a grid. `backgroundReference` is stored
+  and round-tripped but never rendered — polyline and polygon geometry are modelled and
+  never drawn. It is a coordinate space, not cartography.
+- Camera zoom/pan is never persisted; it resets on every studio switch and restart.
+- No delete/archive of an individual place or marker from the editor UI.
+- Marquee multi-select selects, then nothing acts on the selection.
+- "Layers" is fixed z-ordering — no visibility toggles, no user layers, no layer panel.
+- On Phase 1 alone, ~40% of `MapService` (all move/update/delete) has no UI caller: a user
+  could fill a map but never correct it.
+
+**These two branches are not independent.** Phase 2 *contains* Phase 1's commit `5e2adad`,
+and both carry a patch-identical "Pin Settings to the foot of the navigation rail" commit.
+**Merging Phase 2 delivers both; merging both is redundant and invites a spurious conflict.**
+
+#### The Research Studio collision
+
+The most serious finding in this audit. **Two incompatible Research Studios exist**, and one
+has already merged:
+
+- `main` has PR #12's version: `ResearchRecordTypes` in `core/research_record_types.dart`,
+  a `const` service over `AuthorRecord`/`RecordService`.
+- PR #6 has a rival: a different `ResearchRecordTypes` in `core/research_domain.dart`, a
+  mutable wrapper around `StoryCodexService` returning `CodexEntry`.
+
+Both **add** `lib/research_service.dart`, `lib/research_studio_view.dart` and the same two
+test files — add/add conflicts on every one. The two classes share a name and a
+`research-entry` record type but have incompatible fields and incompatible service APIs.
+PR #6 is 12 commits behind and has not been rebased, so all of this surfaces at once.
+**PR #6 cannot be merged as-is; it must be closed or rewritten against `main`.**
+
+Both versions also leave the legacy SharedPreferences research side panel mounted in
+Manuscript Studio, so the shipped app has **two research features with two stores that never
+sync** — the PR #12 commit message states this was deliberate, with a guardrail test.
+
+#### Other material findings
+
+- **`claude/world-board-analytics-integration-qu7hc9` has a misleading name.** It builds no
+  World Board and adds no analytics — both already shipped on `main`. It is a 142-line
+  read-only refactor, zero new files, zero nav changes. Its project-scoping guard is an
+  `assert`, stripped in release builds.
+- **`claude/theme-engine-phase-3-1x12nt` was downgraded** IMPLEMENTED → **PARTIAL** on
+  verification. Only one of its two goals is real (status roles + a categorical ramp). Its
+  second commit re-implements shell wiring `main` already has, from a 17-commit-old base, and
+  would **break the build**: its exhaustive `studioId` switch covers 15 `StudioSection` values
+  where `main` now has 18. Its per-studio theming is a shell — `StudioThemeScope` is installed
+  but no `studioOverrides` are defined, so it changes nothing visually. 922 lines of docs
+  against 537 lines of code.
+- **`claude/authoros-web-production-dycu55` adds zero tests** while changing the persistence
+  layer. Its Drift-on-web routing through sqlite3 WASM is real, but picked images are still
+  stored as `XFile.path`, which on web is a `blob:` URL that dies with the tab — avatars are
+  written as dead references and silently fall back to initials after reload.
+- **`claude/writing-session-history-rkymgf`** is the prerequisite for Progression and real
+  Analytics, and it is genuinely built (new `WritingSessionRows` table, schema 8 → 9, real
+  migration). But nothing is written until `finalizeSession()`, so a crash mid-session loses
+  it entirely, and all three call sites are `unawaited(...)`. It is **the only ref at schema
+  version 9** — if another branch also claims 9, two migrations collide on one version number.
+- **The 4 CI branches are now largely redundant**, superseded by PR #9. Three of them conflict
+  with `main` on `dart.yml`; one (`fix-dart-ci-workflow`) silently bumps Flutter 3.44.9 → 3.47.1,
+  contradicting `.metadata` and `pubspec.lock`, with nothing demonstrating the suite passes on
+  the newer SDK. `kjinkinsight-ctrl-patch-1` adds a `.github/Sponsor` file under the commit
+  message "Adding sponsor button" — it adds no button.
+- **Concurrent-branch pressure on one file.** Map Studio, Manuscript Phase 2, World Board and
+  web-production must each add a `StudioSection` member and a `_SectionView` arm in the same
+  two hunks of `main.dart`. Every one of them will conflict with every other.
+- **The nav list is declared twice** (`_AuthorStudioShellState` and `_DesktopNavigation`) and
+  kept in sync by hand; the shell routes by `sections.indexOf`, so adding a studio to one and
+  not the other silently breaks routing.
+- **New junk on `main`:** `.flutter` (contains a machine `clientId` UUID), `.flutter_tool_state`,
+  and a build-output PNG under `dist/`.
+
+### Staleness of the rest of this document
+
+Everything below/above this section remains pinned to `88fbdce` and is **superseded** as follows.
+`main` advanced 88fbdce → 864f99d → **953b5f6** during this audit, and moved twice while it ran.
+
+| Section | Was (at `88fbdce`) | Now (at `953b5f6`) |
+|---|---|---|
+| Visible Navigation | 15 sections | **18** — adds World Board, Analytics, Research |
+| Theme Engine Status | "zero production consumers" | **Wired.** 8 files outside `lib/theme/` import it; `StudioThemeScope` installed |
+| Plot Studio Status | "`PlotService` has no UI consumer" | **Wired** to `plot_studio_view.dart` (815 lines) |
+| Timeline Studio Status | UI on SharedPreferences | **Rebuilt** on `TimelineService`/Drift |
+| Analytics Status | "word count + goal bar only" | **Real studio** — `analytics_service.dart` + 674-line view |
+| Research Studio | "not a studio" | **Is a studio**, routed in nav |
+| Build Evidence | "8 of 8 CI runs failed" | **CI is green** as of `864f99d` |
+| Test Evidence | 453 tests | **646** across 65 files |
+| Map Studio Status | "does not exist" | Still absent from `main`; **exists on two branches** |
+| Community Status | "does not exist" | **Unchanged — still nothing** |
+
+**Two regressions the new work introduced, which no roadmap records:**
+1. The Timeline rewrite **dropped era editing, sequence editing, and continuity
+   auto-resolution**. `TimelineEra` and `TimelineSequence` are now orphaned with no UI consumer
+   — the same commit range that de-orphaned `PlotService` orphaned these.
+2. `Statistics`, `Analytics`, `World Board` and `Dashboard` are now **four overlapping
+   dashboards** in one nav. Statistics is strictly dominated by Analytics.
+
+**"Continue with Email" and "Use Password" now exist as buttons on the new login screen but
+can never sign anyone in** — `startup_authentication.dart:39-61` returns `unavailable` every
+time. It is an honestly labelled stub, but the startup flow is still local-profiles-only.
+
+### Method and confidence
+
+20 branches enumerated from the remote after `git fetch --prune`. 11 survey agents, then 9
+adversarial verifiers instructed to refute. The verifiers **disagreed with the survey on 3 of
+9** targets, downgrading Theme Engine Phase 3 and correcting reachability on two others — the
+verification pass earned its keep. All inspection was read-only (`git show`/`diff`/`log` at
+explicit refs); no branch was checked out and nothing was built or run, so **compile-cleanliness
+and test results on unmerged branches are asserted from reading source, not from execution.**
+`main`'s green CI is the one execution-backed claim here.
 
 ## Test Evidence
 

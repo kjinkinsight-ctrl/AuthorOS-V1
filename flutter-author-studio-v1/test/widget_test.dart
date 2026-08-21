@@ -259,7 +259,7 @@ void main() {
     expect(find.text('Create Your Profile'), findsOneWidget);
     expect(find.text('Reset app state'), findsOneWidget);
     expect(find.text('No profiles on this device yet.'), findsOneWidget);
-    expect(find.text('Start your writing workspace'), findsNothing);
+    expect(find.text('Welcome to your writing workspace'), findsNothing);
   });
 
   testWidgets('selected profile opens its saved workspace directly',
@@ -281,7 +281,7 @@ void main() {
     expect(find.text('Continue'), findsOneWidget);
     expect(find.text('Old Name'), findsOneWidget);
     expect(find.text('Add New User'), findsOneWidget);
-    expect(find.text('Start your writing workspace'), findsNothing);
+    expect(find.text('Welcome to your writing workspace'), findsNothing);
 
     await tester.tap(find.byKey(const Key('startup-continue')));
     await tester.pumpAndSettle();
@@ -290,7 +290,7 @@ void main() {
     expect(find.byKey(const Key('focus-mode-toggle')), findsOneWidget);
   });
 
-  testWidgets('first run opens the first scene with an optional sprint',
+  testWidgets('first run creates the workspace and opens the first scene',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
@@ -321,22 +321,20 @@ void main() {
     await tester.tap(find.byKey(const Key('start-your-adventure')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Start your writing workspace'), findsOneWidget);
+    expect(find.text('Welcome to your writing workspace'), findsOneWidget);
     await tester.enterText(
       find.byKey(const Key('project-title-field')),
       'Northstar',
     );
     await tester.enterText(find.byKey(const Key('word-goal-field')), '90000');
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.pumpAndSettle();
+    // The whole setup lives on one page: workspace preview and continuity
+    // workflow are visible without stepping through a wizard.
     expect(find.text('Three-act structure'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.ensureVisible(find.byKey(const Key('create-workspace-button')));
     await tester.pumpAndSettle();
-    expect(find.text('Start a 15-minute writing sprint'), findsOneWidget);
-
-    await tester.tap(find.widgetWithText(FilledButton, 'Open first scene'));
+    await tester.tap(find.byKey(const Key('create-workspace-button')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
@@ -558,15 +556,13 @@ void main() {
       find.byKey(const Key('project-title-field')),
       'Signal Fire',
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.ensureVisible(find.text('Screenplay'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Screenplay'));
     await tester.pumpAndSettle();
 
     expect(find.text('Six sequence placeholders'), findsOneWidget);
     expect(find.text('Ten screenplay beats'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.pumpAndSettle();
     expect(
       find.text(
         'Your screenplay will open in Sequence 1 at the first scene heading.',
@@ -610,15 +606,14 @@ void main() {
       find.byKey(const Key('project-title-field')),
       'Northstar',
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.pumpAndSettle();
 
-    expect(find.text('Continuity-first workflow'), findsOneWidget);
-    expect(find.text('Build the cast'), findsOneWidget);
-    expect(find.text('Map the timeline'), findsOneWidget);
-    expect(find.text('Run continuity checks'), findsOneWidget);
+    // Everything is one page now: the continuity-first workflow is taught
+    // alongside the form, and echoed in the workspace preview sidebar.
+    expect(find.text('3. Continuity-first workflow'), findsOneWidget);
+    expect(find.text('Your workspace will include'), findsOneWidget);
+    expect(find.text('Build the cast'), findsWidgets);
+    expect(find.text('Map the timeline'), findsWidgets);
+    expect(find.text('Run continuity checks'), findsWidgets);
   });
 
   testWidgets('chapter studio supports creating and editing chapter plans',

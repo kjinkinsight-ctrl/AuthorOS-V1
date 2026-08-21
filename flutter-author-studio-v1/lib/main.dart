@@ -592,7 +592,10 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
 
     final currentProject = project;
     if (currentProject == null) {
-      return FirstRunProjectWizard(onComplete: _completeOnboarding);
+      return FirstRunProjectWizard(
+        onComplete: _completeOnboarding,
+        onSignIn: _logoutToProfileSelection,
+      );
     }
 
     return AuthorStudioShell(

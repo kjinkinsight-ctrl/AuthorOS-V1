@@ -3,9 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/version_audit.dart';
 import 'manuscript_export.dart';
+import 'manuscript_service.dart';
 import 'manuscript_store.dart';
+import 'manuscript_workspace.dart';
 import 'onboarding.dart';
+import 'persistence/authoros_database.dart';
 import 'reading_rhythm.dart';
 import 'writing_session_recorder.dart';
 
@@ -16,6 +20,9 @@ class ManuscriptStudioView extends StatefulWidget {
     required this.startSprint,
     this.minimalMode = false,
     this.store = const ManuscriptStore(),
+    this.repository,
+    this.activeBranchId,
+    this.onNavigate,
     this.sessionRecorder,
   });
 
@@ -23,6 +30,16 @@ class ManuscriptStudioView extends StatefulWidget {
   final bool startSprint;
   final bool minimalMode;
   final ManuscriptStore store;
+
+  /// The shared connected-domain repository. Defaults to the app-wide one so
+  /// the Studio reads and writes the same records as every other Studio.
+  final DriftConnectedDomainRepository? repository;
+
+  /// When set, the manuscript is Canon and read-only: a branch is active.
+  final String? activeBranchId;
+
+  /// Opens a connected record in the Studio that owns it.
+  final ValueChanged<ManuscriptNavigationRequest>? onNavigate;
 
   /// Records writing sessions for the Analytics Studio's history.
   ///
@@ -81,10 +98,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   final TextEditingController _editorController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
 
+  final TextEditingController _filterController = TextEditingController();
+
   final Set<String> _collapsedChapterIds = <String>{};
+
+  /// Node ids whose next save should also write a history entry. Autosaving
+  /// prose does not advance history; structural edits do.
+  final Set<String> _pendingHistory = <String>{};
 
   ManuscriptProjectSummary? _manuscript;
   _ManuscriptSelection _selection = const _ManuscriptSelection.manuscript();
+  ManuscriptFilter _filter = const ManuscriptFilter();
+  List<ManuscriptSceneMatch> _filterMatches = const [];
+  bool _showConnectedPane = false;
+
+  AuditChangeType _pendingChangeType = AuditChangeType.updated;
 
   bool _loading = true;
   bool _saving = false;
@@ -136,8 +164,9 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     _saveTimer?.cancel();
     _sprintTimer?.cancel();
     final snapshot = _manuscript;
-    if (snapshot != null) {
+    if (snapshot != null && widget.activeBranchId == null) {
       // Save without setState to avoid lifecycle assertions during disposal.
+      // A branch never writes: the manuscript is Canon and read-only.
       widget.store.saveStudio(snapshot);
     }
     // Leaving the editor ends the session. Not awaited, for the same reason
@@ -146,7 +175,39 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     _editorController.removeListener(_onEditorChanged);
     _editorController.dispose();
     _searchController.dispose();
+    _filterController.dispose();
     super.dispose();
+  }
+
+  /// The connected-domain repository this Studio reads and writes.
+  ///
+  /// The store's own repository wins when one was supplied, so the Studio and
+  /// its manuscript store never end up on two different databases.
+  DriftConnectedDomainRepository get _repository =>
+      widget.repository ?? widget.store.repository ?? authorOsRepository;
+
+  ManuscriptService get _service => ManuscriptService(
+        projectId: widget.project.id,
+        repository: _repository,
+        store: widget.store,
+        activeBranchId: widget.activeBranchId,
+      );
+
+  bool get _canEdit => widget.activeBranchId == null;
+
+  Future<void> _applyFilter(ManuscriptFilter filter) async {
+    final manuscript = _manuscript;
+    setState(() => _filter = filter);
+    if (manuscript == null) {
+      return;
+    }
+    final matches = filter.isEmpty
+        ? const <ManuscriptSceneMatch>[]
+        : await _service.filterScenes(manuscript, filter);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _filterMatches = matches);
   }
 
   Future<void> _load() async {
@@ -364,17 +425,42 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     if (manuscript == null) {
       return;
     }
+    if (!_canEdit) {
+      // The manuscript is Canon and a branch is active: never write.
+      return;
+    }
     if (updateUi && mounted) {
       setState(() {
         _saving = true;
       });
     }
-    await widget.store.saveStudio(manuscript);
+    final changed = _pendingHistory.toSet();
+    _pendingHistory.clear();
+    final saved = await _service.save(
+      manuscript,
+      changed: changed,
+      changeType: _pendingChangeType,
+    );
+    _pendingChangeType = AuditChangeType.updated;
+    // Only adopt the normalized copy when nothing was typed while the save
+    // was in flight, so an in-progress keystroke is never overwritten.
+    if (mounted && identical(_manuscript, manuscript)) {
+      _manuscript = saved;
+    }
     if (updateUi && mounted) {
       setState(() {
         _saving = false;
       });
     }
+  }
+
+  /// Marks [nodeIds] as needing a history entry on the next save.
+  void _recordHistoryFor(
+    Iterable<String> nodeIds, {
+    AuditChangeType changeType = AuditChangeType.updated,
+  }) {
+    _pendingHistory.addAll(nodeIds.where((id) => id.trim().isNotEmpty));
+    _pendingChangeType = changeType;
   }
 
   void _selectManuscript() {
@@ -449,6 +535,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       _selection = _ManuscriptSelection.chapter(nextChapter.id);
       _collapsedChapterIds.remove(nextChapter.id);
     });
+    _recordHistoryFor([nextChapter.id], changeType: AuditChangeType.created);
     _syncEditorWithSelection();
     _scheduleSave();
   }
@@ -505,6 +592,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       _selection = _ManuscriptSelection.scene(chapter.id, nextScene.id);
       _collapsedChapterIds.remove(chapter.id);
     });
+    _recordHistoryFor([nextScene.id], changeType: AuditChangeType.created);
     _syncEditorWithSelection();
     _scheduleSave();
   }
@@ -518,6 +606,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     if (next == null) {
       return;
     }
+    _recordHistoryFor([chapter.id], changeType: AuditChangeType.renamed);
     _updateChapter(chapter.id,
         (value) => value.copyWith(title: next, updatedAt: DateTime.now()));
   }
@@ -532,6 +621,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       return;
     }
 
+    _recordHistoryFor([scene.id], changeType: AuditChangeType.renamed);
     _updateSceneById(
       scene.id,
       (value) => value.copyWith(title: next, updatedAt: DateTime.now()),
@@ -593,83 +683,135 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   }
 
   Future<void> _deleteChapter(ManuscriptChapter chapter) async {
+    final manuscript = _manuscript;
+    if (manuscript == null) {
+      return;
+    }
+    final analysis = await _service.analyzeDelete(manuscript, chapter.id);
+    if (!mounted) {
+      return;
+    }
+    if (analysis != null && !analysis.canDelete) {
+      await _showBlockedDelete(chapter.title, analysis.blockingReasons);
+      return;
+    }
     final confirmed = await _confirmDelete(
       title: 'Delete chapter?',
-      message: 'This will delete ${chapter.title} and all scenes in it.',
+      message: [
+        'This will delete ${chapter.title} and all scenes in it.',
+        ...?analysis?.warnings,
+      ].join('\n\n'),
     );
     if (!confirmed) {
       return;
     }
-
-    final manuscript = _manuscript;
-    if (manuscript == null) {
+    await _flushSave();
+    final current = _manuscript;
+    if (current == null) {
       return;
     }
-    final chapters =
-        manuscript.chapters.where((item) => item.id != chapter.id).toList();
-    final normalized = _normalizeChapterAndSceneOrder(chapters);
-
-    setState(() {
-      final nextSelection = normalized.isEmpty
-          ? const _ManuscriptSelection.manuscript()
-          : (normalized.first.scenes.isEmpty
-              ? _ManuscriptSelection.chapter(normalized.first.id)
-              : _ManuscriptSelection.scene(
-                  normalized.first.id, normalized.first.scenes.first.id));
-      _selection = nextSelection;
-      _manuscript = manuscript.copyWith(
-        chapters: normalized,
-        currentChapterId: nextSelection.chapterId,
-        currentSceneId: nextSelection.sceneId,
-        updatedAt: DateTime.now(),
+    try {
+      final next = await _service.deleteChapter(
+        current,
+        chapter.id,
+        confirmed: true,
       );
-    });
-    _syncEditorWithSelection();
-    _scheduleSave();
+      if (!mounted) {
+        return;
+      }
+      final nextSelection = next.chapters.isEmpty
+          ? const _ManuscriptSelection.manuscript()
+          : (next.chapters.first.scenes.isEmpty
+              ? _ManuscriptSelection.chapter(next.chapters.first.id)
+              : _ManuscriptSelection.scene(
+                  next.chapters.first.id, next.chapters.first.scenes.first.id));
+      setState(() {
+        _selection = nextSelection;
+        _manuscript = next.copyWith(
+          currentChapterId: nextSelection.chapterId,
+          currentSceneId: nextSelection.sceneId,
+        );
+      });
+      _syncEditorWithSelection();
+      _scheduleSave();
+    } on Object catch (error) {
+      if (mounted) {
+        await _showBlockedDelete(chapter.title, [error.toString()]);
+      }
+    }
   }
 
+  Future<void> _showBlockedDelete(String title, List<String> reasons) =>
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          key: const Key('manuscript-delete-blocked'),
+          title: Text('$title cannot be deleted'),
+          content: Text(reasons.join('\n\n')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+
   Future<void> _deleteScene(ManuscriptScene scene) async {
-    final confirmed = await _confirmDelete(
-      title: 'Delete scene?',
-      message: 'This will delete ${scene.title}.',
-    );
-    if (!confirmed) {
-      return;
-    }
     final manuscript = _manuscript;
     if (manuscript == null) {
       return;
     }
-
-    final chapters = [...manuscript.chapters];
-    final chapterIndex =
-        chapters.indexWhere((chapter) => chapter.id == scene.chapterId);
-    if (chapterIndex < 0) {
+    final analysis = await _service.analyzeDelete(manuscript, scene.id);
+    if (!mounted) {
       return;
     }
-    final chapter = chapters[chapterIndex];
-    final nextScenes =
-        chapter.scenes.where((item) => item.id != scene.id).toList();
-    chapters[chapterIndex] =
-        chapter.copyWith(scenes: nextScenes, updatedAt: DateTime.now());
-
-    final normalized = _normalizeChapterAndSceneOrder(chapters);
-    final fallback = _firstSceneSelection(normalized) ??
-        (normalized.isNotEmpty
-            ? _ManuscriptSelection.chapter(normalized.first.id)
-            : const _ManuscriptSelection.manuscript());
-
-    setState(() {
-      _selection = fallback;
-      _manuscript = manuscript.copyWith(
-        chapters: normalized,
-        currentChapterId: fallback.chapterId,
-        currentSceneId: fallback.sceneId,
-        updatedAt: DateTime.now(),
+    if (analysis != null && !analysis.canDelete) {
+      await _showBlockedDelete(scene.title, analysis.blockingReasons);
+      return;
+    }
+    final confirmed = await _confirmDelete(
+      title: 'Delete scene?',
+      message: [
+        'This will delete ${scene.title}.',
+        ...?analysis?.warnings,
+      ].join('\n\n'),
+    );
+    if (!confirmed) {
+      return;
+    }
+    await _flushSave();
+    final current = _manuscript;
+    if (current == null) {
+      return;
+    }
+    try {
+      final next = await _service.deleteScene(
+        current,
+        scene.id,
+        confirmed: true,
       );
-    });
-    _syncEditorWithSelection();
-    _scheduleSave();
+      if (!mounted) {
+        return;
+      }
+      final fallback = _firstSceneSelection(next.chapters) ??
+          (next.chapters.isNotEmpty
+              ? _ManuscriptSelection.chapter(next.chapters.first.id)
+              : const _ManuscriptSelection.manuscript());
+      setState(() {
+        _selection = fallback;
+        _manuscript = next.copyWith(
+          currentChapterId: fallback.chapterId,
+          currentSceneId: fallback.sceneId,
+        );
+      });
+      _syncEditorWithSelection();
+      _scheduleSave();
+    } on Object catch (error) {
+      if (mounted) {
+        await _showBlockedDelete(scene.title, [error.toString()]);
+      }
+    }
   }
 
   _ManuscriptSelection? _firstSceneSelection(List<ManuscriptChapter> chapters) {
@@ -702,6 +844,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         updatedAt: DateTime.now(),
       );
     });
+    _recordHistoryFor([chapter.id]);
     await _flushSave();
   }
 
@@ -736,6 +879,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         updatedAt: DateTime.now(),
       );
     });
+    _recordHistoryFor([scene.id]);
     await _flushSave();
   }
 
@@ -862,6 +1006,10 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       _selection = _ManuscriptSelection.chapter(newChapterId);
       _collapsedChapterIds.remove(newChapterId);
     });
+    _recordHistoryFor(
+      [newChapterId, ...duplicatedScenes.map((item) => item.id)],
+      changeType: AuditChangeType.duplicated,
+    );
     _scheduleSave();
   }
 
@@ -898,18 +1046,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       _manuscript = manuscript.copyWith(chapters: normalized, updatedAt: now);
       _selection = _ManuscriptSelection.scene(scene.chapterId, duplicate.id);
     });
+    _recordHistoryFor([duplicate.id], changeType: AuditChangeType.duplicated);
     _syncEditorWithSelection();
     _scheduleSave();
   }
 
   Future<void> _setChapterStatus(
       ManuscriptChapter chapter, ManuscriptNodeStatus status) async {
+    _recordHistoryFor([chapter.id], changeType: AuditChangeType.statusChanged);
     _updateChapter(chapter.id,
         (value) => value.copyWith(status: status, updatedAt: DateTime.now()));
   }
 
   Future<void> _setSceneStatus(
       ManuscriptScene scene, ManuscriptNodeStatus status) async {
+    _recordHistoryFor([scene.id], changeType: AuditChangeType.statusChanged);
     _updateSceneById(scene.id,
         (value) => value.copyWith(status: status, updatedAt: DateTime.now()));
   }
@@ -1444,6 +1595,34 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
               _badge(_saving ? 'Saving' : 'Saved'),
             ],
           ),
+          if (!_canEdit) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const Key('manuscript-branch-banner'),
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lock_outline, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'The manuscript is Canon and read-only while the '
+                      '${widget.activeBranchId} branch is active.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Text(
             widget.project.title,
@@ -1469,13 +1648,14 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: _createChapter,
+                onPressed: _canEdit ? _createChapter : null,
                 icon: const Icon(Icons.add),
                 label: const Text('New Chapter'),
               ),
               OutlinedButton.icon(
-                onPressed:
-                    chapter == null ? null : () => _createScene(chapter.id),
+                onPressed: chapter == null || !_canEdit
+                    ? null
+                    : () => _createScene(chapter.id),
                 icon: const Icon(Icons.add_comment_outlined),
                 label: const Text('New Scene'),
               ),
@@ -1495,6 +1675,20 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
           ),
           const SizedBox(height: 10),
           _buildReadingRhythmControl(),
+          const SizedBox(height: 10),
+          ManuscriptProgressBar(
+            label: scene != null
+                ? 'Scene progress'
+                : (chapter != null ? 'Chapter progress' : 'Manuscript progress'),
+            progress: _service.progressFor(
+              manuscript,
+              goalWords: scene == null && chapter == null
+                  ? widget.project.wordGoal
+                  : 0,
+              chapter: scene == null ? chapter : null,
+              scene: scene,
+            ),
+          ),
           const SizedBox(height: 10),
           LinearProgressIndicator(
             value: progress,
@@ -1575,13 +1769,66 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
               selected: _selection.kind == ManuscriptSelectionKind.manuscript,
             ),
             const Divider(),
-            Expanded(
-              child: ListView(
-                children: [
-                  for (final chapter in manuscript.chapters)
-                    _buildChapterTreeNode(chapter),
-                ],
+            if (_showSearchResults) ...[
+              ManuscriptFilterRail(
+                manuscript: manuscript,
+                filter: _filter,
+                controller: _filterController,
+                matchCount: _filterMatches.length,
+                onChanged: _applyFilter,
               ),
+              const SizedBox(height: 8),
+            ],
+            Expanded(
+              child: !_showSearchResults || _filter.isEmpty
+                  ? ListView(
+                      children: [
+                        for (final chapter in manuscript.chapters)
+                          _buildChapterTreeNode(chapter),
+                      ],
+                    )
+                  : ListView(
+                      key: const Key('manuscript-filter-results'),
+                      children: [
+                        if (_filterMatches.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: Text('No scenes match these filters.'),
+                          ),
+                        for (final match in _filterMatches)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Material(
+                              color: match.scene.id == _selection.sceneId
+                                  ? Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              child: ListTile(
+                                key: Key('manuscript-match-${match.scene.id}'),
+                                dense: true,
+                                title: Text(
+                                  '${match.chapter.title} / '
+                                  '${match.scene.title}',
+                                ),
+                                subtitle: Text(
+                                  match.snippet.isEmpty
+                                      ? '${match.scene.status.label} • '
+                                          '${match.scene.wordCount} words'
+                                      : match.snippet,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () => _selectScene(
+                                  match.chapter.id,
+                                  match.scene.id,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -1638,15 +1885,41 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                       _toggleChapterCollapse(chapter.id);
                   }
                 },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 'open', child: Text('Open')),
-                  PopupMenuItem(value: 'rename', child: Text('Rename')),
-                  PopupMenuItem(value: 'up', child: Text('Move up')),
-                  PopupMenuItem(value: 'down', child: Text('Move down')),
-                  PopupMenuItem(value: 'add_scene', child: Text('Add scene')),
-                  PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
-                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'open', child: Text('Open')),
                   PopupMenuItem(
+                    value: 'rename',
+                    enabled: _canEdit,
+                    child: const Text('Rename'),
+                  ),
+                  PopupMenuItem(
+                    key: ValueKey('chapter-move-up-${chapter.id}'),
+                    value: 'up',
+                    enabled: _canEdit,
+                    child: const Text('Move up'),
+                  ),
+                  PopupMenuItem(
+                    value: 'down',
+                    enabled: _canEdit,
+                    child: const Text('Move down'),
+                  ),
+                  PopupMenuItem(
+                    value: 'add_scene',
+                    enabled: _canEdit,
+                    child: const Text('Add scene'),
+                  ),
+                  PopupMenuItem(
+                    value: 'duplicate',
+                    enabled: _canEdit,
+                    child: const Text('Duplicate'),
+                  ),
+                  PopupMenuItem(
+                    key: ValueKey('chapter-delete-${chapter.id}'),
+                    value: 'delete',
+                    enabled: _canEdit,
+                    child: const Text('Delete'),
+                  ),
+                  const PopupMenuItem(
                       value: 'collapse', child: Text('Collapse/expand')),
                 ],
               ),
@@ -1688,22 +1961,41 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                           itemBuilder: (context) => [
                             const PopupMenuItem(
                                 value: 'open', child: Text('Open')),
-                            const PopupMenuItem(
-                                value: 'rename', child: Text('Rename')),
+                            PopupMenuItem(
+                              value: 'rename',
+                              enabled: _canEdit,
+                              child: const Text('Rename'),
+                            ),
                             PopupMenuItem(
                               key: ValueKey('scene-move-up-${scene.id}'),
                               value: 'up',
+                              enabled: _canEdit,
                               child: const Text('Move up'),
                             ),
-                            const PopupMenuItem(
-                                value: 'down', child: Text('Move down')),
-                            const PopupMenuItem(
-                                value: 'duplicate', child: Text('Duplicate')),
-                            const PopupMenuItem(
-                                value: 'delete', child: Text('Delete')),
-                            const PopupMenuItem(
-                                value: 'move_to',
-                                child: Text('Move to chapter')),
+                            PopupMenuItem(
+                              key: ValueKey('scene-move-down-${scene.id}'),
+                              value: 'down',
+                              enabled: _canEdit,
+                              child: const Text('Move down'),
+                            ),
+                            PopupMenuItem(
+                              key: ValueKey('scene-duplicate-${scene.id}'),
+                              value: 'duplicate',
+                              enabled: _canEdit,
+                              child: const Text('Duplicate'),
+                            ),
+                            PopupMenuItem(
+                              key: ValueKey('scene-delete-${scene.id}'),
+                              value: 'delete',
+                              enabled: _canEdit,
+                              child: const Text('Delete'),
+                            ),
+                            PopupMenuItem(
+                              key: ValueKey('scene-move-to-${scene.id}'),
+                              value: 'move_to',
+                              enabled: _canEdit,
+                              child: const Text('Move to chapter'),
+                            ),
                           ],
                         ),
                       ),
@@ -1711,7 +2003,8 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                       Align(
                         alignment: Alignment.centerLeft,
                         child: TextButton.icon(
-                          onPressed: () => _createScene(chapter.id),
+                          onPressed:
+                              !_canEdit ? null : () => _createScene(chapter.id),
                           icon: const Icon(Icons.add),
                           label: const Text('Add Scene'),
                         ),
@@ -1804,6 +2097,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                 child: TextField(
                   key: const Key('manuscript-draft-field'),
                   controller: _editorController,
+                  readOnly: !_canEdit,
                   maxLines: null,
                   expands: true,
                   keyboardType: TextInputType.multiline,
@@ -2049,6 +2343,35 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   ) {
     final results = _searchResults();
 
+    final nodeId = _selection.kind == ManuscriptSelectionKind.scene
+        ? _selection.sceneId
+        : (_selection.kind == ManuscriptSelectionKind.chapter
+            ? _selection.chapterId
+            : '');
+
+    if (_showConnectedPane && nodeId.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildDetailsModeSwitch(),
+          const SizedBox(height: 8),
+          Expanded(
+            child: ManuscriptConnectedPanel(
+              key: ValueKey('manuscript-panel-$nodeId'),
+              service: _service,
+              manuscript: manuscript,
+              nodeId: nodeId,
+              nodeKind: _selection.kind == ManuscriptSelectionKind.scene
+                  ? ManuscriptNodeKind.scene
+                  : ManuscriptNodeKind.chapter,
+              onNavigate: widget.onNavigate,
+              onChanged: _adoptManuscript,
+            ),
+          ),
+        ],
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -2072,6 +2395,8 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
+          const SizedBox(height: 8),
+          if (nodeId.isNotEmpty) _buildDetailsModeSwitch(),
           const SizedBox(height: 10),
           Expanded(
             child: SingleChildScrollView(
@@ -2092,24 +2417,27 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                       const Text('No search results yet.')
                     else
                       ...results.map(
-                        (item) => ListTile(
-                          dense: true,
-                          title:
-                              Text('${item.chapterTitle} / ${item.sceneTitle}'),
-                          subtitle: Text(
-                            item.preview.trim().isEmpty
-                                ? 'No preview text.'
-                                : item.preview.trim(),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                        (item) => Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            dense: true,
+                            title: Text(
+                                '${item.chapterTitle} / ${item.sceneTitle}'),
+                            subtitle: Text(
+                              item.preview.trim().isEmpty
+                                  ? 'No preview text.'
+                                  : item.preview.trim(),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: () {
+                              if (item.sceneId.isEmpty) {
+                                _selectChapter(item.chapterId);
+                              } else {
+                                _selectScene(item.chapterId, item.sceneId);
+                              }
+                            },
                           ),
-                          onTap: () {
-                            if (item.sceneId.isEmpty) {
-                              _selectChapter(item.chapterId);
-                            } else {
-                              _selectScene(item.chapterId, item.sceneId);
-                            }
-                          },
                         ),
                       ),
                   ] else if (_selection.kind ==
@@ -2138,17 +2466,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                                 child: Text(status.label),
                               ))
                           .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          _setChapterStatus(chapter, value);
-                        }
-                      },
+                      onChanged: !_canEdit
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                _setChapterStatus(chapter, value);
+                              }
+                            },
                     ),
                     const SizedBox(height: 8),
                     _detailLine(
                         'POV', chapter.pov.isEmpty ? 'Not set' : chapter.pov),
                     OutlinedButton.icon(
-                      onPressed: () => _editChapterMetadata(chapter),
+                      onPressed: !_canEdit
+                          ? null
+                          : () => _editChapterMetadata(chapter),
                       icon: const Icon(Icons.edit_outlined),
                       label: const Text('Edit details'),
                     ),
@@ -2172,7 +2504,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed: manuscript.chapters.length < 2
+                      onPressed: manuscript.chapters.length < 2 || !_canEdit
                           ? null
                           : () => _linkChapter(chapter),
                       icon: const Icon(Icons.add_link),
@@ -2192,11 +2524,13 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                                 child: Text(status.label),
                               ))
                           .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          _setSceneStatus(scene, value);
-                        }
-                      },
+                      onChanged: !_canEdit
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                _setSceneStatus(scene, value);
+                              }
+                            },
                     ),
                     const SizedBox(height: 8),
                     _detailLine(
@@ -2208,7 +2542,9 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                     _detailLine(
                         'Notes', scene.notes.isEmpty ? 'None' : scene.notes),
                     OutlinedButton.icon(
-                      onPressed: () => _editSceneMetadata(scene),
+                      onPressed: !_canEdit
+                          ? null
+                          : () => _editSceneMetadata(scene),
                       icon: const Icon(Icons.edit_outlined),
                       label: const Text('Edit details'),
                     ),
@@ -2239,7 +2575,8 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed: () => _addRelationship(scene),
+                      onPressed:
+                          !_canEdit ? null : () => _addRelationship(scene),
                       icon: const Icon(Icons.add_link),
                       label: const Text('Add relationship'),
                     ),
@@ -2251,6 +2588,30 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         ],
       ),
     );
+  }
+
+  Widget _buildDetailsModeSwitch() => SegmentedButton<bool>(
+        key: const Key('manuscript-details-mode'),
+        segments: const [
+          ButtonSegment(value: false, label: Text('Details')),
+          ButtonSegment(value: true, label: Text('Connected')),
+        ],
+        selected: {_showConnectedPane},
+        showSelectedIcon: false,
+        onSelectionChanged: (selection) =>
+            setState(() => _showConnectedPane = selection.first),
+      );
+
+  /// Adopts a manuscript a Phase 2 pane produced, without a storage reload.
+  Future<void> _adoptManuscript(ManuscriptProjectSummary manuscript) async {
+    if (!mounted) {
+      return;
+    }
+    setState(() => _manuscript = manuscript);
+    _syncEditorWithSelection();
+    if (!_filter.isEmpty) {
+      await _applyFilter(_filter);
+    }
   }
 
   Widget _detailLine(String label, String value) {

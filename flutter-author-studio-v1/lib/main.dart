@@ -1488,6 +1488,19 @@ class _SectionView extends StatelessWidget {
               startSprint: startSprint,
               minimalMode: minimalFocusMode,
               store: manuscriptStore,
+              onNavigate: (request) => onNavigate(
+                switch (request.destination) {
+                  SearchDestination.characterStudio => StudioSection.characters,
+                  SearchDestination.worldStudio => StudioSection.world,
+                  SearchDestination.timelineStudio => StudioSection.timeline,
+                  SearchDestination.plotStudio => StudioSection.plot,
+                  SearchDestination.storyCodex => StudioSection.codex,
+                  SearchDestination.seriesStudio => StudioSection.projects,
+                  SearchDestination.manuscriptStudio ||
+                  SearchDestination.record =>
+                    StudioSection.manuscript,
+                },
+              ),
             );
             final research = _ResearchSidePanel(
               projectId: project.id,

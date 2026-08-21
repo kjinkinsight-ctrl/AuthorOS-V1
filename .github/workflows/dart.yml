@@ -1,18 +1,11 @@
-# CI for the AuthorOS Flutter app.
+# CI for the AuthorOS Flutter application.
 #
-# This repository is a monorepo: the Flutter app lives in
-# flutter-author-studio-v1/, and there is no pubspec.yaml at the root. Every
-# step therefore runs from that directory.
-#
-# The app depends on the Flutter SDK (`flutter: sdk: flutter` in its pubspec),
-# so the plain Dart SDK cannot resolve it — this uses the Flutter toolchain,
-# which bundles Dart.
-#
-# This workflow uses actions that are not certified by GitHub. They are
-# provided by a third-party and are governed by separate terms of service,
-# privacy policy, and support documentation.
+# This replaces GitHub's stock Dart starter template, which ran `dart pub get`
+# at the repository root. There is no pubspec.yaml there — the app lives in
+# flutter-author-studio-v1/ — so the job failed at its first step on every run
+# since the workflow was added, without ever reaching a test.
 
-name: Dart
+name: Flutter
 
 on:
   push:
@@ -20,41 +13,31 @@ on:
   pull_request:
     branches: [ "main" ]
 
-defaults:
-  run:
-    working-directory: flutter-author-studio-v1
-
 jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: flutter-author-studio-v1
+
     steps:
       - uses: actions/checkout@v4
 
-      # Pinned rather than tracking `stable`. The app's constraints already
-      # need a recent SDK (pdf 3.13.0 requires Dart >=3.12.0, sqlite3 requires
-      # >=3.9.999), and a floating channel means an SDK bump can turn CI red
-      # without a commit. Raise this deliberately.
+      # Pinned to the revision the project records in .metadata (6b182d2c75),
+      # so CI analyses and tests on the same SDK the app is developed against.
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.47.1'
+          flutter-version: '3.44.9'
           channel: stable
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
-      # Errors and test failures gate the build; warnings and infos do not,
-      # yet. Note that `flutter analyze` defaults --fatal-infos to ON, unlike
-      # `dart analyze` — without these flags the tree's 47 pre-existing infos
-      # (prefer_const_constructors, deprecated_member_use) and 11 warnings
-      # (unused elements, unused imports, unawaited returns) fail the build
-      # even though nothing is broken.
-      #
-      # Those 58 want individual judgement — deleting an unused declaration or
-      # adding an await inside a try block changes behaviour — so they are not
-      # swept here. Tighten to --no-fatal-infos alone once the warnings are
-      # cleared, and drop both flags once the infos are.
+      # Errors fail the build. Warnings and lint infos are reported but do not,
+      # because the tree carries a pre-existing backlog of them; tightening this
+      # to --fatal-warnings is a sensible follow-up once that backlog is cleared.
       - name: Analyze project source
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 

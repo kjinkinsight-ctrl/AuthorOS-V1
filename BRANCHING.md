@@ -18,8 +18,9 @@ would mean re-pointing all three for no behavioural gain.
 
 ## Branch families
 
-Each tree carries the same set of families, one per studio, plus `core` for the
-shared record/persistence layer and `platform` for `indiauthors-platform/`. The
+Each tree carries the same set of families: one per studio, plus `core` for the
+shared app layer (records, persistence, theme, navigation, startup), `platform`
+for `indiauthors-platform/`, and `ci` for the workflow and build pipeline. The
 debug tree prefixes them `debug/`, the release tree `rel/`.
 
 ```
@@ -34,8 +35,12 @@ debug/base                         main
 ├── debug/analytics-studio/base    ├── rel/analytics-studio/base
 ├── debug/story-codex/base         ├── rel/story-codex/base
 ├── debug/core/base                ├── rel/core/base
-└── debug/platform/base            └── rel/platform/base
+├── debug/platform/base            ├── rel/platform/base
+└── debug/ci/base                  └── rel/ci/base
 ```
+
+Work that belongs to no family — a repository-wide audit, a document about the
+tree as a whole — goes straight to a pull request against `debug/base`.
 
 Individual pieces of work branch off a family trunk and sit beside it:
 

@@ -325,4 +325,70 @@ void main() {
       });
     }
   });
+
+  // Startup must look the same whichever theme the workspace is set to. These
+  // two captures are the regression evidence: they should be indistinguishable.
+  group('workspace theme independence', () {
+    for (final workspaceTheme in const ['light', 'dark']) {
+      testWidgets('login with a $workspaceTheme workspace theme',
+          (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'author_studio.theme_id': workspaceTheme,
+          AuthorProfileStore.profilesKey: jsonEncode([
+            profileJson(
+              id: 'a',
+              displayName: 'Alexandra',
+              penName: 'Lead Author',
+              email: 'alexandra@example.com',
+              lastActiveAt: '2026-08-21T09:00:00.000',
+            ),
+          ]),
+        });
+        await pumpApp(tester);
+        await capture(tester, 't1_login_workspace_$workspaceTheme');
+      });
+
+      testWidgets('create profile with a $workspaceTheme workspace theme',
+          (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'author_studio.theme_id': workspaceTheme,
+        });
+        await pumpApp(tester);
+        await tester.tap(find.byKey(const Key('startup-add-user')));
+        await tester.pumpAndSettle();
+        await capture(tester, 't2_create_workspace_$workspaceTheme');
+      });
+
+      // Error text and dialog chrome are drawn by Material from the ambient
+      // ThemeData, not by StartupPalette -- so they are where a light workspace
+      // theme would still show through.
+      testWidgets('validation errors with a $workspaceTheme workspace theme',
+          (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'author_studio.theme_id': workspaceTheme,
+        });
+        await pumpApp(tester);
+        await tester.tap(find.byKey(const Key('startup-add-user')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('start-your-adventure')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('start-your-adventure')));
+        await tester.pumpAndSettle();
+        await capture(tester, 't3_errors_workspace_$workspaceTheme');
+      });
+
+      testWidgets('sign-in notice with a $workspaceTheme workspace theme',
+          (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'author_studio.theme_id': workspaceTheme,
+        });
+        await pumpApp(tester);
+        await tester.tap(find.byKey(const Key('startup-email-auth')));
+        await tester.pumpAndSettle();
+        await capture(tester, 't4_authnotice_workspace_$workspaceTheme');
+      });
+    }
+  });
 }

@@ -17,11 +17,13 @@ import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
+import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
 import 'supabase_service.dart';
 import 'timeline.dart';
-import 'visual_planning.dart';
+import 'timeline_studio_view.dart';
+import 'plot_studio_view.dart';
 import 'welcome_page.dart';
 import 'world_workspace.dart';
 import 'theme/flutter/authoros_theme.dart';
@@ -1556,8 +1558,14 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
-        StudioSection.plot => VisualPlanningView(project: project),
-        StudioSection.timeline => _TimelineStudioView(project: project),
+        StudioSection.plot => PlotStudioView(
+          project: project,
+          service: PlotService(
+            projectId: project.id,
+            repository: authorOsRepository,
+          ),
+        ),
+        StudioSection.timeline => TimelineStudioView(project: project),
         StudioSection.notes => const _NotesStudioView(),
         StudioSection.settings => SettingsStudioView(
             selection: themeSelection,

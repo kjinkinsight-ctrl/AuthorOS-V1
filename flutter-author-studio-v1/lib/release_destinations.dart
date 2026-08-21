@@ -15,6 +15,7 @@ import 'sync/project_sync_service.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/theme_definition.dart';
 import 'theme/theme_persistence.dart';
+import 'theme/theme_registry.dart';
 import 'theme/theme_tokens.dart';
 
 export 'character_studio.dart';
@@ -2670,6 +2671,11 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
         description: 'Low-glare and focused for evening writing.'),
   ];
 
+  /// The built-in theme registry, consulted only to derive a mode from a bare
+  /// theme id on the legacy callback path. The Theme Engine path receives a
+  /// fully-formed [ThemeSelection] from the shell and never needs this.
+  static final ThemeRegistry _themeRegistry = ThemeRegistry.standard();
+
   String selectedTheme = 'light';
   String selectedAccent = 'default';
   AuthorOsThemeMode selectedMode = AuthorOsThemeMode.light;
@@ -2758,10 +2764,7 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
     }
     selectedTheme = widget.themeId;
     selectedAccent = widget.accentId;
-    selectedMode = AppThemePreset.byId(widget.themeId).brightness ==
-            Brightness.dark
-        ? AuthorOsThemeMode.dark
-        : AuthorOsThemeMode.light;
+    selectedMode = _themeRegistry.byId(widget.themeId).defaultMode;
     selectedAccessibility = ThemeAccessibility.none;
   }
 
@@ -3758,10 +3761,8 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                       onTap: () {
                         setState(() {
                           selectedTheme = theme.id;
-                          selectedMode = AppThemePreset.byId(theme.id).brightness ==
-                                  Brightness.dark
-                              ? AuthorOsThemeMode.dark
-                              : AuthorOsThemeMode.light;
+                          selectedMode =
+                              _themeRegistry.byId(theme.id).defaultMode;
                         });
                         widget.onThemeChanged(selectedTheme, selectedAccent);
                       },

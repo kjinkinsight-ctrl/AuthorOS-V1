@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { z } from "zod";
 import type { LicenseRecord } from "./licenses.js";
 
@@ -83,7 +84,9 @@ const releasesStore: ReleaseRecord[] = [
 ].map((release) => releaseSchema.parse(release));
 
 function parseVersionParts(version: string): number[] {
-  const parts = version
+  const normalized = version.trim().toLowerCase().replace(/^v/, "");
+  const [base] = normalized.split("-");
+  const parts = (base ?? "")
     .split(".")
     .map((part) => Number.parseInt(part.replace(/\D/g, ""), 10))
     .filter((value) => Number.isFinite(value));
@@ -109,7 +112,58 @@ function compareVersions(left: string, right: string): number {
     }
   }
 
-  return 0;
+  const leftPrerelease = left.trim().toLowerCase().replace(/^v/, "").split("-")[1];
+  const rightPrerelease = right.trim().toLowerCase().replace(/^v/, "").split("-")[1];
+
+  if (!leftPrerelease && !rightPrerelease) {
+    return 0;
+  }
+
+  if (!leftPrerelease) {
+    return 1;
+  }
+
+  if (!rightPrerelease) {
+    return -1;
+  }
+
+  const leftTokens = leftPrerelease.split(".");
+  const rightTokens = rightPrerelease.split(".");
+  const tokenLimit = Math.max(leftTokens.length, rightTokens.length);
+
+  for (let i = 0; i < tokenLimit; i += 1) {
+    const leftToken = leftTokens[i] ?? "";
+    const rightToken = rightTokens[i] ?? "";
+
+    const leftNumeric = Number.parseInt(leftToken, 10);
+    const rightNumeric = Number.parseInt(rightToken, 10);
+
+    if (leftToken === rightToken) {
+      continue;
+    }
+
+    if (Number.isNaN(leftNumeric) && Number.isNaN(rightNumeric)) {
+      return leftToken.localeCompare(rightToken);
+    }
+
+    if (Number.isNaN(leftNumeric)) {
+      return 1;
+    }
+
+    if (Number.isNaN(rightNumeric)) {
+      return -1;
+    }
+
+    if (leftNumeric > rightNumeric) {
+      return 1;
+    }
+
+    if (leftNumeric < rightNumeric) {
+      return -1;
+    }
+  }
+
+  return leftTokens.length === rightTokens.length ? 0 : leftTokens.length > rightTokens.length ? 1 : -1;
 }
 
 export function isReleaseWithinLicenseRange(
@@ -167,10 +221,9 @@ export function createSignedDownloadUrl(input: {
 
   const expiry = new Date(Date.now() + input.env.DOWNLOAD_URL_TTL_SECONDS * 1000);
   const tokenPayload = `${input.userId}:${input.releaseId}:${input.platform}:${expiry.toISOString()}`;
-  const signature = Buffer.from(
-    `${tokenPayload}:${input.env.DOWNLOAD_SIGNING_KEY}`,
-    "utf8"
-  ).toString("base64url");
+  const signature = createHmac("sha256", input.env.DOWNLOAD_SIGNING_KEY)
+    .update(tokenPayload)
+    .digest("base64url");
 
   const url = new URL(
     `${input.env.DOWNLOAD_BASE_URL.replace(/\/$/, "")}/authoros/${encodeURIComponent(

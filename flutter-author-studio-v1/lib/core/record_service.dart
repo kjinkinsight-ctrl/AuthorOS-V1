@@ -220,6 +220,83 @@ class RecordService {
     );
   }
 
+  /// Moves [id] between books, or to series canon when [bookId] is null.
+  ///
+  /// This exists instead of routing book membership through [changeScope]
+  /// because [changeScope] assigns `seriesId`, `bookId` and `branchId`
+  /// unconditionally from its arguments — calling it to change one of them
+  /// silently erases the other two. Book membership changes often and must not
+  /// carry that risk, so this method preserves every other ownership column
+  /// verbatim and touches nothing but `bookId`.
+  ///
+  /// [updateRecord] cannot do this either: it rejects any ownership-scope
+  /// change outright. Book membership is a deliberate, audited move, so it gets
+  /// its own path rather than a hole in that rule.
+  Future<AuthorRecord> changeBookAssignment(
+    String id, {
+    required String? bookId,
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireRecord(id);
+    final normalized = bookId?.trim();
+    final target = normalized == null || normalized.isEmpty ? null : normalized;
+    if (target == existing.bookId) {
+      return existing;
+    }
+    if (target != null) {
+      final book = await repository.recordById(target);
+      if (book == null || book.typeId != 'book' || !_belongsToProject(book)) {
+        throw StateError('Book $target does not exist in project $projectId.');
+      }
+    }
+    final now = (timestamp ?? DateTime.now()).toUtc();
+    final changed = AuthorRecord(
+      id: existing.id,
+      typeId: existing.typeId,
+      scopeType: existing.scopeType,
+      scopeId: existing.scopeId,
+      projectId: existing.projectId,
+      seriesId: existing.seriesId,
+      bookId: target,
+      branchId: existing.branchId,
+      canonStatus: existing.canonStatus,
+      title: existing.title,
+      status: existing.status,
+      schemaVersion: existing.schemaVersion,
+      templateId: existing.templateId,
+      templateVersion: existing.templateVersion,
+      revision: existing.revision + 1,
+      fields: existing.fields,
+      tags: existing.tags,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+      extensionData: existing.extensionData,
+    );
+    await _requireValid(changed);
+    // Every existing link stays valid — nothing about the record's project
+    // changes — but the backlinks are re-validated so a move can never leave
+    // a relationship the registry would now reject.
+    final links = await repository.backlinks(id);
+    await _validateLinks(changed, links);
+    final entry = await history.forRecord(
+      changed,
+      changeType: AuditChangeType.scopeChanged,
+      summary: 'Changed book assignment for ${changed.title}',
+      timestamp: now,
+      metadata: {
+        'previousBookId': existing.bookId,
+        'newBookId': target,
+      },
+    );
+    await repository.putRecordWithHistory(
+      record: changed,
+      links: const [],
+      version: entry.version,
+      auditEvent: entry.audit,
+    );
+    return changed;
+  }
+
   Future<AuthorRecord> changeScope(
     String id, {
     required RecordScopeType scopeType,

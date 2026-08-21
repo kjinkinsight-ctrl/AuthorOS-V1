@@ -1,6 +1,5 @@
 import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
-import 'package:author_studio_v1/core/record_types.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Pins the Codex's universal entity vocabulary (directive §1.1) and the

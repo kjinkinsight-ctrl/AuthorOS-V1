@@ -14,6 +14,7 @@ import 'create_profile_page.dart';
 import 'local_image.dart';
 import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
+import 'manuscript_service.dart';
 import 'manuscript_store.dart';
 import 'map_studio_view.dart';
 import 'migrations/research_panel_migration.dart';
@@ -23,6 +24,8 @@ import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
 import 'research_service.dart';
 import 'research_studio_view.dart';
+import 'series_service.dart';
+import 'series_studio_view.dart';
 import 'supabase_service.dart';
 import 'timeline_studio_view.dart';
 import 'plot_studio_view.dart';
@@ -626,6 +629,7 @@ enum StudioSection {
   analytics,
   backup,
   projects,
+  series,
   ideas,
   manuscript,
   chapters,
@@ -649,6 +653,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.analytics => 'Analytics',
         StudioSection.backup => 'Backup',
         StudioSection.projects => 'Projects',
+        StudioSection.series => 'Series',
         StudioSection.ideas => 'Ideas',
         StudioSection.manuscript => 'Manuscript',
         StudioSection.chapters => 'Chapters',
@@ -671,6 +676,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.analytics => Icons.insights_outlined,
         StudioSection.backup => Icons.backup_outlined,
         StudioSection.projects => Icons.folder_copy_outlined,
+        StudioSection.series => Icons.collections_bookmark_outlined,
         StudioSection.ideas => Icons.lightbulb_outline,
         StudioSection.manuscript => Icons.menu_book_outlined,
         StudioSection.chapters => Icons.chrome_reader_mode_outlined,
@@ -1495,7 +1501,7 @@ class _SectionView extends StatelessWidget {
                   SearchDestination.timelineStudio => StudioSection.timeline,
                   SearchDestination.plotStudio => StudioSection.plot,
                   SearchDestination.storyCodex => StudioSection.codex,
-                  SearchDestination.seriesStudio => StudioSection.projects,
+                  SearchDestination.seriesStudio => StudioSection.series,
                   SearchDestination.manuscriptStudio ||
                   SearchDestination.record =>
                     StudioSection.manuscript,
@@ -1578,6 +1584,18 @@ class _SectionView extends StatelessWidget {
           ),
         StudioSection.backup => const BackupHealthView(),
         StudioSection.projects => const _ProjectsStudioView(),
+        StudioSection.series => SeriesStudioView(
+            projectTitle: project.title,
+            series: SeriesService(
+              projectId: project.id,
+              repository: authorOsRepository,
+            ),
+            manuscripts: ManuscriptService(
+              projectId: project.id,
+              repository: authorOsRepository,
+              store: manuscriptStore,
+            ),
+          ),
         StudioSection.ideas => const RecordStudioView(
             collection: 'ideas',
             title: 'Ideas',
@@ -1609,7 +1627,7 @@ class _SectionView extends StatelessWidget {
                 SearchDestination.timelineStudio => StudioSection.timeline,
                 SearchDestination.plotStudio => StudioSection.plot,
                 SearchDestination.manuscriptStudio => StudioSection.manuscript,
-                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.seriesStudio => StudioSection.series,
                 SearchDestination.storyCodex ||
                 SearchDestination.record =>
                   StudioSection.codex,
@@ -1625,7 +1643,7 @@ class _SectionView extends StatelessWidget {
                 SearchDestination.timelineStudio => StudioSection.timeline,
                 SearchDestination.plotStudio => StudioSection.plot,
                 SearchDestination.manuscriptStudio => StudioSection.manuscript,
-                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.seriesStudio => StudioSection.series,
                 SearchDestination.storyCodex => StudioSection.codex,
                 SearchDestination.record => StudioSection.world,
               },
@@ -1648,7 +1666,7 @@ class _SectionView extends StatelessWidget {
                 SearchDestination.timelineStudio => StudioSection.timeline,
                 SearchDestination.plotStudio => StudioSection.plot,
                 SearchDestination.manuscriptStudio => StudioSection.manuscript,
-                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.seriesStudio => StudioSection.series,
                 SearchDestination.storyCodex => StudioSection.codex,
                 SearchDestination.record => StudioSection.timeline,
               },

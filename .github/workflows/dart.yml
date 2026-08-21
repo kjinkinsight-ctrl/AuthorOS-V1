@@ -1,11 +1,11 @@
-# CI for the Flutter application in flutter-author-studio-v1/.
+# CI for the AuthorOS Flutter application.
 #
-# This repository holds two projects side by side — the Flutter app in
-# flutter-author-studio-v1/ and the Node workspace in indiauthors-platform/ —
-# so every step below runs from the Flutter project directory. Running from
-# the repository root is what failed this workflow on every commit since it
-# was added: there is no pubspec.yaml there.
-name: Dart
+# This replaces GitHub's stock Dart starter template, which ran `dart pub get`
+# at the repository root. There is no pubspec.yaml there — the app lives in
+# flutter-author-studio-v1/ — so the job failed at its first step on every run
+# since the workflow was added, without ever reaching a test.
+
+name: Flutter
 
 on:
   push:
@@ -13,49 +13,45 @@ on:
   pull_request:
     branches: [ "main" ]
 
-defaults:
-  run:
-    working-directory: flutter-author-studio-v1
-
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    defaults:
+      run:
+        working-directory: flutter-author-studio-v1
+
     steps:
       - uses: actions/checkout@v4
 
-      # This is a Flutter project, not a plain Dart package: it depends on
-      # package:flutter, which the standalone Dart SDK cannot resolve, and its
-      # suites import flutter_test, which `dart test` cannot run.
+      # Pinned to the revision the project records in .metadata (6b182d2c75),
+      # so CI analyses and tests on the same SDK the app is developed against.
       #
-      # The Flutter version is pinned rather than tracking stable, so a new
-      # release changes CI only when someone bumps it on purpose.
-      - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      # The action itself is pinned by commit SHA rather than the v2 tag, which
+      # the publisher can repoint at any time: this workflow runs with write
+      # access to the repository token, so the code behind that reference is
+      # worth holding still. Matches how dart-lang/setup-dart was pinned here.
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
-          flutter-version: 3.47.1
+          flutter-version: '3.44.9'
           channel: stable
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
-      # Scoped to the shipped app and its tests. tool/storage_benchmark.dart is
-      # a dead benchmark harness importing package:isar_community, a dependency
-      # this project no longer has, so it cannot compile and carries every one
-      # of the analyzer's errors. Scoping the command leaves the script on disk
-      # and, unlike an analysis_options.yaml exclusion, keeps it visible in
-      # contributors' editors.
-      #
-      # Errors fail the build. Infos and warnings are reported without failing,
-      # because lib and test carry a pre-existing backlog of them. Drop these
-      # two flags once that backlog is cleared to tighten the gate.
+      # Errors fail the build. Warnings and lint infos are reported but do not,
+      # because the tree carries a pre-existing backlog of them; tightening this
+      # to --fatal-warnings is a sensible follow-up once that backlog is cleared.
       - name: Analyze project source
-        run: flutter analyze lib test --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Run tests
         run: flutter test
 
+      # The app ships to the web, so a release build is part of "does main
+      # work". It also catches web-only compile failures that `flutter test`
+      # on the host VM never sees.
       - name: Build web release
         run: flutter build web --release

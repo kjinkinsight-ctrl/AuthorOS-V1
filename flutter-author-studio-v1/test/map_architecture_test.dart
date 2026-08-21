@@ -1,0 +1,345 @@
+import 'dart:io';
+
+import 'package:author_studio_v1/core/built_in_record_types.dart';
+import 'package:author_studio_v1/core/world_record_types.dart';
+import 'package:author_studio_v1/map_service.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:author_studio_v1/world_service.dart';
+import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// Architecture guards for Map Studio Phase 1.
+///
+/// Map Studio must reuse AuthorOS architecture rather than grow a parallel one:
+/// one persistence layer, one Theme Engine, one record vocabulary, and a service
+/// that owns the business rules the widgets must not.
+void main() {
+  String read(String path) => File(path).readAsStringSync();
+
+  const mapFiles = <String>[
+    'lib/map_domain.dart',
+    'lib/map_service.dart',
+    'lib/map_studio_view.dart',
+  ];
+
+  group('one persistence system', () {
+    test('Map Studio declares no store, database or repository of its own', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        for (final banned in const [
+          'class MapRepository',
+          'class MapDatabase',
+          'class MapStore',
+          'MapSharedPreferences',
+          'MapHive',
+          'MapSQLite',
+          'MapDrift',
+        ]) {
+          expect(source, isNot(contains(banned)), reason: '$path declares $banned');
+        }
+      }
+    });
+
+    test('no Map Studio file reaches SharedPreferences', () {
+      for (final path in mapFiles) {
+        expect(
+          read(path),
+          isNot(contains('SharedPreferences')),
+          reason: '$path stores map data outside the record layer',
+        );
+      }
+    });
+
+    test('only the service touches the database, and only to bind to it', () {
+      // The domain is plain Dart and the view knows nothing about storage.
+      expect(read('lib/map_domain.dart'), isNot(contains('persistence/')));
+      expect(read('lib/map_studio_view.dart'), isNot(contains('persistence/')));
+      expect(read('lib/map_studio_view.dart'), isNot(contains('drift')));
+
+      // The service reaches the database through the one shared repository.
+      final service = read('lib/map_service.dart');
+      expect(service, contains('DriftConnectedDomainRepository'));
+      expect(service, contains('authorOsRepository'));
+      expect(service, isNot(contains('AuthorOsDatabase(')));
+      expect(service, isNot(contains('package:drift')));
+      expect(service, isNot(contains('database.select')));
+    });
+
+    test('every write goes through RecordService or the ConnectionEngine', () {
+      final service = read('lib/map_service.dart');
+      expect(service, contains('RecordService'));
+      expect(service, contains('ConnectionEngine'));
+      // Reads may use the shared repository; writes may not.
+      expect(service, isNot(contains('repository.putRecord')));
+      expect(service, isNot(contains('repository.deleteRecord')));
+    });
+  });
+
+  group('one theme system', () {
+    test('Map Studio builds no theme of its own', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        for (final banned in const [
+          'class MapTheme',
+          'class MapThemeData',
+          'class MapColors',
+          'class MapThemeScope',
+          'ThemeData(',
+        ]) {
+          expect(source, isNot(contains(banned)), reason: '$path declares $banned');
+        }
+      }
+    });
+
+    test('no Map Studio file hard-codes a colour', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        expect(source, isNot(contains('Color(0x')), reason: path);
+        expect(source, isNot(contains('Colors.')), reason: path);
+      }
+    });
+
+    test('the view resolves colour through the engine scope', () {
+      final view = read('lib/map_studio_view.dart');
+      expect(view, contains('StudioThemeScope'));
+      expect(view, contains('ThemeColorRef.'));
+      expect(view, contains('ThemeTextRole.'));
+      expect(view, contains('StudioId.map'));
+    });
+
+    test('the domain and the service stay clear of Flutter', () {
+      expect(read('lib/map_domain.dart'), isNot(contains('package:flutter/')));
+      expect(read('lib/map_service.dart'), isNot(contains('package:flutter/')));
+    });
+  });
+
+  group('MapService is the business layer', () {
+    test('the view issues no record or link writes itself', () {
+      final view = read('lib/map_studio_view.dart');
+      expect(view, contains('MapService'));
+      for (final banned in const [
+        'AuthorRecord(',
+        'RecordService',
+        'ConnectionEngine',
+        'createRecord',
+        'updateRecord',
+        'archiveRecord',
+        'connect(',
+      ]) {
+        expect(view, isNot(contains(banned)), reason: 'the view calls $banned');
+      }
+    });
+
+    test('the service owns the whole Phase 1 vocabulary', () {
+      final service = read('lib/map_service.dart');
+      for (final api in const [
+        'createMap',
+        'getMap',
+        'listMaps',
+        'updateMap',
+        'archiveMap',
+        'deleteMap',
+        'createLocation',
+        'updateLocation',
+        'deleteLocation',
+        'createRegion',
+        'updateRegion',
+        'deleteRegion',
+        'createMarker',
+        'updateMarker',
+        'deleteMarker',
+        'loadCanvas',
+      ]) {
+        expect(service, contains(api), reason: 'MapService lacks $api');
+      }
+    });
+  });
+
+  group('one record vocabulary', () {
+    test('Map Studio reuses the existing World record types', () {
+      final ids = BuiltInRecordTypes.definitions.map((type) => type.id).toSet();
+      expect(ids, containsAll(<String>['map', 'location', 'region', 'map-marker']));
+      expect(WorldRecordTypes.mapTypeIds, contains(MapTypes.map));
+      expect(WorldRecordTypes.locationTypeIds, contains(MapTypes.location));
+      expect(WorldRecordTypes.worldDomainTypeIds, contains(MapTypes.marker));
+    });
+
+    test('Map Studio declares no record type of its own', () {
+      for (final path in mapFiles) {
+        expect(
+          read(path),
+          isNot(contains('RecordTypeDefinition(')),
+          reason: '$path invents a record type',
+        );
+      }
+    });
+
+    test('the placement fields live under one reserved namespace', () {
+      expect(MapFields.prefix, '_map.');
+      for (final field in const [MapFields.mapId, MapFields.x, MapFields.y, MapFields.geometry]) {
+        expect(field, startsWith(MapFields.prefix));
+      }
+    });
+
+    test('Map Studio uses the existing link vocabulary', () {
+      expect(MapTypes.placedOn, 'maps');
+      expect(MapTypes.markerOnMap, 'onMap');
+      expect(MapTypes.markerRepresents, 'represents');
+    });
+  });
+
+  group('positions are resolution independent', () {
+    test('nothing in the domain assumes a pixel size', () {
+      final domain = read('lib/map_domain.dart');
+      expect(domain, isNot(contains('MediaQuery')));
+      expect(domain, isNot(contains('Size(')));
+      expect(domain, contains('MapProjection'));
+      expect(domain, contains('MapCamera'));
+    });
+
+    test('a stored position projects onto any canvas size', () {
+      const position = MapPosition(500, 250);
+      const extent = MapExtent(width: 1000, height: 500);
+
+      const small = MapProjection(
+        extent: extent,
+        canvasWidth: 200,
+        canvasHeight: 100,
+      );
+      const large = MapProjection(
+        extent: extent,
+        canvasWidth: 1600,
+        canvasHeight: 800,
+      );
+
+      expect(small.toCanvas(position), const MapPosition(100, 50));
+      expect(large.toCanvas(position), const MapPosition(800, 400));
+      // The same fraction of the map either way.
+      expect(position.normalizedIn(extent), const MapPosition(0.5, 0.5));
+    });
+
+    test('a projection round-trips canvas coordinates back into map space', () {
+      const projection = MapProjection(
+        extent: MapExtent(width: 1000, height: 500),
+        canvasWidth: 400,
+        canvasHeight: 200,
+      );
+      expect(projection.toMap(200, 100), const MapPosition(500, 250));
+    });
+
+    test('a camera can reframe the canvas without moving what is stored', () {
+      const position = MapPosition(500, 250);
+      const zoomed = MapProjection(
+        extent: MapExtent(width: 1000, height: 500),
+        canvasWidth: 1000,
+        canvasHeight: 500,
+        camera: MapCamera(scale: 2, offset: MapPosition(250, 125)),
+      );
+      expect(zoomed.toCanvas(position), const MapPosition(500, 250));
+      expect(zoomed.toMap(500, 250), position);
+    });
+  });
+
+  group('World Board compatibility', () {
+    late AuthorOsDatabase database;
+    late MapService maps;
+    late WorldService worlds;
+
+    setUp(() {
+      database = AuthorOsDatabase(NativeDatabase.memory());
+      final repository = DriftConnectedDomainRepository(database);
+      maps = MapService(projectId: 'project-map', repository: repository);
+      worlds = WorldService(projectId: 'project-map', repository: repository);
+    });
+
+    tearDown(() => database.close());
+
+    test('a Map Studio map is the same record World Studio already reads',
+        () async {
+      await maps.createMap(
+        const MapDraft(id: 'map-kingdom', title: 'Kingdom Map'),
+        timestamp: DateTime.utc(2026, 8, 21),
+      );
+      await maps.createLocation(
+        const MapLocationDraft(
+          id: 'city-endovier',
+          mapId: 'map-kingdom',
+          name: 'Endovier',
+        ),
+        timestamp: DateTime.utc(2026, 8, 21),
+      );
+
+      // One source of truth: no second copy, no second store.
+      expect((await worlds.getWorldRecord('map-kingdom'))?.title, 'Kingdom Map');
+      expect((await worlds.getWorldRecord('city-endovier'))?.title, 'Endovier');
+      expect(
+        (await worlds.mapsFor('city-endovier')).map((record) => record.id),
+        contains('map-kingdom'),
+      );
+    });
+
+    test('a marker authored here is a marker World Studio can resolve',
+        () async {
+      await maps.createMap(
+        const MapDraft(id: 'map-kingdom', title: 'Kingdom Map'),
+        timestamp: DateTime.utc(2026, 8, 21),
+      );
+      await maps.createLocation(
+        const MapLocationDraft(
+          id: 'city-endovier',
+          mapId: 'map-kingdom',
+          name: 'Endovier',
+        ),
+        timestamp: DateTime.utc(2026, 8, 21),
+      );
+      await maps.createMarker(
+        const MapMarkerDraft(
+          id: 'marker-endovier',
+          mapId: 'map-kingdom',
+          label: 'Endovier',
+          position: MapPosition(250, 400),
+          linkedRecordId: 'city-endovier',
+        ),
+        timestamp: DateTime.utc(2026, 8, 21),
+      );
+
+      final markers = await worlds.markersForMap('map-kingdom');
+      expect(markers.single.displayLabel, 'Endovier');
+      expect(markers.single.targetId, 'city-endovier');
+      expect(markers.single.withinBounds, isTrue);
+    });
+  });
+
+  group('phase boundary', () {
+    test('the service exposes no later-phase entry point', () {
+      final service = read('lib/map_service.dart');
+      for (final api in const [
+        'generateTerrain',
+        'paintTerrain',
+        'createBrush',
+        'exportMap',
+        'shareMap',
+        'publishMap',
+        'simulate',
+        'characterOverlay',
+        'timelineOverlay',
+        'plotOverlay',
+      ]) {
+        expect(service, isNot(contains(api)), reason: 'MapService exposes $api');
+      }
+    });
+
+    test('the canvas draws places and markers only', () {
+      final view = read('lib/map_studio_view.dart');
+      for (final banned in const [
+        'Image.file',
+        'Image.network',
+        'Transform.scale',
+        'InteractiveViewer',
+        'PolygonEditor',
+      ]) {
+        expect(view, isNot(contains(banned)), reason: 'the canvas uses $banned');
+      }
+    });
+  });
+}

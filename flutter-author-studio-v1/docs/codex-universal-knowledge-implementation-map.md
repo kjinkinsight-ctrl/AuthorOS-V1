@@ -205,9 +205,29 @@ previously dead-ended at the hardcoded Projects demo.
   work and one of them is fiction. Deciding what Projects becomes is a product call.
 - **One project, one series.** Master plan M4's multi-project series remains future work;
   see below.
-- **`RecordService.changeScope` still erases sibling scope columns.** This work routes
-  around it via `changeBookAssignment` rather than fixing it. A follow-up should make
-  `changeScope` preserve unspecified columns, guarded by its own test.
+*(Resolved: `changeScope` used to erase sibling scope columns. It now preserves anything
+the caller did not name — see Scope Changes below.)*
+
+## Scope Changes
+
+`RecordService.changeScope` **preserves the scope columns you did not ask it to change.**
+Passing `seriesId`, `bookId` or `branchId` sets it; passing the matching `clear…` flag
+nulls it; omitting both leaves it alone. The asymmetry exists because Dart cannot tell an
+omitted named argument from one passed as null, so losing data takes an explicit flag.
+
+It previously assigned all three unconditionally, which meant a scope move silently erased
+whichever of them the caller had not thought to re-supply — a record could lose its book
+membership as a side effect of a move that had nothing to do with books.
+
+`changeBookAssignment` is a thin wrapper over it: book membership changes often and on its
+own, so it gets a method that says so and cannot be called with the wrong scope by
+accident. Both share one write path, so they cannot disagree about which columns a move
+carries or how it is audited.
+
+Scope consistency is enforced either way — `RecordValidator` runs `RecordScope.validate`,
+so a book scope without a matching `bookId` is rejected with `invalid-scope-hierarchy`
+rather than written, and a rejected move leaves the record untouched. The audit trail
+records `previousBookId`/`newBookId` and its siblings only when they actually move.
 
 ## Forward Path to M4
 
@@ -238,3 +258,4 @@ protect: step 4 is a one-function change because nothing reads `record.bookId` i
 | `entity_profile_test.dart` | Usage grouping, derived kept apart, profile assembly, zero writes |
 | `entity_profile_view_test.dart` | Header, empty state, contradiction surfaced not resolved |
 | `series_studio_view_test.dart` | Book list, chapter assignment, no persistence of its own |
+| `record_scope_change_test.dart` | `changeScope` preserves unnamed columns; `clear…` flags; scope validation; audit metadata |

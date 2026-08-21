@@ -194,9 +194,9 @@ void main() {
     });
 
     test('a book assignment preserves every other ownership column', () async {
-      // changeScope assigns seriesId, bookId and branchId unconditionally, so
-      // using it here would silently erase the others. This pins that
-      // changeBookAssignment does not.
+      // Both scope paths preserve the columns a caller did not name. This pins
+      // it from the book-assignment side; record_scope_change_test.dart pins
+      // the general changeScope case.
       final book = await series.createBook(title: 'Book One');
       final scoped = await records.createRecord(
         AuthorRecord(

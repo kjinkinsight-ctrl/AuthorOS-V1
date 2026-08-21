@@ -222,16 +222,13 @@ class RecordService {
 
   /// Moves [id] between books, or to series canon when [bookId] is null.
   ///
-  /// This exists instead of routing book membership through [changeScope]
-  /// because [changeScope] assigns `seriesId`, `bookId` and `branchId`
-  /// unconditionally from its arguments — calling it to change one of them
-  /// silently erases the other two. Book membership changes often and must not
-  /// carry that risk, so this method preserves every other ownership column
-  /// verbatim and touches nothing but `bookId`.
+  /// A thin, intention-revealing wrapper over [changeScope]: book membership
+  /// changes often and on its own, so it gets a method that says so and cannot
+  /// be called with the wrong scope by accident.
   ///
-  /// [updateRecord] cannot do this either: it rejects any ownership-scope
-  /// change outright. Book membership is a deliberate, audited move, so it gets
-  /// its own path rather than a hole in that rule.
+  /// [updateRecord] cannot do this — it rejects any ownership-scope change
+  /// outright, and that rule is worth keeping. Book membership is a deliberate,
+  /// audited move, so it gets its own path rather than a hole in that rule.
   Future<AuthorRecord> changeBookAssignment(
     String id, {
     required String? bookId,
@@ -249,54 +246,36 @@ class RecordService {
         throw StateError('Book $target does not exist in project $projectId.');
       }
     }
-    final now = (timestamp ?? DateTime.now()).toUtc();
-    final changed = AuthorRecord(
-      id: existing.id,
-      typeId: existing.typeId,
+    return _writeScopeChange(
+      existing,
       scopeType: existing.scopeType,
       scopeId: existing.scopeId,
-      projectId: existing.projectId,
       seriesId: existing.seriesId,
       bookId: target,
       branchId: existing.branchId,
-      canonStatus: existing.canonStatus,
-      title: existing.title,
-      status: existing.status,
-      schemaVersion: existing.schemaVersion,
-      templateId: existing.templateId,
-      templateVersion: existing.templateVersion,
-      revision: existing.revision + 1,
-      fields: existing.fields,
-      tags: existing.tags,
-      createdAt: existing.createdAt,
-      updatedAt: now,
-      extensionData: existing.extensionData,
+      summary: 'Changed book assignment for ${existing.title}',
+      timestamp: timestamp,
     );
-    await _requireValid(changed);
-    // Every existing link stays valid — nothing about the record's project
-    // changes — but the backlinks are re-validated so a move can never leave
-    // a relationship the registry would now reject.
-    final links = await repository.backlinks(id);
-    await _validateLinks(changed, links);
-    final entry = await history.forRecord(
-      changed,
-      changeType: AuditChangeType.scopeChanged,
-      summary: 'Changed book assignment for ${changed.title}',
-      timestamp: now,
-      metadata: {
-        'previousBookId': existing.bookId,
-        'newBookId': target,
-      },
-    );
-    await repository.putRecordWithHistory(
-      record: changed,
-      links: const [],
-      version: entry.version,
-      auditEvent: entry.audit,
-    );
-    return changed;
   }
 
+  /// Moves [id] to a different ownership scope.
+  ///
+  /// `seriesId`, `bookId` and `branchId` are **preserved unless you say
+  /// otherwise**. Passing one sets it; passing the matching `clear…` flag nulls
+  /// it; omitting both leaves it exactly as it was.
+  ///
+  /// That asymmetry exists because Dart cannot tell an omitted named argument
+  /// from one passed as null. This method used to assign all three
+  /// unconditionally, so `changeScope(id, scopeType: …, scopeId: …)` silently
+  /// erased whichever of the three the caller had not thought to re-supply —
+  /// a record could lose its book membership as a side effect of a scope move
+  /// that had nothing to do with books. Preserving is the safe default; losing
+  /// data should take an explicit flag.
+  ///
+  /// Scope consistency is still enforced: [RecordValidator] runs
+  /// [RecordScope.validate], so a book scope without a matching `bookId`, or a
+  /// series scope without its `seriesId`, is rejected with
+  /// `invalid-scope-hierarchy` rather than written.
   Future<AuthorRecord> changeScope(
     String id, {
     required RecordScopeType scopeType,
@@ -304,9 +283,48 @@ class RecordService {
     String? seriesId,
     String? bookId,
     String? branchId,
+    bool clearSeriesId = false,
+    bool clearBookId = false,
+    bool clearBranchId = false,
     DateTime? timestamp,
   }) async {
     final existing = await _requireRecord(id);
+    return _writeScopeChange(
+      existing,
+      scopeType: scopeType,
+      scopeId: scopeId,
+      seriesId: _resolveScopeColumn(existing.seriesId, seriesId, clearSeriesId),
+      bookId: _resolveScopeColumn(existing.bookId, bookId, clearBookId),
+      branchId: _resolveScopeColumn(existing.branchId, branchId, clearBranchId),
+      summary: 'Changed scope for ${existing.title}',
+      timestamp: timestamp,
+    );
+  }
+
+  /// One scope column's new value: explicit clear wins, then an explicit
+  /// value, otherwise what the record already had.
+  static String? _resolveScopeColumn(
+    String? existing,
+    String? requested,
+    bool clear,
+  ) {
+    if (clear) return null;
+    return requested ?? existing;
+  }
+
+  /// The single write path for a scope move, shared by [changeScope] and
+  /// [changeBookAssignment] so the two can never disagree about which columns
+  /// a move carries or how it is audited.
+  Future<AuthorRecord> _writeScopeChange(
+    AuthorRecord existing, {
+    required RecordScopeType scopeType,
+    required String scopeId,
+    required String? seriesId,
+    required String? bookId,
+    required String? branchId,
+    required String summary,
+    DateTime? timestamp,
+  }) async {
     final now = (timestamp ?? DateTime.now()).toUtc();
     final changed = AuthorRecord(
       id: existing.id,
@@ -331,18 +349,34 @@ class RecordService {
       extensionData: existing.extensionData,
     );
     await _requireValid(changed);
-    final links = await repository.backlinks(id);
+    // Every existing link is re-validated against the moved record, so a scope
+    // change can never leave behind a relationship the registry would reject.
+    final links = await repository.backlinks(existing.id);
     await _validateLinks(changed, links);
     final entry = await history.forRecord(
       changed,
       changeType: AuditChangeType.scopeChanged,
-      summary: 'Changed scope for ${changed.title}',
+      summary: summary,
       timestamp: now,
       metadata: {
         'previousScopeType': existing.scopeType.name,
         'previousScopeId': existing.scopeId,
         'newScopeType': changed.scopeType.name,
         'newScopeId': changed.scopeId,
+        // Recorded only when they actually move, so the audit trail says which
+        // columns a scope change touched rather than leaving it to be inferred.
+        if (existing.seriesId != changed.seriesId) ...{
+          'previousSeriesId': existing.seriesId,
+          'newSeriesId': changed.seriesId,
+        },
+        if (existing.bookId != changed.bookId) ...{
+          'previousBookId': existing.bookId,
+          'newBookId': changed.bookId,
+        },
+        if (existing.branchId != changed.branchId) ...{
+          'previousBranchId': existing.branchId,
+          'newBranchId': changed.branchId,
+        },
       },
     );
     await repository.putRecordWithHistory(

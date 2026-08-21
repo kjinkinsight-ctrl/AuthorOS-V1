@@ -1,11 +1,11 @@
 {
-    "name": "Indie Author OS",
-    "short_name": "Indie Author OS",
+    "name": "AuthorOS",
+    "short_name": "AuthorOS",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#f4dfe7",
     "theme_color": "#f4dfe7",
-    "description": "Indie Author OS — a personal writing workspace for authors, researchers, and storytellers.",
+    "description": "AuthorOS — a personal writing workspace for authors, researchers, and storytellers.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

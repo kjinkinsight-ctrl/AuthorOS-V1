@@ -5,21 +5,35 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'author_profile_store.dart';
+import 'analytics_service.dart';
+import 'analytics_studio_view.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
-import 'continuity.dart';
-import 'continuity_actions.dart';
 import 'core/search_models.dart' show SearchDestination;
-import 'impact_trace.dart';
+import 'create_profile_page.dart';
+import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
+import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
+import 'research_service.dart';
+import 'research_studio_view.dart';
 import 'supabase_service.dart';
-import 'timeline.dart';
-import 'visual_planning.dart';
-import 'world_studio.dart';
+import 'timeline_studio_view.dart';
+import 'plot_studio_view.dart';
+import 'welcome_page.dart';
+import 'world_board/world_board_models.dart';
+import 'world_board/world_board_view.dart';
+import 'world_workspace.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/resolved_theme.dart';
+import 'theme/theme_definition.dart';
+import 'theme/theme_engine.dart';
+import 'theme/theme_persistence.dart';
+import 'theme/theme_tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -168,197 +182,167 @@ class AuthorStudioApp extends StatefulWidget {
     super.key,
     this.store = const OnboardingStore(),
     this.manuscriptStore = const ManuscriptStore(),
+    this.showWelcome = true,
   });
 
   final OnboardingStore store;
   final ManuscriptStore manuscriptStore;
 
+  /// Whether the Author OS welcome page is shown before the studio shell.
+  ///
+  /// Tests that drive the studio directly pass false so they land on the
+  /// shell without stepping through the launcher.
+  final bool showWelcome;
+
   @override
   State<AuthorStudioApp> createState() => _AuthorStudioAppState();
 }
 
-class _AuthorStudioAppState extends State<AuthorStudioApp> {
+class _AuthorStudioAppState extends State<AuthorStudioApp>
+    with WidgetsBindingObserver {
   bool _loadingTheme = true;
-  String _themeId = 'light';
-  String _accentId = 'default';
+  ThemeEngine? _themeEngine;
+  ThemeSelection? _themeSelection;
+  ResolvedTheme? _resolvedTheme;
 
-  static const _themePreferenceKey = 'author_studio.theme_id';
-  static const _accentPreferenceKey = 'author_studio.accent_id';
+  ThemeBrightness get _hostBrightness =>
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+              Brightness.dark
+          ? ThemeBrightness.dark
+          : ThemeBrightness.light;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadThemeSelection();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (_loadingTheme || _themeEngine == null || _themeSelection == null) {
+      return;
+    }
+    if (_themeSelection!.mode != AuthorOsThemeMode.system) {
+      return;
+    }
+    _resolveCurrentTheme();
+  }
+
   Future<void> _loadThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedThemeId = prefs.getString(_themePreferenceKey);
-    final normalizedThemeId = AppThemePreset.normalizeId(savedThemeId);
+    final engine = ThemeEngine.standard(
+      store: await SharedPreferencesThemeStore.load(),
+    );
+    final selection = await engine.load();
+    final resolved = await engine.resolve(hostBrightness: _hostBrightness);
     if (!mounted) {
       return;
     }
     setState(() {
-      _themeId = normalizedThemeId;
-      _accentId = 'default';
+      _themeEngine = engine;
+      _themeSelection = selection;
+      _resolvedTheme = resolved;
       _loadingTheme = false;
     });
-    if (savedThemeId != null && savedThemeId != normalizedThemeId) {
-      await prefs.setString(_themePreferenceKey, normalizedThemeId);
-    }
-    if (prefs.getString(_accentPreferenceKey) != 'default') {
-      await prefs.setString(_accentPreferenceKey, 'default');
-    }
   }
 
-  Future<void> _saveThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themePreferenceKey, _themeId);
-    await prefs.setString(_accentPreferenceKey, _accentId);
-  }
-
-  void _updateThemeSelection(AppThemeSelection selection) {
+  Future<void> _resolveCurrentTheme() async {
+    final engine = _themeEngine;
+    if (engine == null) {
+      return;
+    }
+    final resolved = await engine.resolve(hostBrightness: _hostBrightness);
+    if (!mounted) {
+      return;
+    }
     setState(() {
-      _themeId = AppThemePreset.byId(selection.themeId).id;
-      _accentId = 'default';
+      _resolvedTheme = resolved;
+      _themeSelection = engine.selection ?? _themeSelection;
     });
-    _saveThemeSelection();
   }
 
-  void _handleThemeChanged(String themeId, String accentId) {
-    _updateThemeSelection(
-      AppThemeSelection(themeId: themeId, accentId: accentId),
+  Future<void> _applySelection(ThemeSelection selection) async {
+    final engine = _themeEngine;
+    if (engine == null) {
+      return;
+    }
+    final resolved = await engine.select(
+      selection: selection,
+      hostBrightness: _hostBrightness,
     );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _themeSelection = engine.selection ?? selection;
+      _resolvedTheme = resolved;
+    });
+  }
+
+  Future<void> _handleLegacyThemeChanged(
+    String themeId,
+    String accentId,
+  ) async {
+    final selection = ThemeSelection(
+      themeId: AppThemePreset.byId(themeId).id,
+      mode: AppThemePreset.byId(themeId).brightness == Brightness.dark
+          ? AuthorOsThemeMode.dark
+          : AuthorOsThemeMode.light,
+      accentId: accentId,
+    );
+    await _applySelection(selection);
   }
 
   ThemeData _buildThemeData() {
-    final preset = AppThemePreset.byId(_themeId);
-    final isDark = preset.brightness == Brightness.dark;
-    final accent = AppThemeSelection(themeId: _themeId, accentId: _accentId)
-        .resolvedAccentColor;
-    final foregroundColor =
-        isDark ? const Color(0xFFFFFFFF) : const Color(0xFF17283A);
-    final outlineColor =
-        isDark ? const Color(0xFF8A8A8A) : const Color(0xFF718399);
-    final outlineVariantColor =
-        isDark ? const Color(0xFF363636) : const Color(0xFFD4E0EB);
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: preset.brightness,
-      surface: preset.surfaceColor,
-    ).copyWith(
-      onSurface: foregroundColor,
-      onSurfaceVariant: foregroundColor,
-      outline: outlineColor,
-      outlineVariant: outlineVariantColor,
-    );
-
-    final surfaceContainerColor =
-        isDark ? const Color(0xFF202020) : const Color(0xFFE7F0F8);
-    final textTheme = ThemeData(brightness: preset.brightness).textTheme.apply(
-          fontFamily: 'Merriweather',
-          bodyColor: foregroundColor,
-          displayColor: foregroundColor,
-        );
-
-    return ThemeData(
-      useMaterial3: true,
-      brightness: preset.brightness,
-      fontFamily: 'Merriweather',
-      colorScheme: colorScheme,
-      textTheme: textTheme,
-      scaffoldBackgroundColor: preset.backgroundColor,
-      appBarTheme: AppBarTheme(
-        centerTitle: false,
-        backgroundColor: Colors.transparent,
-        foregroundColor: foregroundColor,
-        elevation: 0,
-      ),
-      cardTheme: CardThemeData(
-        color: preset.surfaceColor,
-        surfaceTintColor: colorScheme.surfaceTint,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        elevation: 0,
-      ),
-      dividerTheme: DividerThemeData(
-        color: colorScheme.outlineVariant,
-        thickness: 1,
-      ),
-      chipTheme: ChipThemeData(
-        backgroundColor: surfaceContainerColor,
-        selectedColor: colorScheme.primaryContainer,
-        side: BorderSide(color: colorScheme.outlineVariant),
-        labelStyle: TextStyle(
-          color: colorScheme.onSurface,
-          fontWeight: FontWeight.w600,
-        ),
-        secondaryLabelStyle: TextStyle(
-          color: colorScheme.onPrimaryContainer,
-          fontWeight: FontWeight.w700,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: surfaceContainerColor,
-        labelStyle: TextStyle(color: foregroundColor),
-        hintStyle: TextStyle(color: foregroundColor),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
-        ),
-      ),
-    );
+    final resolved = _resolvedTheme;
+    if (resolved == null) {
+      return ThemeData(useMaterial3: true);
+    }
+    return AuthorOsTheme.toThemeData(resolved);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loadingTheme) {
+    final themeData = _buildThemeData();
+
+    if (_loadingTheme || _resolvedTheme == null || _themeSelection == null) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Indie Author OS',
-        theme: _buildThemeData(),
+        theme: themeData,
         home: const Scaffold(
           body: Center(child: CircularProgressIndicator()),
         ),
       );
     }
 
-    final themeData = _buildThemeData();
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Indie Author OS',
       theme: themeData,
-      home: _OnboardingBootstrap(
-        store: widget.store,
-        manuscriptStore: widget.manuscriptStore,
-        themeId: _themeId,
-        accentId: _accentId,
-        onThemeChanged: _handleThemeChanged,
+      home: StudioThemeScope(
+        theme: _resolvedTheme!,
+        studio: StudioId.shell,
+        child: _OnboardingBootstrap(
+          store: widget.store,
+          manuscriptStore: widget.manuscriptStore,
+          themeSelection: _themeSelection!,
+          onThemeSelectionChanged: (selection) {
+            unawaited(_applySelection(selection));
+          },
+          themeId: _themeSelection!.themeId,
+          accentId: _themeSelection!.accentId,
+          onThemeChanged: (themeId, accentId) {
+            unawaited(_handleLegacyThemeChanged(themeId, accentId));
+          },
+          showWelcome: widget.showWelcome,
+        ),
       ),
     );
   }
@@ -368,572 +352,33 @@ class _OnboardingBootstrap extends StatefulWidget {
   const _OnboardingBootstrap({
     required this.store,
     required this.manuscriptStore,
+    required this.themeSelection,
+    required this.onThemeSelectionChanged,
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
+    this.showWelcome = true,
   });
 
   final OnboardingStore store;
   final ManuscriptStore manuscriptStore;
+  final ThemeSelection themeSelection;
+  final ValueChanged<ThemeSelection> onThemeSelectionChanged;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
+  final bool showWelcome;
 
   @override
   State<_OnboardingBootstrap> createState() => _OnboardingBootstrapState();
-}
-
-class ProfileSetupScreen extends StatefulWidget {
-  const ProfileSetupScreen({
-    super.key,
-    required this.onLogin,
-    required this.onCreateProfile,
-    required this.onReset,
-    this.existingProfileName,
-    this.existingProfileEmail,
-  });
-
-  final Future<void> Function() onLogin;
-  final void Function(String name, String email) onCreateProfile;
-  final Future<void> Function() onReset;
-  final String? existingProfileName;
-  final String? existingProfileEmail;
-
-  @override
-  State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
-}
-
-class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
-  final TextEditingController nameController = TextEditingController();
-  final TextEditingController emailController = TextEditingController();
-  bool showCreateProfile = false;
-
-  bool get hasExistingProfile =>
-      (widget.existingProfileName?.trim().isNotEmpty ?? false);
-
-  @override
-  void dispose() {
-    nameController.dispose();
-    emailController.dispose();
-    super.dispose();
-  }
-
-  void _submitProfile() {
-    final name = nameController.text.trim();
-    final email = emailController.text.trim();
-    widget.onCreateProfile(
-      name.isEmpty ? 'Writer' : name,
-      email.isEmpty ? 'writer@authorstudio.app' : email,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Image.asset(
-              'assets/author-studio-logo.png',
-              fit: BoxFit.cover,
-              color: Colors.black.withValues(alpha: 0.24),
-              colorBlendMode: BlendMode.darken,
-            ),
-          ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.72),
-                    Colors.black.withValues(alpha: 0.34),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 880),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(
-                        width: 360,
-                        child: _BrandPanel(
-                          title: 'Indie Author OS',
-                          valueProp:
-                              'Ink & insight for your writing practice: draft, structure, and sharpen your story.',
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-                      SizedBox(
-                        width: 360,
-                        child: Card(
-                          elevation: 0,
-                          color: Colors.black.withValues(alpha: 0.3),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(28),
-                            side: const BorderSide(
-                              color: Colors.white24,
-                              width: 1,
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: SingleChildScrollView(
-                              child: showCreateProfile
-                                  ? Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 48,
-                                              height: 48,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white12,
-                                                borderRadius:
-                                                    BorderRadius.circular(14),
-                                              ),
-                                              child: const Icon(
-                                                Icons.person_add_alt_1_rounded,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 14),
-                                            const Expanded(
-                                              child: Text(
-                                                'Create new profile',
-                                                style: TextStyle(
-                                                  fontSize: 22,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-                                        const Text(
-                                          'Set up your writing identity before you start the workspace.',
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            color: Colors.white70,
-                                            height: 1.5,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 24),
-                                        TextField(
-                                          key: const Key('profile-name-field'),
-                                          controller: nameController,
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                          decoration: InputDecoration(
-                                            labelText: 'Display name',
-                                            hintText: 'Ari Rowan',
-                                            labelStyle: const TextStyle(
-                                                color: Colors.white70),
-                                            hintStyle: const TextStyle(
-                                                color: Colors.white38),
-                                            enabledBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white24),
-                                            ),
-                                            focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white),
-                                            ),
-                                            fillColor: Colors.white
-                                                .withValues(alpha: 0.04),
-                                            filled: true,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 16),
-                                        TextField(
-                                          key: const Key('profile-email-field'),
-                                          controller: emailController,
-                                          keyboardType:
-                                              TextInputType.emailAddress,
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                          decoration: InputDecoration(
-                                            labelText: 'Email',
-                                            hintText: 'you@example.com',
-                                            labelStyle: const TextStyle(
-                                                color: Colors.white70),
-                                            hintStyle: const TextStyle(
-                                                color: Colors.white38),
-                                            enabledBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white24),
-                                            ),
-                                            focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white),
-                                            ),
-                                            fillColor: Colors.white
-                                                .withValues(alpha: 0.04),
-                                            filled: true,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 24),
-                                        Wrap(
-                                          alignment: WrapAlignment.spaceBetween,
-                                          crossAxisAlignment:
-                                              WrapCrossAlignment.center,
-                                          runSpacing: 12,
-                                          spacing: 12,
-                                          children: [
-                                            TextButton(
-                                              onPressed: () => setState(() =>
-                                                  showCreateProfile = false),
-                                              child: const Text(
-                                                'Back',
-                                                style: TextStyle(
-                                                    color: Colors.white),
-                                              ),
-                                            ),
-                                            FilledButton(
-                                              onPressed: _submitProfile,
-                                              style: FilledButton.styleFrom(
-                                                minimumSize:
-                                                    const Size(220, 48),
-                                                backgroundColor: Colors.white,
-                                                foregroundColor: Colors.black,
-                                              ),
-                                              child: const Text(
-                                                  'Continue to workspace setup'),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    )
-                                  : Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 52,
-                                              height: 52,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white12,
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                              ),
-                                              child: const Icon(
-                                                Icons.auto_stories_rounded,
-                                                size: 28,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            const Expanded(
-                                              child: Text(
-                                                'Login / Profile Selection',
-                                                style: TextStyle(
-                                                  fontSize: 20,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 18),
-                                        const Text(
-                                          'Choose how you want to enter AuthorOS.',
-                                          style: TextStyle(
-                                            fontSize: 29,
-                                            fontWeight: FontWeight.w800,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Text(
-                                          hasExistingProfile
-                                              ? 'Select a profile, then continue to your workspace.'
-                                              : 'No profile is selected yet. Create a profile to begin.',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            color: Colors.white70,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 24),
-                                        if (hasExistingProfile) ...[
-                                          Container(
-                                            width: double.infinity,
-                                            padding: const EdgeInsets.all(14),
-                                            decoration: BoxDecoration(
-                                              color: Colors.white10,
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              border: Border.all(
-                                                color: Colors.white24,
-                                              ),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                const CircleAvatar(
-                                                  radius: 20,
-                                                  backgroundColor:
-                                                      Colors.white24,
-                                                  child: Icon(
-                                                    Icons.person_outline,
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 12),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Text(
-                                                        widget
-                                                            .existingProfileName!,
-                                                        style: const TextStyle(
-                                                          color: Colors.white,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                        ),
-                                                      ),
-                                                      if (widget.existingProfileEmail !=
-                                                              null &&
-                                                          widget
-                                                              .existingProfileEmail!
-                                                              .trim()
-                                                              .isNotEmpty)
-                                                        Text(
-                                                          widget
-                                                              .existingProfileEmail!,
-                                                          style:
-                                                              const TextStyle(
-                                                            color:
-                                                                Colors.white70,
-                                                          ),
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          FilledButton.icon(
-                                            onPressed: () async =>
-                                                widget.onLogin(),
-                                            style: FilledButton.styleFrom(
-                                              minimumSize:
-                                                  const Size.fromHeight(54),
-                                              backgroundColor: Colors.white,
-                                              foregroundColor: Colors.black,
-                                            ),
-                                            icon:
-                                                const Icon(Icons.login_rounded),
-                                            label: const Text(
-                                                'Continue with selected profile'),
-                                          ),
-                                          const SizedBox(height: 12),
-                                        ],
-                                        OutlinedButton.icon(
-                                          onPressed: () => setState(
-                                              () => showCreateProfile = true),
-                                          style: OutlinedButton.styleFrom(
-                                            minimumSize:
-                                                const Size.fromHeight(54),
-                                            side: const BorderSide(
-                                              color: Colors.white70,
-                                              width: 1.2,
-                                            ),
-                                            foregroundColor: Colors.white,
-                                          ),
-                                          icon: const Icon(
-                                              Icons.person_add_alt_1_rounded),
-                                          label:
-                                              const Text('Create new profile'),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        TextButton(
-                                          onPressed: () async =>
-                                              widget.onReset(),
-                                          style: TextButton.styleFrom(
-                                            minimumSize:
-                                                const Size.fromHeight(32),
-                                          ),
-                                          child: const Text(
-                                            'Reset app state',
-                                            style: TextStyle(
-                                              color: Colors.white70,
-                                              decoration:
-                                                  TextDecoration.underline,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BrandPanel extends StatelessWidget {
-  const _BrandPanel({required this.title, required this.valueProp});
-
-  final String title;
-  final String valueProp;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 220),
-                child: Image.asset(
-                  'assets/author-studio-logo.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      color: Colors.white24,
-                    ),
-                    child: const Icon(
-                      Icons.auto_stories_rounded,
-                      size: 32,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              title,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              valueProp,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: Colors.white70,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _FeatureChip(
-                    icon: Icons.timeline_rounded, label: 'Plan the arc'),
-                _FeatureChip(
-                    icon: Icons.menu_book_rounded, label: 'Draft scenes'),
-                _FeatureChip(
-                    icon: Icons.analytics_outlined, label: 'Track continuity'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FeatureChip extends StatelessWidget {
-  const _FeatureChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    const brandPink = Color(0xFFE8B6C4);
-    const brandPurple = Color(0xFFC8A7E0);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            brandPink.withValues(alpha: 0.2),
-            brandPurple.withValues(alpha: 0.18),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: colorScheme.primary),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   static const _profileCompleteKey = 'author_studio.profile_setup_complete';
   static const _profileNameKey = 'author_studio.profile.name';
   static const _profileEmailKey = 'author_studio.profile.email';
+
+  static const _profileStore = AuthorProfileStore();
 
   StarterProject? project;
   bool loading = true;
@@ -942,6 +387,12 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   bool startSprint = false;
   String? existingProfileName;
   String? existingProfileEmail;
+
+  /// Local profiles offered on the login screen, most recently active first.
+  List<AuthorProfile> profiles = const [];
+
+  /// True while the author is on Create Your Profile rather than login.
+  bool creatingProfile = false;
 
   @override
   void initState() {
@@ -952,6 +403,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   Future<void> _loadStartupState() async {
     final prefs = await SharedPreferences.getInstance();
     final savedProject = await widget.store.loadProject();
+    final roster = await _profileStore.loadProfiles();
     final storedName = (prefs.getString(_profileNameKey) ?? '').trim();
     final storedEmail = (prefs.getString(_profileEmailKey) ?? '').trim();
     if (!mounted) {
@@ -959,40 +411,56 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     }
     setState(() {
       project = savedProject;
+      profiles = roster;
       existingProfileName = storedName.isEmpty ? null : storedName;
       existingProfileEmail = storedEmail.isEmpty ? null : storedEmail;
       profileComplete = false;
+      creatingProfile = false;
       openFirstDraft = false;
       startSprint = false;
       loading = false;
     });
   }
 
-  Future<void> _completeProfile(String name, String email) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_profileCompleteKey, true);
-    await prefs.setString(_profileNameKey, name);
-    await prefs.setString(_profileEmailKey, email);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      profileComplete = true;
-      existingProfileName = name;
-      existingProfileEmail = email;
-    });
-  }
-
-  Future<void> _login() async {
+  /// Enters the workspace as an existing local profile.
+  Future<void> _continueAsProfile(AuthorProfile profile) async {
+    await _profileStore.markActive(profile);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_profileCompleteKey, true);
     final savedProject = await widget.store.loadProject();
+    final roster = await _profileStore.loadProfiles();
     if (!mounted) {
       return;
     }
     setState(() {
       profileComplete = true;
+      creatingProfile = false;
       project = savedProject;
+      profiles = roster;
+      existingProfileName = profile.displayName;
+      existingProfileEmail = profile.email;
+      openFirstDraft = false;
+      startSprint = false;
+    });
+  }
+
+  /// Saves a newly created profile and enters the workspace as that author.
+  Future<void> _createProfile(AuthorProfile profile) async {
+    final created = await _profileStore.createProfile(profile);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_profileCompleteKey, true);
+    final savedProject = await widget.store.loadProject();
+    final roster = await _profileStore.loadProfiles();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      profileComplete = true;
+      creatingProfile = false;
+      project = savedProject;
+      profiles = roster;
+      existingProfileName = created.displayName;
+      existingProfileEmail = created.email;
       openFirstDraft = false;
       startSprint = false;
     });
@@ -1015,13 +483,16 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     await prefs.remove(_profileCompleteKey);
     await prefs.remove(_profileNameKey);
     await prefs.remove(_profileEmailKey);
+    await prefs.remove(AuthorProfileStore.profilesKey);
     await OnboardingStore.clearProjectState();
     if (!mounted) {
       return;
     }
     setState(() {
       project = null;
+      profiles = const [];
       profileComplete = false;
+      creatingProfile = false;
       openFirstDraft = false;
       startSprint = false;
       existingProfileName = null;
@@ -1033,6 +504,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_profileCompleteKey);
     await AppSupabase.signOut();
+    final roster = await _profileStore.loadProfiles();
     final storedName = (prefs.getString(_profileNameKey) ?? '').trim();
     final storedEmail = (prefs.getString(_profileEmailKey) ?? '').trim();
     if (!mounted) {
@@ -1040,11 +512,47 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     }
     setState(() {
       project = null;
+      profiles = roster;
       profileComplete = false;
+      creatingProfile = false;
       openFirstDraft = false;
       startSprint = false;
+      // Signing back in passes through the opening page again.
+      welcomeDismissed = false;
       existingProfileName = storedName.isEmpty ? null : storedName;
       existingProfileEmail = storedEmail.isEmpty ? null : storedEmail;
+    });
+  }
+
+  /// Set once the author leaves the welcome page, so returning to the shell
+  /// does not bounce them back to the launcher.
+  bool welcomeDismissed = false;
+
+  /// Section the welcome page asked for, opened on the first shell build.
+  StudioSection? welcomeTarget;
+
+  /// Maps a welcome page action onto the studio section that serves it.
+  ///
+  /// The launcher offers a few entry points the studio does not model as its
+  /// own section yet -- templates and recent projects both live in Projects,
+  /// and "continue writing" drops straight into the manuscript.
+  void _openFromWelcome(WelcomeAction action) {
+    setState(() {
+      welcomeDismissed = true;
+      welcomeTarget = switch (action) {
+        WelcomeAction.openProject ||
+        WelcomeAction.newProject ||
+        WelcomeAction.recentProjects ||
+        WelcomeAction.templates =>
+          StudioSection.projects,
+        WelcomeAction.worlds || WelcomeAction.buildWorld => StudioSection.world,
+        WelcomeAction.settings => StudioSection.settings,
+        WelcomeAction.createCharacter => StudioSection.characters,
+        WelcomeAction.openTimeline => StudioSection.timeline,
+        WelcomeAction.newManuscript ||
+        WelcomeAction.continueWriting =>
+          StudioSection.manuscript,
+      };
     });
   }
 
@@ -1056,19 +564,40 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       );
     }
 
+    // Startup asks who is entering before anything else is shown. Only once a
+    // profile is chosen or created does the welcome page greet that author.
     if (!profileComplete) {
-      return ProfileSetupScreen(
-        onLogin: _login,
-        onCreateProfile: _completeProfile,
+      if (creatingProfile) {
+        return CreateProfilePage(
+          onStartAdventure: _createProfile,
+          onBack: () => setState(() => creatingProfile = false),
+        );
+      }
+      return LoginSelectUserPage(
+        profiles: profiles,
+        onContinue: _continueAsProfile,
+        onAddNewUser: () => setState(() => creatingProfile = true),
         onReset: _resetStartupState,
-        existingProfileName: existingProfileName,
-        existingProfileEmail: existingProfileEmail,
+      );
+    }
+
+    // The welcome page is now the authenticated landing page: it greets the
+    // author who just signed in, then falls through to whichever step is still
+    // outstanding -- the first project, or the studio itself.
+    if (widget.showWelcome && !welcomeDismissed) {
+      return WelcomePage(
+        onAction: _openFromWelcome,
+        authorName: existingProfileName,
+        heroImage: const AssetImage('assets/welcome-hero.png'),
       );
     }
 
     final currentProject = project;
     if (currentProject == null) {
-      return FirstRunProjectWizard(onComplete: _completeOnboarding);
+      return FirstRunProjectWizard(
+        onComplete: _completeOnboarding,
+        onSignIn: _logoutToProfileSelection,
+      );
     }
 
     return AuthorStudioShell(
@@ -1076,18 +605,23 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       manuscriptStore: widget.manuscriptStore,
       openFirstDraft: openFirstDraft,
       startSprint: startSprint,
+      themeSelection: widget.themeSelection,
+      onThemeSelectionChanged: widget.onThemeSelectionChanged,
       themeId: widget.themeId,
       accentId: widget.accentId,
       onThemeChanged: widget.onThemeChanged,
       onLogout: _logoutToProfileSelection,
+      initialSection: welcomeTarget,
     );
   }
 }
 
 enum StudioSection {
   dashboard,
+  worldBoard,
   search,
   statistics,
+  analytics,
   backup,
   projects,
   ideas,
@@ -1098,6 +632,7 @@ enum StudioSection {
   world,
   plot,
   timeline,
+  research,
   notes,
   settings,
 }
@@ -1105,8 +640,10 @@ enum StudioSection {
 extension StudioSectionData on StudioSection {
   String get label => switch (this) {
         StudioSection.dashboard => 'Dashboard',
+        StudioSection.worldBoard => 'World Board',
         StudioSection.search => 'Search',
         StudioSection.statistics => 'Statistics',
+        StudioSection.analytics => 'Analytics',
         StudioSection.backup => 'Backup',
         StudioSection.projects => 'Projects',
         StudioSection.ideas => 'Ideas',
@@ -1117,14 +654,17 @@ extension StudioSectionData on StudioSection {
         StudioSection.world => 'World',
         StudioSection.plot => 'Plot',
         StudioSection.timeline => 'Timeline',
+        StudioSection.research => 'Research',
         StudioSection.notes => 'Notes',
         StudioSection.settings => 'Settings',
       };
 
   IconData get icon => switch (this) {
         StudioSection.dashboard => Icons.space_dashboard_outlined,
+        StudioSection.worldBoard => Icons.hub_outlined,
         StudioSection.search => Icons.search_outlined,
         StudioSection.statistics => Icons.bar_chart_outlined,
+        StudioSection.analytics => Icons.insights_outlined,
         StudioSection.backup => Icons.backup_outlined,
         StudioSection.projects => Icons.folder_copy_outlined,
         StudioSection.ideas => Icons.lightbulb_outline,
@@ -1135,6 +675,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.world => Icons.public_outlined,
         StudioSection.plot => Icons.route_outlined,
         StudioSection.timeline => Icons.timeline_outlined,
+        StudioSection.research => Icons.local_library_outlined,
         StudioSection.notes => Icons.sticky_note_2_outlined,
         StudioSection.settings => Icons.settings_outlined,
       };
@@ -1148,16 +689,24 @@ class AuthorStudioShell extends StatefulWidget {
     required this.project,
     this.openFirstDraft = false,
     this.startSprint = false,
+    this.themeSelection,
+    this.onThemeSelectionChanged,
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
     this.manuscriptStore = const ManuscriptStore(),
     this.onLogout = _defaultLogout,
+    this.initialSection,
   });
 
   final StarterProject project;
   final bool openFirstDraft;
   final bool startSprint;
+
+  /// Section to open on first build; defaults to the manuscript.
+  final StudioSection? initialSection;
+  final ThemeSelection? themeSelection;
+  final ValueChanged<ThemeSelection>? onThemeSelectionChanged;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -1174,8 +723,10 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
 
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
+    StudioSection.worldBoard,
     StudioSection.search,
     StudioSection.statistics,
+    StudioSection.analytics,
     StudioSection.backup,
     StudioSection.projects,
     StudioSection.ideas,
@@ -1189,6 +740,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.world,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.research,
     StudioSection.notes,
   ];
 
@@ -1201,7 +753,9 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   @override
   void initState() {
     super.initState();
-    selectedIndex = sections.indexOf(StudioSection.manuscript);
+    final requested = widget.initialSection ?? StudioSection.manuscript;
+    final index = sections.indexOf(requested);
+    selectedIndex = index >= 0 ? index : sections.indexOf(StudioSection.manuscript);
   }
 
   void _selectSection(StudioSection section) {
@@ -1231,6 +785,8 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
             project: widget.project,
             startSprint: widget.openFirstDraft && widget.startSprint,
             onNavigate: _selectSection,
+            themeSelection: widget.themeSelection,
+            onThemeSelectionChanged: widget.onThemeSelectionChanged,
             themeId: widget.themeId,
             accentId: widget.accentId,
             onThemeChanged: widget.onThemeChanged,
@@ -1616,8 +1172,10 @@ class _DesktopNavigation extends StatelessWidget {
 
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
+    StudioSection.worldBoard,
     StudioSection.search,
     StudioSection.statistics,
+    StudioSection.analytics,
     StudioSection.backup,
     StudioSection.projects,
     StudioSection.ideas,
@@ -1631,6 +1189,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.world,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.research,
     StudioSection.notes,
   ];
 
@@ -1693,15 +1252,18 @@ class _DesktopNavigation extends StatelessWidget {
                   onSelected: onSelected,
                   sections: sections,
                 ),
-                const SizedBox(height: 16),
-                _NavigationTile(
-                  section: StudioSection.settings,
-                  isSelected:
-                      selectedIndex == sections.indexOf(StudioSection.settings),
-                  onTap: () =>
-                      onSelected(sections.indexOf(StudioSection.settings)),
-                ),
               ],
+            ),
+          ),
+          // Settings is pinned below the scrolling groups so it stays
+          // reachable however many Studios the workspace grows to hold.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: _NavigationTile(
+              section: StudioSection.settings,
+              isSelected:
+                  selectedIndex == sections.indexOf(StudioSection.settings),
+              onTap: () => onSelected(sections.indexOf(StudioSection.settings)),
             ),
           ),
         ],
@@ -1884,6 +1446,8 @@ class _SectionView extends StatelessWidget {
     required this.project,
     required this.startSprint,
     required this.onNavigate,
+    this.themeSelection,
+    this.onThemeSelectionChanged,
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
@@ -1896,6 +1460,8 @@ class _SectionView extends StatelessWidget {
   final StarterProject project;
   final bool startSprint;
   final ValueChanged<StudioSection> onNavigate;
+  final ThemeSelection? themeSelection;
+  final ValueChanged<ThemeSelection>? onThemeSelectionChanged;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -1971,8 +1537,30 @@ class _SectionView extends StatelessWidget {
             project: project,
             onNavigate: onNavigate,
           ),
+        StudioSection.worldBoard => WorldBoardView(
+            project: project,
+            manuscriptStore: manuscriptStore,
+            onNavigate: (destination) => onNavigate(
+              switch (destination) {
+                WorldBoardDestination.projects => StudioSection.projects,
+                WorldBoardDestination.manuscript => StudioSection.manuscript,
+                WorldBoardDestination.characters => StudioSection.characters,
+                WorldBoardDestination.world => StudioSection.world,
+                WorldBoardDestination.timeline => StudioSection.timeline,
+                WorldBoardDestination.plot => StudioSection.plot,
+              },
+            ),
+          ),
         StudioSection.search => SearchStudioView(project: project),
         StudioSection.statistics => StatisticsStudioView(project: project),
+        StudioSection.analytics => AnalyticsStudioView(
+            project: project,
+            service: AnalyticsService(
+              project: project,
+              repository: authorOsRepository,
+              manuscriptStore: manuscriptStore,
+            ),
+          ),
         StudioSection.backup => const BackupHealthView(),
         StudioSection.projects => const _ProjectsStudioView(),
         StudioSection.ideas => const RecordStudioView(
@@ -2013,11 +1601,54 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
-        StudioSection.world => WorldStudioWorkspace(projectId: project.id),
-        StudioSection.plot => VisualPlanningView(project: project),
-        StudioSection.timeline => _TimelineStudioView(project: project),
+        StudioSection.world => WorldWorkspace(
+            projectId: project.id,
+            onNavigate: (request) => onNavigate(
+              switch (request.destination) {
+                SearchDestination.characterStudio => StudioSection.characters,
+                SearchDestination.worldStudio => StudioSection.world,
+                SearchDestination.timelineStudio => StudioSection.timeline,
+                SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.manuscriptStudio => StudioSection.manuscript,
+                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.storyCodex => StudioSection.codex,
+                SearchDestination.record => StudioSection.world,
+              },
+            ),
+          ),
+        StudioSection.plot => PlotStudioView(
+          project: project,
+          service: PlotService(
+            projectId: project.id,
+            repository: authorOsRepository,
+          ),
+        ),
+        StudioSection.timeline => TimelineStudioView(
+            project: project,
+            onNavigate: (request) => onNavigate(
+              switch (request.destination) {
+                SearchDestination.characterStudio => StudioSection.characters,
+                SearchDestination.worldStudio => StudioSection.world,
+                SearchDestination.timelineStudio => StudioSection.timeline,
+                SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.manuscriptStudio => StudioSection.manuscript,
+                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.storyCodex => StudioSection.codex,
+                SearchDestination.record => StudioSection.timeline,
+              },
+            ),
+          ),
+        StudioSection.research => ResearchStudioView(
+            project: project,
+            service: ResearchService(
+              projectId: project.id,
+              repository: authorOsRepository,
+            ),
+          ),
         StudioSection.notes => const _NotesStudioView(),
         StudioSection.settings => SettingsStudioView(
+            selection: themeSelection,
+            onSelectionChanged: onThemeSelectionChanged,
             themeId: themeId,
             accentId: accentId,
             onThemeChanged: onThemeChanged,
@@ -2274,1602 +1905,6 @@ class _ResearchSidePanelState extends State<_ResearchSidePanel> {
               onPressed: () => _addReference(tab),
               icon: const Icon(Icons.add),
               label: const Text('Pin reference'),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  const _MetricChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TimelineStudioView extends StatefulWidget {
-  const _TimelineStudioView({required this.project});
-
-  final StarterProject project;
-
-  @override
-  State<_TimelineStudioView> createState() => _TimelineStudioViewState();
-}
-
-class _TimelineStudioViewState extends State<_TimelineStudioView> {
-  static const eventPageSize = 30;
-  final List<String> eventStatuses = const [
-    'Planned',
-    'Established',
-    'Completed',
-    'Archived',
-  ];
-
-  final List<String> importanceLevels = const [
-    'Low',
-    'Medium',
-    'High',
-    'Critical',
-  ];
-
-  final List<String> eventTypes = const [
-    'Historical',
-    'Plot',
-    'Character',
-    'Political',
-    'War',
-    'Discovery',
-    'Relationship',
-    'World',
-    'Personal',
-    'Custom',
-  ];
-
-  final List<TimelineEvent> events = [];
-  final List<TimelineEra> eras = [];
-  final List<TimelineSequence> sequences = [];
-  final TextEditingController searchController = TextEditingController();
-  final Set<String> createdContinuityCharacters = {};
-  final Set<String> createdContinuityLocations = {};
-
-  bool isLoading = true;
-  String statusFilter = 'All';
-  String typeFilter = 'All';
-  String eraFilter = 'All';
-  String sequenceFilter = 'All';
-  String sortMode = 'chronological';
-  String selectedEventId = '';
-  int visibleEventCount = eventPageSize;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTimeline();
-  }
-
-  Future<void> _loadTimeline() async {
-    final timeline = await const TimelineStore().load(widget.project);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      eras.addAll(timeline.eras);
-      sequences.addAll(timeline.sequences);
-      events.addAll(timeline.events);
-      selectedEventId = events.isEmpty ? '' : events.first.id;
-      isLoading = false;
-    });
-  }
-
-  Future<void> _saveTimeline() => const TimelineStore().save(
-        widget.project.id,
-        TimelineState(eras: eras, sequences: sequences, events: events),
-      );
-
-  Future<void> _applyContinuityRecommendation(
-    ContinuityIntegrityIssue issue,
-  ) async {
-    TimelineEvent? affectedEvent;
-    for (final eventId in issue.eventIds.reversed) {
-      final matchingEvents = events.where((event) => event.id == eventId);
-      if (matchingEvents.isNotEmpty) {
-        affectedEvent = matchingEvents.first;
-        break;
-      }
-    }
-    if (affectedEvent == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('The affected timeline event was not found.')),
-        );
-      }
-      return;
-    }
-
-    setState(() => selectedEventId = affectedEvent!.id);
-    if (issue.actionKind == ContinuityActionKind.create) {
-      final suggestedName = switch (issue.type) {
-        ContinuityWarningType.unknownLocation => affectedEvent.location,
-        ContinuityWarningType.unknownCharacter => affectedEvent
-                .presentCharacters
-                .where((name) => !_knownCharacterNames.contains(name))
-                .firstOrNull ??
-            '',
-        _ => '',
-      };
-      final name = await _confirmContinuityCreation(issue, suggestedName);
-      if (name == null || !mounted) {
-        return;
-      }
-      final result = await ContinuityActionService(
-        projectId: widget.project.id,
-        repository: authorOsRepository,
-      ).createForRecommendation(
-        issue,
-        name: name,
-        confirmed: true,
-        recheck: () => !_warningResolvesWithName(issue, name),
-      );
-      if (!mounted) {
-        return;
-      }
-      if (result.mutationApplied) {
-        setState(() {
-          if (issue.type == ContinuityWarningType.unknownCharacter) {
-            createdContinuityCharacters.add(name);
-          } else if (issue.type == ContinuityWarningType.unknownLocation) {
-            createdContinuityLocations.add(name);
-          }
-        });
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message)),
-      );
-      return;
-    }
-    await openEventEditor(existing: affectedEvent);
-  }
-
-  Future<String?> _confirmContinuityCreation(
-    ContinuityIntegrityIssue issue,
-    String suggestedName,
-  ) async {
-    final controller = TextEditingController(text: suggestedName);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(issue.type == ContinuityWarningType.unknownCharacter
-            ? 'Create character'
-            : 'Create location'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(issue.message),
-            const SizedBox(height: 16),
-            TextField(
-              key: const Key('continuity-create-name'),
-              controller: controller,
-              autofocus: true,
-              decoration: InputDecoration(
-                labelText: issue.type == ContinuityWarningType.unknownCharacter
-                    ? 'Character name'
-                    : 'Location name',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('confirm-continuity-create'),
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) {
-                Navigator.of(context).pop(name);
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return result;
-  }
-
-  bool _warningResolvesWithName(
-    ContinuityIntegrityIssue issue,
-    String createdName,
-  ) {
-    final warnings = const ContinuityAnalyzer().analyze(
-      continuityEvents,
-      knownCharacters: {..._knownCharacterNames, createdName},
-      knownLocations: {..._knownLocationNames, createdName},
-    );
-    return !warnings.any((warning) =>
-        warning.type == issue.type &&
-        warning.eventIds.any(issue.eventIds.contains));
-  }
-
-  @override
-  void dispose() {
-    searchController.dispose();
-    super.dispose();
-  }
-
-  List<TimelineEvent> get filteredEvents {
-    final query = searchController.text.trim().toLowerCase();
-
-    final base = events.where((event) {
-      if (statusFilter != 'All' && event.status != statusFilter) {
-        return false;
-      }
-      if (typeFilter != 'All' && event.type != typeFilter) {
-        return false;
-      }
-      if (eraFilter != 'All' && event.eraId != eraFilter) {
-        return false;
-      }
-      if (sequenceFilter != 'All' && event.sequenceId != sequenceFilter) {
-        return false;
-      }
-
-      if (query.isEmpty) {
-        return true;
-      }
-
-      final haystack = '${event.title} ${event.description} ${event.dateLabel}'
-          .toLowerCase();
-      return haystack.contains(query);
-    }).toList();
-
-    int importanceRank(String level) {
-      switch (level) {
-        case 'Critical':
-          return 4;
-        case 'High':
-          return 3;
-        case 'Medium':
-          return 2;
-        default:
-          return 1;
-      }
-    }
-
-    switch (sortMode) {
-      case 'updated-desc':
-        base.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      case 'created-desc':
-        base.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      case 'title-asc':
-        base.sort(
-            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
-      case 'title-desc':
-        base.sort(
-            (a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
-      case 'importance-desc':
-        base.sort((a, b) => importanceRank(b.importance)
-            .compareTo(importanceRank(a.importance)));
-      case 'order-asc':
-        base.sort((a, b) => a.order.compareTo(b.order));
-      default:
-        base.sort((a, b) => a.order.compareTo(b.order));
-    }
-
-    return base;
-  }
-
-  TimelineEvent? get selectedEvent {
-    if (selectedEventId.isEmpty) {
-      return null;
-    }
-    for (final event in events) {
-      if (event.id == selectedEventId) {
-        return event;
-      }
-    }
-    return null;
-  }
-
-  int get plannedCount =>
-      events.where((event) => event.status == 'Planned').length;
-  int get completedCount =>
-      events.where((event) => event.status == 'Completed').length;
-  List<ContinuityEventSnapshot> get continuityEvents => events
-      .map((event) => ContinuityEventSnapshot(
-            id: event.id,
-            title: event.title,
-            startDay: event.startDay,
-            endDay: event.endDay,
-            order: event.order,
-            pov: event.pov,
-            plotline: event.plotline,
-            presentCharacters: event.presentCharacters,
-            dateLabel: event.dateLabel,
-            type: event.type,
-            location: event.location,
-            travelDaysFromPrevious: event.travelDaysFromPrevious,
-          ))
-      .toList();
-  Set<String> get _knownCharacterNames => {
-        ...widget.project.characterSheets.map((character) => character.name),
-        ...StoryCodexReferenceIndex.characterNames(
-          StoryCodexStore.defaultEntries,
-        ),
-        ...createdContinuityCharacters,
-      };
-  Set<String> get _knownLocationNames => {
-        ...StoryCodexReferenceIndex.locationNames(
-          StoryCodexStore.defaultEntries,
-        ),
-        ...createdContinuityLocations,
-      };
-  List<ContinuityWarning> get continuityWarnings {
-    return const ContinuityAnalyzer().analyze(
-      continuityEvents,
-      knownCharacters: _knownCharacterNames,
-      knownLocations: _knownLocationNames,
-    );
-  }
-
-  int get warningCount => continuityWarnings.length;
-
-  ImpactTraceResult? get selectedImpactTrace {
-    final selected = selectedEvent;
-    if (selected == null) {
-      return null;
-    }
-
-    final entities = <TraceEntity>[];
-    final links = <TraceLink>[];
-    final entityIds = <String>{};
-    void addEntity(TraceEntity entity) {
-      if (entityIds.add(entity.id)) {
-        entities.add(entity);
-      }
-    }
-
-    for (final event in events) {
-      final sceneId = 'scene:${event.id}';
-      addEntity(TraceEntity(
-          id: sceneId, label: event.title, type: TraceEntityType.scene));
-      for (final character in event.presentCharacters) {
-        final characterId = 'character:$character';
-        addEntity(TraceEntity(
-            id: characterId,
-            label: character,
-            type: TraceEntityType.character));
-        links.add(TraceLink(
-            sourceId: sceneId, targetId: characterId, label: 'features'));
-      }
-      if (event.plotline.isNotEmpty) {
-        final plotlineId = 'plotline:${event.plotline}';
-        addEntity(TraceEntity(
-            id: plotlineId,
-            label: event.plotline,
-            type: TraceEntityType.plotline));
-        links.add(TraceLink(
-            sourceId: sceneId, targetId: plotlineId, label: 'advances'));
-      }
-      if (event.linkedNote.isNotEmpty) {
-        final noteId = 'note:${event.linkedNote}';
-        addEntity(TraceEntity(
-            id: noteId, label: event.linkedNote, type: TraceEntityType.note));
-        links.add(TraceLink(
-            sourceId: sceneId, targetId: noteId, label: 'references'));
-      }
-      if (event.plotBeat.isNotEmpty) {
-        final beatId = 'beat:${event.plotBeat}';
-        addEntity(TraceEntity(
-            id: beatId, label: event.plotBeat, type: TraceEntityType.plotBeat));
-        links.add(
-            TraceLink(sourceId: sceneId, targetId: beatId, label: 'fulfills'));
-      }
-    }
-
-    return const ImpactTraceAnalyzer().trace(
-      sourceId: 'scene:${selected.id}',
-      entities: entities,
-      links: links,
-    );
-  }
-
-  String getEraLabel(String eraId) {
-    if (eraId.isEmpty) {
-      return 'Unassigned';
-    }
-    final era =
-        eras.where((item) => item.id == eraId).cast<TimelineEra?>().firstWhere(
-              (item) => item != null,
-              orElse: () => null,
-            );
-    return era?.title ?? 'Missing era reference';
-  }
-
-  String getSequenceLabel(String sequenceId) {
-    if (sequenceId.isEmpty) {
-      return 'Unassigned';
-    }
-    final sequence = sequences
-        .where((item) => item.id == sequenceId)
-        .cast<TimelineSequence?>()
-        .firstWhere((item) => item != null, orElse: () => null);
-    return sequence?.title ?? 'Missing sequence reference';
-  }
-
-  Future<void> openEraEditor({TimelineEra? existing}) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final descriptionController =
-        TextEditingController(text: existing?.description ?? '');
-    var nextStatus = existing?.status ?? 'Planned';
-
-    final save = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text(existing == null ? 'Add Era' : 'Edit Era'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: nextStatus,
-                  items: eventStatuses
-                      .map((value) =>
-                          DropdownMenuItem(value: value, child: Text(value)))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setModalState(() => nextStatus = value);
-                    }
-                  },
-                  decoration: const InputDecoration(labelText: 'Status'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  return;
-                }
-                Navigator.of(context).pop(true);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (save == true) {
-      setState(() {
-        final now = DateTime.now();
-        if (existing == null) {
-          eras.add(
-            TimelineEra(
-              id: 'era_${now.microsecondsSinceEpoch}',
-              title: titleController.text.trim(),
-              status: nextStatus,
-              description: descriptionController.text.trim(),
-              createdAt: now,
-              updatedAt: now,
-            ),
-          );
-        } else {
-          final index = eras.indexWhere((era) => era.id == existing.id);
-          if (index >= 0) {
-            eras[index] = eras[index].copyWith(
-              title: titleController.text.trim(),
-              status: nextStatus,
-              description: descriptionController.text.trim(),
-              updatedAt: now,
-            );
-          }
-        }
-      });
-      await _saveTimeline();
-    }
-
-    titleController.dispose();
-    descriptionController.dispose();
-  }
-
-  Future<void> openSequenceEditor({TimelineSequence? existing}) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final descriptionController =
-        TextEditingController(text: existing?.description ?? '');
-    var nextStatus = existing?.status ?? 'Planned';
-    var nextEraId = existing?.eraId ?? (eras.isNotEmpty ? eras.first.id : '');
-
-    final save = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text(existing == null ? 'Add Sequence' : 'Edit Sequence'),
-          content: SizedBox(
-            width: 430,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: nextEraId.isEmpty ? null : nextEraId,
-                  items: eras
-                      .map((era) => DropdownMenuItem(
-                          value: era.id, child: Text(era.title)))
-                      .toList(),
-                  onChanged: (value) {
-                    setModalState(() => nextEraId = value ?? '');
-                  },
-                  decoration: const InputDecoration(labelText: 'Era'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: nextStatus,
-                  items: eventStatuses
-                      .map((value) =>
-                          DropdownMenuItem(value: value, child: Text(value)))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setModalState(() => nextStatus = value);
-                    }
-                  },
-                  decoration: const InputDecoration(labelText: 'Status'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  return;
-                }
-                Navigator.of(context).pop(true);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (save == true) {
-      setState(() {
-        final now = DateTime.now();
-        if (existing == null) {
-          sequences.add(
-            TimelineSequence(
-              id: 'seq_${now.microsecondsSinceEpoch}',
-              title: titleController.text.trim(),
-              status: nextStatus,
-              description: descriptionController.text.trim(),
-              eraId: nextEraId,
-              order: sequences.length + 1,
-              createdAt: now,
-              updatedAt: now,
-            ),
-          );
-        } else {
-          final index =
-              sequences.indexWhere((sequence) => sequence.id == existing.id);
-          if (index >= 0) {
-            sequences[index] = sequences[index].copyWith(
-              title: titleController.text.trim(),
-              status: nextStatus,
-              description: descriptionController.text.trim(),
-              eraId: nextEraId,
-              updatedAt: now,
-            );
-          }
-        }
-      });
-      await _saveTimeline();
-    }
-
-    titleController.dispose();
-    descriptionController.dispose();
-  }
-
-  void deleteEra(TimelineEra era) {
-    setState(() {
-      eras.removeWhere((item) => item.id == era.id);
-      for (var i = 0; i < sequences.length; i++) {
-        if (sequences[i].eraId == era.id) {
-          sequences[i] =
-              sequences[i].copyWith(eraId: '', updatedAt: DateTime.now());
-        }
-      }
-      for (var i = 0; i < events.length; i++) {
-        if (events[i].eraId == era.id) {
-          events[i] = events[i].copyWith(eraId: '', updatedAt: DateTime.now());
-        }
-      }
-    });
-    unawaited(_saveTimeline());
-  }
-
-  void deleteSequence(TimelineSequence sequence) {
-    setState(() {
-      sequences.removeWhere((item) => item.id == sequence.id);
-      for (var i = 0; i < events.length; i++) {
-        if (events[i].sequenceId == sequence.id) {
-          events[i] =
-              events[i].copyWith(sequenceId: '', updatedAt: DateTime.now());
-        }
-      }
-    });
-    unawaited(_saveTimeline());
-  }
-
-  Future<void> openEventEditor({TimelineEvent? existing}) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final descriptionController =
-        TextEditingController(text: existing?.description ?? '');
-    final dateController =
-        TextEditingController(text: existing?.dateLabel ?? '');
-    final startDayController =
-        TextEditingController(text: (existing?.startDay ?? 1).toString());
-    final endDayController =
-        TextEditingController(text: (existing?.endDay ?? 1).toString());
-    final plotlineController =
-        TextEditingController(text: existing?.plotline ?? 'Main Plot');
-    final locationController =
-        TextEditingController(text: existing?.location ?? '');
-    final travelDaysController = TextEditingController(
-        text: (existing?.travelDaysFromPrevious ?? 0).toString());
-    final linkedNoteController =
-        TextEditingController(text: existing?.linkedNote ?? '');
-    var nextPlotBeat = existing?.plotBeat ?? '';
-    var nextPov = existing?.pov ?? '';
-    final nextPresentCharacters = <String>{
-      ...?existing?.presentCharacters,
-    };
-    var nextStatus = existing?.status ?? 'Planned';
-    var nextImportance = existing?.importance ?? 'Medium';
-    var nextType = existing?.type ?? 'Plot';
-    var nextEraId = existing?.eraId ?? '';
-    var nextSequenceId = existing?.sequenceId ?? '';
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return AlertDialog(
-              title: Text(existing == null
-                  ? 'Add Timeline Event'
-                  : 'Edit Timeline Event'),
-              content: SizedBox(
-                width: 460,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: titleController,
-                        decoration: const InputDecoration(labelText: 'Title'),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: dateController,
-                        decoration:
-                            const InputDecoration(labelText: 'Date Label'),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: startDayController,
-                              keyboardType: TextInputType.number,
-                              decoration:
-                                  const InputDecoration(labelText: 'Start Day'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: endDayController,
-                              keyboardType: TextInputType.number,
-                              decoration:
-                                  const InputDecoration(labelText: 'End Day'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: nextPov.isEmpty ? null : nextPov,
-                        isExpanded: true,
-                        items: [
-                          const DropdownMenuItem(
-                              value: '', child: Text('Unassigned')),
-                          ...widget.project.characterSheets
-                              .map((character) => DropdownMenuItem(
-                                    value: character.name,
-                                    child: Text(character.name),
-                                  )),
-                        ],
-                        onChanged: (value) =>
-                            setModalState(() => nextPov = value ?? ''),
-                        decoration: const InputDecoration(labelText: 'POV'),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: plotlineController,
-                        decoration:
-                            const InputDecoration(labelText: 'Plotline'),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: locationController,
-                        decoration:
-                            const InputDecoration(labelText: 'Location'),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: travelDaysController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Travel days required from prior location',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: linkedNoteController,
-                        decoration:
-                            const InputDecoration(labelText: 'Linked note'),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue:
-                            nextPlotBeat.isEmpty ? null : nextPlotBeat,
-                        isExpanded: true,
-                        items: [
-                          const DropdownMenuItem(
-                              value: '', child: Text('Unassigned')),
-                          ...widget.project.beatChecklist.map((beat) =>
-                              DropdownMenuItem(value: beat, child: Text(beat))),
-                        ],
-                        onChanged: (value) =>
-                            setModalState(() => nextPlotBeat = value ?? ''),
-                        decoration: const InputDecoration(
-                            labelText: 'Linked plot beat'),
-                      ),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('Characters present',
-                            style: Theme.of(context).textTheme.labelLarge),
-                      ),
-                      const SizedBox(height: 6),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          children: widget.project.characterSheets
-                              .map((character) => FilterChip(
-                                    label: Text(character.name),
-                                    selected: nextPresentCharacters
-                                        .contains(character.name),
-                                    onSelected: (selected) {
-                                      setModalState(() {
-                                        if (selected) {
-                                          nextPresentCharacters
-                                              .add(character.name);
-                                        } else {
-                                          nextPresentCharacters
-                                              .remove(character.name);
-                                        }
-                                      });
-                                    },
-                                  ))
-                              .toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: nextStatus,
-                        items: eventStatuses
-                            .map((value) => DropdownMenuItem(
-                                value: value, child: Text(value)))
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setModalState(() => nextStatus = value);
-                          }
-                        },
-                        decoration: const InputDecoration(labelText: 'Status'),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: nextImportance,
-                        items: importanceLevels
-                            .map((value) => DropdownMenuItem(
-                                value: value, child: Text(value)))
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setModalState(() => nextImportance = value);
-                          }
-                        },
-                        decoration:
-                            const InputDecoration(labelText: 'Importance'),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: nextType,
-                        items: eventTypes
-                            .map((value) => DropdownMenuItem(
-                                value: value, child: Text(value)))
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setModalState(() => nextType = value);
-                          }
-                        },
-                        decoration: const InputDecoration(labelText: 'Type'),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: nextEraId.isEmpty ? null : nextEraId,
-                        items: [
-                          const DropdownMenuItem(
-                              value: '', child: Text('Unassigned')),
-                          ...eras.map((era) => DropdownMenuItem(
-                              value: era.id, child: Text(era.title))),
-                        ],
-                        onChanged: (value) {
-                          setModalState(() {
-                            nextEraId = value ?? '';
-                            if (nextEraId.isNotEmpty &&
-                                nextSequenceId.isNotEmpty &&
-                                sequences.any((item) =>
-                                    item.id == nextSequenceId &&
-                                    item.eraId != nextEraId)) {
-                              nextSequenceId = '';
-                            }
-                          });
-                        },
-                        decoration: const InputDecoration(labelText: 'Era'),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue:
-                            nextSequenceId.isEmpty ? null : nextSequenceId,
-                        items: [
-                          const DropdownMenuItem(
-                              value: '', child: Text('Unassigned')),
-                          ...sequences
-                              .where((sequence) =>
-                                  nextEraId.isEmpty ||
-                                  sequence.eraId == nextEraId)
-                              .map(
-                                (sequence) => DropdownMenuItem(
-                                  value: sequence.id,
-                                  child: Text(sequence.title),
-                                ),
-                              ),
-                        ],
-                        onChanged: (value) {
-                          setModalState(() => nextSequenceId = value ?? '');
-                        },
-                        decoration:
-                            const InputDecoration(labelText: 'Sequence'),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: descriptionController,
-                        maxLines: 4,
-                        decoration:
-                            const InputDecoration(labelText: 'Description'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    if (titleController.text.trim().isEmpty) {
-                      return;
-                    }
-                    Navigator.of(context).pop(true);
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (result != true) {
-      titleController.dispose();
-      descriptionController.dispose();
-      dateController.dispose();
-      startDayController.dispose();
-      endDayController.dispose();
-      plotlineController.dispose();
-      locationController.dispose();
-      travelDaysController.dispose();
-      linkedNoteController.dispose();
-      return;
-    }
-
-    setState(() {
-      final now = DateTime.now();
-
-      if (existing == null) {
-        final event = TimelineEvent(
-          id: 'event_${now.microsecondsSinceEpoch}',
-          title: titleController.text.trim(),
-          description: descriptionController.text.trim(),
-          dateLabel: dateController.text.trim(),
-          startDay: int.tryParse(startDayController.text.trim()) ?? 1,
-          endDay: int.tryParse(endDayController.text.trim()) ?? 1,
-          pov: nextPov,
-          plotline: plotlineController.text.trim(),
-          presentCharacters: nextPresentCharacters.toList()..sort(),
-          location: locationController.text.trim(),
-          travelDaysFromPrevious:
-              int.tryParse(travelDaysController.text.trim()) ?? 0,
-          linkedNote: linkedNoteController.text.trim(),
-          plotBeat: nextPlotBeat,
-          status: nextStatus,
-          importance: nextImportance,
-          type: nextType,
-          eraId: nextEraId,
-          sequenceId: nextSequenceId,
-          order: events.length + 1,
-          createdAt: now,
-          updatedAt: now,
-        );
-        events.add(event);
-        selectedEventId = event.id;
-      } else {
-        final index = events.indexWhere((event) => event.id == existing.id);
-        if (index >= 0) {
-          events[index] = events[index].copyWith(
-            title: titleController.text.trim(),
-            description: descriptionController.text.trim(),
-            dateLabel: dateController.text.trim(),
-            startDay: int.tryParse(startDayController.text.trim()) ?? 1,
-            endDay: int.tryParse(endDayController.text.trim()) ?? 1,
-            pov: nextPov,
-            plotline: plotlineController.text.trim(),
-            presentCharacters: nextPresentCharacters.toList()..sort(),
-            location: locationController.text.trim(),
-            travelDaysFromPrevious:
-                int.tryParse(travelDaysController.text.trim()) ?? 0,
-            linkedNote: linkedNoteController.text.trim(),
-            plotBeat: nextPlotBeat,
-            status: nextStatus,
-            importance: nextImportance,
-            type: nextType,
-            eraId: nextEraId,
-            sequenceId: nextSequenceId,
-            updatedAt: now,
-          );
-        }
-      }
-    });
-    await _saveTimeline();
-
-    titleController.dispose();
-    descriptionController.dispose();
-    dateController.dispose();
-    startDayController.dispose();
-    endDayController.dispose();
-    plotlineController.dispose();
-    locationController.dispose();
-    travelDaysController.dispose();
-    linkedNoteController.dispose();
-  }
-
-  void deleteEvent(TimelineEvent event) {
-    setState(() {
-      events.removeWhere((item) => item.id == event.id);
-      if (selectedEventId == event.id) {
-        selectedEventId = events.isNotEmpty ? events.first.id : '';
-      }
-    });
-    unawaited(_saveTimeline());
-  }
-
-  void moveEvent(TimelineEvent event, int delta) {
-    final index = events.indexWhere((item) => item.id == event.id);
-    final nextIndex = index + delta;
-    if (index < 0 || nextIndex < 0 || nextIndex >= events.length) {
-      return;
-    }
-
-    setState(() {
-      final item = events.removeAt(index);
-      events.insert(nextIndex, item);
-      for (var i = 0; i < events.length; i++) {
-        events[i] = events[i].copyWith(order: i + 1, updatedAt: DateTime.now());
-      }
-    });
-    unawaited(_saveTimeline());
-  }
-
-  String formatTime(DateTime value) {
-    final hh = value.hour.toString().padLeft(2, '0');
-    final mm = value.minute.toString().padLeft(2, '0');
-    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} $hh:$mm';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final matchingEvents = filteredEvents;
-    final currentEvents = matchingEvents.take(visibleEventCount).toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Timeline Studio',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Build chronology with dates, status, and importance tracking.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            FilledButton.icon(
-              onPressed: () => openEventEditor(),
-              icon: const Icon(Icons.add),
-              label: const Text('Add Event'),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: () => openEraEditor(),
-              icon: const Icon(Icons.account_tree_outlined),
-              label: const Text('Add Era'),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: () => openSequenceEditor(),
-              icon: const Icon(Icons.linear_scale_outlined),
-              label: const Text('Add Sequence'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _MetricChip(label: 'Events', value: events.length.toString()),
-            _MetricChip(label: 'Eras', value: eras.length.toString()),
-            _MetricChip(label: 'Sequences', value: sequences.length.toString()),
-            _MetricChip(label: 'Planned', value: plannedCount.toString()),
-            _MetricChip(label: 'Completed', value: completedCount.toString()),
-            _MetricChip(label: 'Warnings', value: warningCount.toString()),
-          ],
-        ),
-        const SizedBox(height: 16),
-        ContinuityTimelinePanel(
-          events: continuityEvents,
-          warnings: continuityWarnings,
-          selectedEventId: selectedEventId,
-          onEventSelected: (eventId) =>
-              setState(() => selectedEventId = eventId),
-          onRecommendationSelected: _applyContinuityRecommendation,
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-          ),
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 260,
-                child: TextField(
-                  controller: searchController,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    labelText: 'Search',
-                    isDense: true,
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 190,
-                child: DropdownButtonFormField<String>(
-                  initialValue: statusFilter,
-                  isExpanded: true,
-                  decoration:
-                      const InputDecoration(labelText: 'Status', isDense: true),
-                  items: ['All', ...eventStatuses]
-                      .map((value) =>
-                          DropdownMenuItem(value: value, child: Text(value)))
-                      .toList(),
-                  onChanged: (value) =>
-                      setState(() => statusFilter = value ?? 'All'),
-                ),
-              ),
-              SizedBox(
-                width: 190,
-                child: DropdownButtonFormField<String>(
-                  initialValue: typeFilter,
-                  isExpanded: true,
-                  decoration:
-                      const InputDecoration(labelText: 'Type', isDense: true),
-                  items: ['All', ...eventTypes]
-                      .map((value) =>
-                          DropdownMenuItem(value: value, child: Text(value)))
-                      .toList(),
-                  onChanged: (value) =>
-                      setState(() => typeFilter = value ?? 'All'),
-                ),
-              ),
-              SizedBox(
-                width: 190,
-                child: DropdownButtonFormField<String>(
-                  initialValue: eraFilter,
-                  isExpanded: true,
-                  decoration:
-                      const InputDecoration(labelText: 'Era', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: 'All', child: Text('All')),
-                    ...eras.map(
-                      (era) => DropdownMenuItem(
-                          value: era.id, child: Text(era.title)),
-                    ),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => eraFilter = value ?? 'All'),
-                ),
-              ),
-              SizedBox(
-                width: 190,
-                child: DropdownButtonFormField<String>(
-                  initialValue: sequenceFilter,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Sequence',
-                    isDense: true,
-                  ),
-                  items: [
-                    const DropdownMenuItem(value: 'All', child: Text('All')),
-                    ...sequences
-                        .where((sequence) =>
-                            eraFilter == 'All' || sequence.eraId == eraFilter)
-                        .map(
-                          (sequence) => DropdownMenuItem(
-                            value: sequence.id,
-                            child: Text(sequence.title),
-                          ),
-                        ),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => sequenceFilter = value ?? 'All'),
-                ),
-              ),
-              SizedBox(
-                width: 190,
-                child: DropdownButtonFormField<String>(
-                  initialValue: sortMode,
-                  isExpanded: true,
-                  decoration:
-                      const InputDecoration(labelText: 'Sort', isDense: true),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 'chronological', child: Text('Chronological')),
-                    DropdownMenuItem(
-                        value: 'updated-desc', child: Text('Recently updated')),
-                    DropdownMenuItem(
-                        value: 'created-desc', child: Text('Recently created')),
-                    DropdownMenuItem(
-                        value: 'title-asc', child: Text('Title A-Z')),
-                    DropdownMenuItem(
-                        value: 'title-desc', child: Text('Title Z-A')),
-                    DropdownMenuItem(
-                        value: 'importance-desc', child: Text('Importance')),
-                    DropdownMenuItem(
-                        value: 'order-asc', child: Text('Manual order')),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => sortMode = value ?? 'chronological'),
-                ),
-              ),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    statusFilter = 'All';
-                    typeFilter = 'All';
-                    eraFilter = 'All';
-                    sequenceFilter = 'All';
-                    sortMode = 'chronological';
-                    searchController.clear();
-                  });
-                },
-                child: const Text('Clear filters'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Column(
-                children: [
-                  for (final event in currentEvents)
-                    Card(
-                      child: ListTile(
-                        onTap: () => setState(() => selectedEventId = event.id),
-                        title: Text(event.title),
-                        subtitle: Text(
-                            '${event.dateLabel.isEmpty ? 'Day ${event.startDay}-${event.endDay}' : event.dateLabel} | ${event.status} | ${event.type} | ${event.importance}\nPOV: ${event.pov.isEmpty ? 'Unassigned' : event.pov} | Plotline: ${event.plotline.isEmpty ? 'Unassigned' : event.plotline}\nEra: ${getEraLabel(event.eraId)} | Sequence: ${getSequenceLabel(event.sequenceId)}'),
-                        trailing: Wrap(
-                          spacing: 6,
-                          children: [
-                            IconButton(
-                              tooltip: 'Move up',
-                              onPressed: () => moveEvent(event, -1),
-                              icon: const Icon(Icons.arrow_upward),
-                            ),
-                            IconButton(
-                              tooltip: 'Move down',
-                              onPressed: () => moveEvent(event, 1),
-                              icon: const Icon(Icons.arrow_downward),
-                            ),
-                            IconButton(
-                              tooltip: 'Edit',
-                              onPressed: () => openEventEditor(existing: event),
-                              icon: const Icon(Icons.edit_outlined),
-                            ),
-                            IconButton(
-                              tooltip: event.status == 'Archived'
-                                  ? 'Restore'
-                                  : 'Archive',
-                              onPressed: () {
-                                setState(() {
-                                  final index = events.indexWhere(
-                                      (item) => item.id == event.id);
-                                  if (index >= 0) {
-                                    final status = event.status == 'Archived'
-                                        ? 'Planned'
-                                        : 'Archived';
-                                    events[index] = event.copyWith(
-                                        status: status,
-                                        updatedAt: DateTime.now());
-                                  }
-                                });
-                                unawaited(_saveTimeline());
-                              },
-                              icon: Icon(event.status == 'Archived'
-                                  ? Icons.unarchive_outlined
-                                  : Icons.archive_outlined),
-                            ),
-                            IconButton(
-                              tooltip: 'Delete',
-                              onPressed: () => deleteEvent(event),
-                              icon: const Icon(Icons.delete_outline),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (currentEvents.isEmpty)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          'No timeline events match current filters.',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyLarge
-                              ?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                        ),
-                      ),
-                    ),
-                  if (matchingEvents.length > visibleEventCount)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: OutlinedButton.icon(
-                        key: const Key('load-more-primary-timeline-events'),
-                        onPressed: () =>
-                            setState(() => visibleEventCount += eventPageSize),
-                        icon: const Icon(Icons.expand_more),
-                        label: Text(
-                          'Load ${matchingEvents.length - visibleEventCount > eventPageSize ? eventPageSize : matchingEvents.length - visibleEventCount} more events',
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              flex: 2,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: selectedEvent == null
-                      ? const Text('Select an event to inspect details.')
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              selectedEvent!.title,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                                'Date: ${selectedEvent!.dateLabel.isEmpty ? 'Unknown' : selectedEvent!.dateLabel}'),
-                            Text('Status: ${selectedEvent!.status}'),
-                            Text('Type: ${selectedEvent!.type}'),
-                            Text('Importance: ${selectedEvent!.importance}'),
-                            Text(
-                                'POV: ${selectedEvent!.pov.isEmpty ? 'Unassigned' : selectedEvent!.pov}'),
-                            Text(
-                                'Plotline: ${selectedEvent!.plotline.isEmpty ? 'Unassigned' : selectedEvent!.plotline}'),
-                            Text(
-                                'Present: ${selectedEvent!.presentCharacters.isEmpty ? 'No characters marked' : selectedEvent!.presentCharacters.join(', ')}'),
-                            Text(
-                                'Location: ${selectedEvent!.location.isEmpty ? 'Unassigned' : selectedEvent!.location}'),
-                            Text(
-                                'Travel required: ${selectedEvent!.travelDaysFromPrevious} days'),
-                            Text(
-                                'Linked note: ${selectedEvent!.linkedNote.isEmpty ? 'None' : selectedEvent!.linkedNote}'),
-                            Text(
-                                'Plot beat: ${selectedEvent!.plotBeat.isEmpty ? 'Unassigned' : selectedEvent!.plotBeat}'),
-                            Text('Era: ${getEraLabel(selectedEvent!.eraId)}'),
-                            Text(
-                                'Sequence: ${getSequenceLabel(selectedEvent!.sequenceId)}'),
-                            Text('Order: ${selectedEvent!.order}'),
-                            const SizedBox(height: 10),
-                            Text(
-                              selectedEvent!.description.isEmpty
-                                  ? 'No description yet.'
-                                  : selectedEvent!.description,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
-                                    color:
-                                        Theme.of(context).colorScheme.onSurface,
-                                  ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Updated ${formatTime(selectedEvent!.updatedAt)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color:
-                                        Theme.of(context).colorScheme.onSurface,
-                                  ),
-                            ),
-                            const SizedBox(height: 12),
-                            if (selectedImpactTrace != null)
-                              ImpactTracePanel(result: selectedImpactTrace!),
-                          ],
-                        ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Eras and Sequences',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 10),
-                for (final era in eras)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${era.title} (${era.status})',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: 'Edit era',
-                                onPressed: () => openEraEditor(existing: era),
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
-                              IconButton(
-                                tooltip: 'Delete era',
-                                onPressed: () => deleteEra(era),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ],
-                          ),
-                          if (era.description.isNotEmpty)
-                            Text(
-                              era.description,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color:
-                                        Theme.of(context).colorScheme.onSurface,
-                                  ),
-                            ),
-                          const SizedBox(height: 8),
-                          for (final sequence in sequences
-                              .where((sequence) => sequence.eraId == era.id))
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                      '• ${sequence.title} (${sequence.status})'),
-                                ),
-                                IconButton(
-                                  tooltip: 'Edit sequence',
-                                  onPressed: () =>
-                                      openSequenceEditor(existing: sequence),
-                                  icon:
-                                      const Icon(Icons.edit_outlined, size: 18),
-                                ),
-                                IconButton(
-                                  tooltip: 'Delete sequence',
-                                  onPressed: () => deleteSequence(sequence),
-                                  icon: const Icon(Icons.delete_outline,
-                                      size: 18),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                if (eras.isEmpty)
-                  Text(
-                    'No eras yet. Add an era to group sequence and event chronology.',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: Colors.white70),
-                  ),
-              ],
             ),
           ),
         ),

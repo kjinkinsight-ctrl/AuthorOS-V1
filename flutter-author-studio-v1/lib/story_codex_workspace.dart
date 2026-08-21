@@ -577,6 +577,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                       key: const Key('codex-branch-selector'),
                       initialValue: activeBranchId ?? _canonBranchValue,
                       isDense: true,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Reading',
                         border: OutlineInputBorder(),
@@ -590,7 +591,10 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                           DropdownMenuItem(
                             key: Key('codex-branch-option-${branch.id}'),
                             value: branch.id,
-                            child: Text(branch.name),
+                            child: Text(
+                              branch.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       onChanged: (value) => _switchBranch(
@@ -1275,7 +1279,7 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
   String? saveError;
 
   RecordTypeDefinition? template;
-  Future<List<RecordLink>>? links;
+  Future<List<_CodexRelationshipView>>? relationships;
   Future<UniversalRecordInspection?>? inspection;
   Future<List<RecordVersion>>? history;
   Future<CodexContinuityReport>? continuityReport;
@@ -1397,10 +1401,27 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
   void _reloadPanels() {
     final service = widget.service;
     final id = widget.entry.id;
-    links = service.getCodexConnections(id);
+    relationships = _loadRelationships();
     inspection = service.inspectEntry(id, branchId: widget.activeBranchId);
     history = service.getHistory(id, branchId: widget.activeBranchId);
     continuityReport = _analyzeContinuity();
+  }
+
+  /// Loads every connection together with the record on its far end, so the
+  /// relationship list renders from one settled future.
+  Future<List<_CodexRelationshipView>> _loadRelationships() async {
+    final links = await widget.service.getCodexConnections(widget.entry.id);
+    final views = <_CodexRelationshipView>[];
+    for (final link in links) {
+      final otherId =
+          link.sourceId == widget.entry.id ? link.targetId : link.sourceId;
+      views.add(_CodexRelationshipView(
+        link: link,
+        other: await widget.service.repository.recordById(otherId),
+        otherId: otherId,
+      ));
+    }
+    return views;
   }
 
   Future<CodexContinuityReport> _analyzeContinuity() async {
@@ -1562,6 +1583,9 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
       ),
       success: 'Relationship added',
     );
+    // Connections live beside the record, so the entry revision does not
+    // change and the panel futures must be refreshed explicitly.
+    if (mounted) setState(_reloadPanels);
   }
 
   Future<void> _editRelationship(RecordLink link) async {
@@ -1596,6 +1620,7 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
       () => widget.service.updateEntryConnection(link.id, typeId: typeId),
       success: 'Relationship updated',
     );
+    if (mounted) setState(_reloadPanels);
   }
 
   Future<void> _removeRelationship(RecordLink link) async {
@@ -1614,6 +1639,7 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
       ),
       success: 'Relationship removed',
     );
+    if (mounted) setState(_reloadPanels);
   }
 
   Future<void> _addSource() async {
@@ -2379,13 +2405,14 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
             ],
           ),
           const SizedBox(height: 12),
-          FutureBuilder<List<RecordLink>>(
-            future: links,
+          FutureBuilder<List<_CodexRelationshipView>>(
+            future: relationships,
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done) {
                 return const _CodexInlineLoader();
               }
-              final values = snapshot.data ?? const <RecordLink>[];
+              final values =
+                  snapshot.data ?? const <_CodexRelationshipView>[];
               if (values.isEmpty) {
                 return const _CodexMessage(
                   key: Key('codex-relationships-empty-state'),
@@ -2398,20 +2425,29 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
               }
               return Column(
                 children: [
-                  for (final link in values)
+                  for (final view in values)
                     _CodexRelationshipTile(
-                      key: Key('codex-relationship-${link.id}'),
-                      link: link,
-                      entryId: widget.entry.id,
-                      service: widget.service,
+                      key: Key('codex-relationship-${view.link.id}'),
+                      view: view,
                       onOpen: (record) {
-                        if (widget.entries.any((e) => e.id == record.id)) {
+                        // Knowledge records open in place; a record another
+                        // Studio owns hands off to that Studio instead, so the
+                        // Codex never becomes a second editor for it.
+                        final destination =
+                            searchDestinationForType(record.typeId);
+                        final ownedHere =
+                            destination == SearchDestination.storyCodex ||
+                                destination == SearchDestination.record;
+                        if (ownedHere &&
+                            widget.entries
+                                .any((entry) => entry.id == record.id)) {
                           widget.onOpenEntry(record.id);
+                          return;
                         }
                         widget.onNavigate(record);
                       },
-                      onEdit: () => _editRelationship(link),
-                      onRemove: () => _removeRelationship(link),
+                      onEdit: () => _editRelationship(view.link),
+                      onRemove: () => _removeRelationship(view.link),
                     ),
                 ],
               );
@@ -2687,67 +2723,71 @@ class _ResolvedSection {
 // Relationship tile
 // ---------------------------------------------------------------------------
 
+/// One connection plus the record on its far end.
+class _CodexRelationshipView {
+  const _CodexRelationshipView({
+    required this.link,
+    required this.other,
+    required this.otherId,
+  });
+
+  final RecordLink link;
+  final AuthorRecord? other;
+  final String otherId;
+}
+
 class _CodexRelationshipTile extends StatelessWidget {
   const _CodexRelationshipTile({
     super.key,
-    required this.link,
-    required this.entryId,
-    required this.service,
+    required this.view,
     required this.onOpen,
     required this.onEdit,
     required this.onRemove,
   });
 
-  final RecordLink link;
-  final String entryId;
-  final StoryCodexService service;
+  final _CodexRelationshipView view;
   final ValueChanged<AuthorRecord> onOpen;
   final VoidCallback onEdit;
   final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
-    final otherId = link.sourceId == entryId ? link.targetId : link.sourceId;
-    return FutureBuilder<AuthorRecord?>(
-      future: service.repository.recordById(otherId),
-      builder: (context, snapshot) {
-        final record = snapshot.data;
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: const Icon(Icons.hub_outlined),
-            title: Text(record?.title ?? otherId),
-            subtitle: Text(
-              '${link.label.isEmpty ? link.typeId : link.label}'
-              '${record == null ? '' : ' · ${record.typeId}'}',
+    final link = view.link;
+    final record = view.other;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.hub_outlined),
+        title: Text(record?.title ?? view.otherId),
+        subtitle: Text(
+          '${link.label.isEmpty ? link.typeId : link.label}'
+          '${record == null ? ' · record unavailable' : ' · ${record.typeId}'}',
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (record != null)
+              IconButton(
+                key: Key('codex-open-relationship-${link.id}'),
+                tooltip: 'Open connected record',
+                onPressed: () => onOpen(record),
+                icon: const Icon(Icons.open_in_new_rounded),
+              ),
+            IconButton(
+              key: Key('codex-edit-relationship-${link.id}'),
+              tooltip: 'Change connection type',
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined),
             ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (record != null)
-                  IconButton(
-                    key: Key('codex-open-relationship-${link.id}'),
-                    tooltip: 'Open connected record',
-                    onPressed: () => onOpen(record),
-                    icon: const Icon(Icons.open_in_new_rounded),
-                  ),
-                IconButton(
-                  key: Key('codex-edit-relationship-${link.id}'),
-                  tooltip: 'Change connection type',
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                IconButton(
-                  key: Key('codex-remove-relationship-${link.id}'),
-                  tooltip: 'Remove connection',
-                  onPressed: onRemove,
-                  icon: const Icon(Icons.link_off_rounded),
-                ),
-              ],
+            IconButton(
+              key: Key('codex-remove-relationship-${link.id}'),
+              tooltip: 'Remove connection',
+              onPressed: onRemove,
+              icon: const Icon(Icons.link_off_rounded),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }
@@ -3545,16 +3585,22 @@ class _CodexCard extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // A Material, not a decorated Container: list tiles and ink effects inside
+    // the card need a Material ancestor to paint against.
+    return Material(
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      child: Padding(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          border:
-              Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-          borderRadius: BorderRadius.circular(12),
-        ),
         child: child,
-      );
+      ),
+    );
+  }
 }
 
 class _CodexMessage extends StatelessWidget {

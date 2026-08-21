@@ -692,7 +692,7 @@ void main() {
       // Simple mode hides the long-form worldbuilding fields.
       expect(find.byKey(const Key('codex-field-geography')), findsNothing);
 
-      _choose<Set<CodexEditorMode>>(
+      _select<CodexEditorMode>(
         tester,
         const Key('codex-editor-mode-selector'),
         {CodexEditorMode.deep},
@@ -707,7 +707,7 @@ void main() {
         'Black cliffs enclose a deep-water bay.',
       );
       await tester.enterText(
-        find.byKey(const Key('codex-field-nearbyLocations')),
+        find.byKey(const Key('codex-field-alternateNames')),
         'Grey Quay, Salt Reach',
       );
       await tester.pumpAndSettle();
@@ -716,7 +716,7 @@ void main() {
       final saved = (await service.getCodexEntry('codex-harbor'))!;
       expect(saved.structuredFields['geography'],
           'Black cliffs enclose a deep-water bay.');
-      expect(saved.structuredFields['nearbyLocations'],
+      expect(saved.structuredFields['alternateNames'],
           ['Grey Quay', 'Salt Reach']);
       expect(saved.structuredFields['legacyNote'],
           'written by an older release');
@@ -979,6 +979,138 @@ void main() {
       );
     });
 
+    testWidgets('a relationship can be retyped from the workspace',
+        (tester) async {
+      await service.createCodexEntry(const CodexEntryDraft(
+        id: 'codex-harbor',
+        title: 'Noxmere Harbor',
+        templateId: 'location',
+        categoryId: 'locations',
+      ));
+      await service.createCodexEntry(const CodexEntryDraft(
+        id: 'codex-guild',
+        title: 'Saltwrights Guild',
+        templateId: 'faction',
+        categoryId: 'factions',
+      ));
+      final link = await service.connectEntry(
+        sourceId: 'codex-guild',
+        targetId: 'codex-harbor',
+        typeId: 'locatedIn',
+      );
+
+      await _pump(tester, repository);
+      await _tap(tester, const Key('codex-entry-tile-codex-guild'));
+      await _tap(tester, const Key('codex-tab-relationships'));
+      await _tap(tester, Key('codex-edit-relationship-${link.id}'));
+
+      _choose<String>(
+        tester,
+        const Key('codex-relationship-edit-type-field'),
+        'controls',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('codex-relationship-type-confirm')));
+      await tester.pumpAndSettle();
+
+      final links = await service.getCodexConnections('codex-guild');
+      expect(links.single.typeId, 'controls');
+    });
+
+    testWidgets('custom fields and knowledge visibility are set in deep mode',
+        (tester) async {
+      await service.createCodexEntry(const CodexEntryDraft(
+        id: 'codex-harbor',
+        title: 'Noxmere Harbor',
+        templateId: 'location',
+        categoryId: 'locations',
+      ));
+      await _pump(tester, repository);
+      await _tap(tester, const Key('codex-entry-tile-codex-harbor'));
+      await _tap(tester, const Key('codex-tab-fields'));
+      _select<CodexEditorMode>(
+        tester,
+        const Key('codex-editor-mode-selector'),
+        {CodexEditorMode.deep},
+      );
+      await tester.pumpAndSettle();
+
+      await _tap(tester, const Key('codex-add-custom-field-button'));
+      await tester.enterText(
+        find.byKey(const Key('codex-custom-field-label')),
+        'Tide table',
+      );
+      await tester.tap(find.byKey(const Key('codex-custom-field-confirm')));
+      await tester.pumpAndSettle();
+
+      var saved = (await service.getCodexEntry('codex-harbor'))!;
+      expect(
+        saved.metadata[CodexFields.customFieldsKey],
+        containsPair('custom.tide-table', 'Tide table'),
+      );
+      expect(find.byKey(const Key('codex-field-custom.tide-table')),
+          findsOneWidget);
+
+      await _tap(tester, const Key('codex-visibility-geography'));
+      await tester.tap(find.text('Public knowledge').last);
+      await tester.pumpAndSettle();
+
+      saved = (await service.getCodexEntry('codex-harbor'))!;
+      expect(
+        saved.visibilityFor('geography'),
+        CodexFieldVisibility.publicKnowledge,
+      );
+    });
+
+    testWidgets('a previous version can be restored from history',
+        (tester) async {
+      await service.createCodexEntry(const CodexEntryDraft(
+        id: 'codex-harbor',
+        title: 'Noxmere Harbor',
+        templateId: 'location',
+        categoryId: 'locations',
+        summary: 'A cold harbor.',
+      ));
+      await service.updateCodexEntry(
+        'codex-harbor',
+        summary: 'Rewritten by mistake.',
+      );
+
+      await _pump(tester, repository);
+      await _tap(tester, const Key('codex-entry-tile-codex-harbor'));
+      await _tap(tester, const Key('codex-tab-history'));
+
+      final versions = await service.getHistory('codex-harbor');
+      expect(versions.length, greaterThanOrEqualTo(2));
+      await _tap(tester, Key('codex-restore-version-${versions.first.id}'));
+      await tester.tap(find.byKey(const Key('codex-confirm-button')));
+      await tester.pumpAndSettle();
+
+      expect((await service.getCodexEntry('codex-harbor'))?.summary,
+          'A cold harbor.');
+      // Restoring appends history rather than rewriting it.
+      expect((await service.getHistory('codex-harbor')).length,
+          greaterThan(versions.length));
+    });
+
+    testWidgets('pinning an entry drives the pinned-only view', (tester) async {
+      await _seed(service);
+      await _pump(tester, repository);
+      await _tap(tester, const Key('codex-entry-tile-codex-rule'));
+      await _tap(tester, const Key('codex-pin-button'));
+
+      expect(
+        (await service.getPinnedEntries()).map((entry) => entry.id),
+        ['codex-rule'],
+      );
+
+      await _tap(tester, const Key('codex-pinned-toggle'));
+      expect(
+          find.byKey(const Key('codex-entry-tile-codex-rule')), findsOneWidget);
+      expect(
+          find.byKey(const Key('codex-entry-tile-codex-harbor')), findsNothing);
+    });
+
     testWidgets('the workspace lays out on a narrow browser window',
         (tester) async {
       tester.view.physicalSize = const Size(720, 1200);
@@ -1039,18 +1171,16 @@ Future<void> _tap(WidgetTester tester, Key key) async {
   await tester.pumpAndSettle();
 }
 
-/// Drives a dropdown or segmented button without depending on menu overlays.
+/// Drives a dropdown without depending on the overlay menu.
 void _choose<T>(WidgetTester tester, Key key, T value) {
-  final widget = tester.widget(find.byKey(key));
-  if (widget is DropdownButtonFormField) {
-    (widget.onChanged as void Function(Object?)?)?.call(value);
-    return;
-  }
-  if (widget is SegmentedButton) {
-    (widget.onSelectionChanged as void Function(Object?)?)?.call(value);
-    return;
-  }
-  fail('Widget for $key is not a dropdown or segmented button.');
+  final field = tester.widget<DropdownButtonFormField<T>>(find.byKey(key));
+  field.onChanged?.call(value);
+}
+
+/// Drives a segmented button without depending on hit-testing its segments.
+void _select<T>(WidgetTester tester, Key key, Set<T> values) {
+  final button = tester.widget<SegmentedButton<T>>(find.byKey(key));
+  button.onSelectionChanged?.call(values);
 }
 
 Future<void> _seed(StoryCodexService service) async {

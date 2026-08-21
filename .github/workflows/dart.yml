@@ -1,0 +1,45 @@
+# CI for the AuthorOS Flutter application.
+#
+# This replaces GitHub's stock Dart starter template, which ran `dart pub get`
+# at the repository root. There is no pubspec.yaml there — the app lives in
+# flutter-author-studio-v1/ — so the job failed at its first step on every run
+# since the workflow was added, without ever reaching a test.
+
+name: Flutter
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: flutter-author-studio-v1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the revision the project records in .metadata (6b182d2c75),
+      # so CI analyses and tests on the same SDK the app is developed against.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Errors fail the build. Warnings and lint infos are reported but do not,
+      # because the tree carries a pre-existing backlog of them; tightening this
+      # to --fatal-warnings is a sensible follow-up once that backlog is cleared.
+      - name: Analyze project source
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Run tests
+        run: flutter test

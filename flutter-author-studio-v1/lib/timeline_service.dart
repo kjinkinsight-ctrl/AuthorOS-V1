@@ -141,30 +141,7 @@ class TimelineService {
       canonStatus: draft.canonStatus,
       title: name,
       schemaVersion: 1,
-      fields: {
-        'name': name,
-        'eventType': draft.typeId,
-        'summary': draft.summary,
-        'description': draft.description,
-        'start': [if (draft.start != null) draft.start!.toJson()],
-        'end': [if (draft.end != null) draft.end!.toJson()],
-        'duration': [if (draft.duration.isNotEmpty) draft.duration],
-        'precision': (draft.start?.precision ?? TimelinePrecision.unknown).name,
-        'temporalStatus': draft.status,
-        'importance': draft.importance,
-        'temporalScope': draft.scope,
-        'notes': draft.notes,
-        'dateRepresentations': [
-          ...draft.dateRepresentations.map((date) => date.toJson()),
-        ],
-        'relativeDate': [
-          if (draft.relativeDate != null) draft.relativeDate!.toJson(),
-        ],
-        'narrativeTime': [
-          if (draft.narrativeTime.isNotEmpty) draft.narrativeTime,
-        ],
-        ...draft.fields,
-      },
+      fields: _eventFields(draft, name),
       tags: draft.tags,
       createdAt: now,
       updatedAt: now,
@@ -175,6 +152,58 @@ class TimelineService {
       throw TimelineValidationException(issues);
     }
     return records.createRecord(record, links: links);
+  }
+
+  /// Rewrites the canonical temporal fields of an existing Timeline record.
+  ///
+  /// The draft owns the same field shaping as [createEvent], so an event edited
+  /// in Timeline Studio keeps the identical Universal Record layout it was
+  /// created with. Identity, scope and ownership stay on the stored record.
+  Future<AuthorRecord> updateEvent(
+    TimelineEventDraft draft, {
+    AuditChangeType? changeType,
+    String? summary,
+    DateTime? timestamp,
+  }) async {
+    final name = draft.name.trim();
+    if (name.isEmpty) {
+      throw ArgumentError('Event name is required.');
+    }
+    final existing = await _requireTimelineId(draft.id);
+    if (draft.typeId != existing.typeId) {
+      // The shared record service forbids type changes on update; surface the
+      // rule here with Timeline wording instead of failing deeper down.
+      throw ArgumentError(
+        'A timeline record keeps its type; duplicate it to change type.',
+      );
+    }
+    final updated = AuthorRecord(
+      id: existing.id,
+      typeId: existing.typeId,
+      scopeType: existing.scopeType,
+      scopeId: existing.scopeId,
+      projectId: existing.projectId,
+      seriesId: draft.seriesId ?? existing.seriesId,
+      bookId: draft.bookId ?? existing.bookId,
+      branchId: draft.branchId ?? existing.branchId,
+      canonStatus: draft.canonStatus,
+      title: name,
+      status: existing.status,
+      schemaVersion: existing.schemaVersion,
+      templateId: existing.templateId,
+      templateVersion: existing.templateVersion,
+      revision: existing.revision,
+      fields: _eventFields(draft, name),
+      tags: draft.tags,
+      createdAt: existing.createdAt,
+      updatedAt: (timestamp ?? DateTime.now()).toUtc(),
+      extensionData: existing.extensionData,
+    );
+    return updateTimelineRecord(
+      updated,
+      changeType: changeType,
+      summary: summary,
+    );
   }
 
   Future<AuthorRecord?> getTimelineRecord(String id) async {
@@ -209,6 +238,17 @@ class TimelineService {
       {DateTime? timestamp}) async {
     await _requireTimelineId(id);
     return records.restoreRecord(id, timestamp: timestamp);
+  }
+
+  /// Soft-deletes a Timeline record through the shared record lifecycle.
+  ///
+  /// This is the same reversible `deleted` state every other Studio uses. Links,
+  /// versions and audit entries stay intact so [analyzeDelete] and the version
+  /// history keep working after the record leaves the Studio.
+  Future<AuthorRecord> deleteTimelineRecord(String id,
+      {DateTime? timestamp}) async {
+    await _requireTimelineId(id);
+    return records.deleteRecord(id, timestamp: timestamp);
   }
 
   Future<AuthorRecord> duplicateTimelineRecord(
@@ -420,26 +460,86 @@ class TimelineService {
   Future<TimelineCalendar?> getCalendar(String id) async {
     final record = await records.getRecord(id);
     if (record?.typeId != TimelineRecordTypes.calendarTypeId) return null;
-    return TimelineCalendar(
-      id: record!.id,
-      name: record.title,
-      months: _objectList(record.fields['months'])
-          .map((month) => TimelineCalendarMonth(
-                name: month['name'] as String? ?? '',
-                length: month['length'] as int? ?? 0,
-              ))
-          .toList(),
-      weekDays: _strings(record.fields['weekStructure']),
-      eraNames: _strings(record.fields['eraNames']),
-      epoch: _firstObject(record.fields['epoch']) ?? const {},
-      dateFormat:
-          record.fields['dateFormat'] as String? ?? '{year}-{month}-{day}',
-      hasYearZero: record.fields['hasYearZero'] as bool? ?? true,
-      yearsCountBackward: record.fields['yearDirection'] == 'backward',
-      conversionMetadata:
-          _firstObject(record.fields['conversionMetadata']) ?? const {},
-    );
+    return _calendarFrom(record!);
   }
+
+  /// Every calendar definition this project owns, name-ordered.
+  ///
+  /// Calendars are ordinary project-scoped Universal Records, so the Studio
+  /// reads them through the same repository as everything else.
+  Future<List<TimelineCalendar>> calendars() async {
+    final records = await repository.recordsByProject(projectId);
+    final calendars = [
+      for (final record in records)
+        if (record.typeId == TimelineRecordTypes.calendarTypeId &&
+            record.status == AuthorRecordStatus.active)
+          _calendarFrom(record),
+    ];
+    calendars.sort((left, right) => left.name.compareTo(right.name));
+    return calendars;
+  }
+
+  /// The calendar flagged primary when it was created, else the first one.
+  Future<TimelineCalendar?> primaryCalendar() async {
+    final records = await repository.recordsByProject(projectId);
+    final calendarRecords = records
+        .where((record) =>
+            record.typeId == TimelineRecordTypes.calendarTypeId &&
+            record.status == AuthorRecordStatus.active)
+        .toList()
+      ..sort((left, right) => left.title.compareTo(right.title));
+    if (calendarRecords.isEmpty) return null;
+    final primary = calendarRecords.firstWhere(
+      (record) => record.extensionData['primaryCalendar'] == true,
+      orElse: () => calendarRecords.first,
+    );
+    return _calendarFrom(primary);
+  }
+
+  TimelineCalendar _calendarFrom(AuthorRecord record) => TimelineCalendar(
+        id: record.id,
+        name: record.title,
+        months: _objectList(record.fields['months'])
+            .map((month) => TimelineCalendarMonth(
+                  name: month['name'] as String? ?? '',
+                  length: month['length'] as int? ?? 0,
+                ))
+            .toList(),
+        weekDays: _strings(record.fields['weekStructure']),
+        eraNames: _strings(record.fields['eraNames']),
+        epoch: _firstObject(record.fields['epoch']) ?? const {},
+        dateFormat:
+            record.fields['dateFormat'] as String? ?? '{year}-{month}-{day}',
+        hasYearZero: record.fields['hasYearZero'] as bool? ?? true,
+        yearsCountBackward: record.fields['yearDirection'] == 'backward',
+        conversionMetadata:
+            _firstObject(record.fields['conversionMetadata']) ?? const {},
+      );
+
+  Map<String, Object?> _eventFields(TimelineEventDraft draft, String name) => {
+        'name': name,
+        'eventType': draft.typeId,
+        'summary': draft.summary,
+        'description': draft.description,
+        'start': [if (draft.start != null) draft.start!.toJson()],
+        'end': [if (draft.end != null) draft.end!.toJson()],
+        'duration': [if (draft.duration.isNotEmpty) draft.duration],
+        'precision': (draft.start?.precision ?? TimelinePrecision.unknown).name,
+        'temporalStatus': draft.status,
+        'importance': draft.importance,
+        'temporalScope': draft.scope,
+        'notes': draft.notes,
+        'dateRepresentations': [
+          ...draft.dateRepresentations.map((date) => date.toJson()),
+        ],
+        'relativeDate': [
+          if (draft.relativeDate != null) draft.relativeDate!.toJson(),
+        ],
+        'narrativeTime': [
+          if (draft.narrativeTime.isNotEmpty) draft.narrativeTime,
+        ],
+        ...draft.fields,
+      };
 
   Future<int?> ageAt({
     required String birthEventId,
@@ -537,6 +637,7 @@ class TimelineQueryService {
     CanonStatus? canonStatus,
     String? tag,
     String? typeId,
+    AuthorRecordStatus? status,
   }) async {
     final source = branchId == null
         ? await timeline.repository.recordsByProject(timeline.projectId)
@@ -549,10 +650,88 @@ class TimelineQueryService {
       if (canonStatus != null && record.canonStatus != canonStatus) continue;
       if (tag != null && !record.tags.contains(tag)) continue;
       if (typeId != null && record.typeId != typeId) continue;
+      if (status != null && record.status != status) continue;
       output.add(record);
     }
     output.sort((left, right) => left.title.compareTo(right.title));
     return output;
+  }
+
+  /// Timeline records ordered by the calendar their start date belongs to.
+  ///
+  /// Dated records sort by calendar ordinal. Records whose start date is
+  /// missing, undated or written in an unknown calendar keep their stable
+  /// alphabetical order and follow the dated ones, because the service never
+  /// invents a date it was not given.
+  ///
+  /// Ordinals from different calendars are not comparable without conversion
+  /// metadata, so records group by calendar id first and sort by ordinal
+  /// inside that group. A project on one calendar therefore reads as a single
+  /// chronological run.
+  Future<List<AuthorRecord>> chronological({
+    String? seriesId,
+    String? bookId,
+    String? branchId,
+    CanonStatus? canonStatus,
+    String? tag,
+    String? typeId,
+    AuthorRecordStatus? status,
+    bool descending = false,
+  }) async {
+    final records = await all(
+      seriesId: seriesId,
+      bookId: bookId,
+      branchId: branchId,
+      canonStatus: canonStatus,
+      tag: tag,
+      typeId: typeId,
+      status: status,
+    );
+    final calendars = <String, TimelineCalendar?>{};
+    final ordinals = <String, int>{};
+    final calendarIds = <String, String>{};
+    for (final record in records) {
+      final date = _dateFrom(record.fields['start']);
+      if (date == null || !date.isDated) continue;
+      if (!calendars.containsKey(date.calendarId)) {
+        calendars[date.calendarId] =
+            await timeline.getCalendar(date.calendarId);
+      }
+      final calendar = calendars[date.calendarId];
+      if (calendar == null) continue;
+      try {
+        ordinals[record.id] = calendar.ordinal(date);
+        calendarIds[record.id] = calendar.id;
+      } on ArgumentError {
+        // An invalid stored date stays undated rather than guessing a slot.
+      }
+    }
+    final dated = records.where((record) => ordinals.containsKey(record.id))
+        .toList()
+      ..sort((left, right) {
+        final calendar =
+            calendarIds[left.id]!.compareTo(calendarIds[right.id]!);
+        if (calendar != 0) return calendar;
+        final ordinal = ordinals[left.id]!.compareTo(ordinals[right.id]!);
+        return ordinal != 0 ? ordinal : left.title.compareTo(right.title);
+      });
+    return [
+      ...descending ? dated.reversed : dated,
+      ...records.where((record) => !ordinals.containsKey(record.id)),
+    ];
+  }
+
+  /// The calendar ordinal of a record's start date, or `null` when undated.
+  Future<int?> startOrdinal(AuthorRecord record) async {
+    final date = _dateFrom(record.fields['start']);
+    if (date == null || !date.isDated) return null;
+    final calendar = await timeline.getCalendar(date.calendarId);
+    if (calendar == null) return null;
+    try {
+      return calendar.ordinal(date);
+    } on ArgumentError {
+      return null;
+    }
   }
 
   Future<List<AuthorRecord>> involving(String recordId) async {

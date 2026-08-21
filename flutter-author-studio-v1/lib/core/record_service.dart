@@ -5,6 +5,7 @@ import 'connected_domain.dart';
 import 'connection_types.dart';
 import 'record_types.dart';
 import 'record_validation.dart';
+import 'relationship_validation.dart';
 import 'version_audit.dart';
 import 'version_audit_service.dart';
 
@@ -395,48 +396,29 @@ class RecordService {
     AuthorRecord record,
     List<RecordLink> links,
   ) async {
-    final definitions = await connectionRegistry();
+    final validator = RelationshipValidator(await connectionRegistry());
+    // The record being written may not be readable yet, so its own endpoint is
+    // resolved from the in-flight value instead of from the repository.
+    final inFlight = RelationshipEndpoint.fromRecord(record);
     for (final link in links) {
-      if (link.scopeId != projectId) {
-        throw StateError('Link ${link.id} does not belong to $projectId.');
-      }
       if (link.sourceId != record.id && link.targetId != record.id) {
         throw StateError('Link ${link.id} does not reference ${record.id}.');
       }
-      final sourceProject = link.sourceId == record.id
-          ? record.projectId ?? record.scopeId
-          : await repository.entityProjectId(link.sourceId);
-      final targetProject = link.targetId == record.id
-          ? record.projectId ?? record.scopeId
-          : await repository.entityProjectId(link.targetId);
-      if (sourceProject != projectId || targetProject != projectId) {
-        throw StateError('Link ${link.id} crosses project boundaries.');
-      }
-      final sourceTypeId = link.sourceId == record.id
-          ? record.typeId
-          : await repository.entityTypeId(link.sourceId);
-      final targetTypeId = link.targetId == record.id
-          ? record.typeId
-          : await repository.entityTypeId(link.targetId);
-      if (sourceTypeId == null || targetTypeId == null) {
-        throw StateError('Link ${link.id} has an unknown endpoint.');
-      }
-      final definition = definitions.resolve(link.typeId);
-      final expectedDirection =
-          definition.direction == ConnectionDirection.directed
-              ? RecordLinkDirection.directed
-              : RecordLinkDirection.undirected;
-      if (link.direction != expectedDirection) {
-        throw StateError(
-          '${link.typeId} requires ${expectedDirection.name} links.',
-        );
-      }
-      definitions.validateConnection(
-        typeId: link.typeId,
-        sourceTypeId: sourceTypeId,
-        targetTypeId: targetTypeId,
-        metadata: link.metadata,
+      final source = link.sourceId == record.id
+          ? inFlight
+          : await repository.relationshipEndpoint(link.sourceId);
+      final target = link.targetId == record.id
+          ? inFlight
+          : await repository.relationshipEndpoint(link.targetId);
+      final result = validator.validate(
+        relationship: link,
+        projectId: projectId,
+        source: source,
+        target: target,
       );
+      if (!result.isValid) {
+        throw StateError(result.errorSummary!);
+      }
     }
   }
 }

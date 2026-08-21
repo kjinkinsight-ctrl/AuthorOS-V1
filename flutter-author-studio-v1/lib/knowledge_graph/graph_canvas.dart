@@ -113,6 +113,7 @@ class GraphCanvas extends StatelessWidget {
     this.onNodeTap,
     this.onNodeOpen,
     this.onNodeDragged,
+    this.onNodeDragEnd,
     this.onPanUpdate,
     this.onBackgroundTap,
     this.draggable = false,
@@ -133,6 +134,10 @@ class GraphCanvas extends StatelessWidget {
 
   /// Canvas mode only: reports a new **model-space** position for a node.
   final void Function(String nodeId, Offset position)? onNodeDragged;
+
+  /// Fires once when a drag finishes, so a caller can persist the arrangement
+  /// on release rather than on every pointer delta.
+  final VoidCallback? onNodeDragEnd;
 
   final ValueChanged<Offset>? onPanUpdate;
   final VoidCallback? onBackgroundTap;
@@ -229,6 +234,7 @@ class GraphCanvas extends StatelessWidget {
                   node.id,
                   model + (delta / projection.zoom),
                 ),
+        onDragEnd: draggable ? onNodeDragEnd : null,
       ),
     );
   }
@@ -243,6 +249,7 @@ class _GraphNodeChip extends StatelessWidget {
     this.onTap,
     this.onOpen,
     this.onDrag,
+    this.onDragEnd,
   });
 
   final StoryGraphNode node;
@@ -252,6 +259,7 @@ class _GraphNodeChip extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onOpen;
   final ValueChanged<Offset>? onDrag;
+  final VoidCallback? onDragEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -329,6 +337,7 @@ class _GraphNodeChip extends StatelessWidget {
       behavior: HitTestBehavior.deferToChild,
       dragStartBehavior: DragStartBehavior.down,
       onPanUpdate: (details) => onDrag!(details.delta),
+      onPanEnd: onDragEnd == null ? null : (_) => onDragEnd!(),
       child: keyed,
     );
   }

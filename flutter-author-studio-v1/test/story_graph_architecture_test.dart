@@ -485,10 +485,17 @@ void main() {
           'only guard code it can find.',
     );
 
-    // The mutation delegate is the one graph file allowed to write, and it may
-    // only do so by handing off to ConnectionEngine.
-    final readOnly = graphSources
-        .where((file) => !file.path.endsWith('story_graph_mutations.dart'));
+    // Exactly two graph files may write, and both do it by delegating:
+    // relationships to ConnectionEngine, canvases to RecordService. Everything
+    // else is read-only. Naming them here means adding a third writer is a
+    // conscious act rather than a quiet one.
+    const writers = {
+      'story_graph_mutations.dart',
+      'canvas_service.dart',
+    };
+    final readOnly = graphSources.where(
+      (file) => !writers.any(file.path.endsWith),
+    );
 
     final offenders = <String>[];
     for (final file in readOnly) {
@@ -532,6 +539,31 @@ void main() {
         mutations.contains(forbidden),
         isFalse,
         reason: 'StoryGraphMutations must delegate, not re-validate. '
+            'Found: $forbidden',
+      );
+    }
+  });
+
+  test('the canvas is a record, and holds no edges', () {
+    final source =
+        File('lib/knowledge_graph/canvas_service.dart').readAsStringSync();
+
+    // Writes go through RecordService, so a canvas is validated, versioned,
+    // audited and archived like anything else — and adds no table, which is
+    // what keeps the 'exactly one persistence system' assertion above green.
+    expect(source.contains('RecordService'), isTrue);
+    for (final forbidden in const [
+      'RecordLink',
+      'ConnectionEngine',
+      'putRecord',
+      'putLink',
+      'SharedPreferences',
+    ]) {
+      expect(
+        source.contains(forbidden),
+        isFalse,
+        reason: 'A canvas stores positions and entity ids only. Storing an '
+            'edge would let a saved board drift out of step with the graph. '
             'Found: $forbidden',
       );
     }

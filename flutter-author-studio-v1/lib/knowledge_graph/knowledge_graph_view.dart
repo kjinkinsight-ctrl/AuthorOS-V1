@@ -24,6 +24,7 @@ import '../core/universal_search.dart';
 import '../persistence/authoros_database.dart';
 import '../theme/flutter/authoros_theme.dart';
 import '../theme/theme_tokens.dart';
+import 'canvas_service.dart';
 import 'graph_canvas.dart';
 import 'graph_layout.dart';
 import 'graph_side_panels.dart';
@@ -63,6 +64,11 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
         projectId: widget.projectId,
         repository: widget.repository ?? authorOsRepository,
       );
+
+  late KnowledgeCanvasService _canvases = KnowledgeCanvasService(
+    projectId: widget.projectId,
+    repository: widget.repository ?? authorOsRepository,
+  );
 
   bool _loading = true;
   String? _error;
@@ -105,6 +111,10 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
             projectId: widget.projectId,
             repository: widget.repository ?? authorOsRepository,
           );
+      _canvases = KnowledgeCanvasService(
+        projectId: widget.projectId,
+        repository: widget.repository ?? authorOsRepository,
+      );
       _rootId = null;
       _trail = [];
       _canvasOverrides.clear();
@@ -120,6 +130,13 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
     try {
       final roots = await _candidateRoots();
       final rootId = _rootId ?? (roots.isNotEmpty ? roots.first.id : null);
+
+      // A saved arrangement is the author's own, so it is loaded before the
+      // generated layout is applied and wins for the nodes they moved.
+      if (_canvasOverrides.isEmpty) {
+        final saved = await _canvases.load(_mode.id);
+        if (saved != null) _canvasOverrides.addAll(saved.positions);
+      }
 
       final subgraph = _mode.rooted && rootId != null
           ? await _service.getSubgraph(
@@ -222,6 +239,25 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
       _canvasOverrides.clear();
     });
     _reload();
+  }
+
+  Future<void> _saveCanvas() async {
+    if (_canvasOverrides.isEmpty) return;
+    try {
+      await _canvases.save(
+        _mode.id,
+        positions: Map.of(_canvasOverrides),
+        rootId: _rootId,
+        filter: _filter,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      // A failed save must not take the board down with it — the author can
+      // keep arranging, and the message says the arrangement is not kept.
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('The canvas could not be saved: $error')),
+      );
+    }
   }
 
   void _changeFilter(StoryGraphFilter filter) {
@@ -367,13 +403,20 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
                   ? Icons.auto_awesome_mosaic
                   : Icons.dashboard_customize_outlined,
             ),
-            onPressed: () => setState(() {
-              _canvasMode = !_canvasMode;
-              if (!_canvasMode) {
-                _canvasOverrides.clear();
-                _positions = _layout(_subgraph);
-              }
-            }),
+            onPressed: () {
+              final leaving = _canvasMode;
+              setState(() {
+                _canvasMode = !_canvasMode;
+                if (leaving) {
+                  _canvasOverrides.clear();
+                  _positions = _layout(_subgraph);
+                }
+              });
+              // Leaving canvas mode returns to the generated layout, so the
+              // saved arrangement goes too — soft-deleted, so an author who
+              // spent time on it can get it back out of history.
+              if (leaving) _canvases.clear(_mode.id);
+            },
           ),
           IconButton(
             key: const Key('graph-fit-button'),
@@ -452,13 +495,29 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
     );
   }
 
-  Widget _rail(GraphPalette palette) => DecoratedBox(
+  /// A panel surface.
+  ///
+  /// The background comes from a [Material], not a decorated box, because both
+  /// panels contain `ListTile`s: a tile paints its background and ink on the
+  /// nearest Material ancestor, so a coloured box in between would swallow
+  /// them — and Flutter asserts rather than letting it look broken. The outer
+  /// container carries the border only.
+  Widget _panel(GraphPalette palette, Widget child) => Container(
         decoration: BoxDecoration(
-          color: palette.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: palette.outlineVariant),
         ),
-        child: GraphFilterRail(
+        child: Material(
+          color: palette.surface,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: child,
+        ),
+      );
+
+  Widget _rail(GraphPalette palette) => _panel(
+        palette,
+        GraphFilterRail(
           mode: _mode,
           filter: _filter,
           palette: palette,
@@ -468,13 +527,9 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
         ),
       );
 
-  Widget _explorer(GraphPalette palette) => DecoratedBox(
-        decoration: BoxDecoration(
-          color: palette.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: palette.outlineVariant),
-        ),
-        child: ConnectionExplorer(
+  Widget _explorer(GraphPalette palette) => _panel(
+        palette,
+        ConnectionExplorer(
           palette: palette,
           neighbourhood: _neighbourhood,
           summary: _summary,
@@ -531,6 +586,9 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
                       _canvasOverrides[nodeId] = position;
                       _positions = {..._positions, nodeId: position};
                     }),
+                    // Persisted on release rather than on every pointer delta:
+                    // a drag is one edit, not forty.
+                    onNodeDragEnd: _saveCanvas,
                     onPanUpdate: (delta) => setState(() {
                       _projection =
                           projection.copyWith(pan: projection.pan + delta);

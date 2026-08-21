@@ -81,17 +81,21 @@ void main() {
     await connect('project-a', 'kali', 'endovier', 'livesIn');
   }
 
+  /// The Studio lays out as filter rail | canvas | explorer above 980px, so
+  /// the test surface has to be wide enough for that arrangement — on the
+  /// default 800x600 the side panels would fall outside the viewport and be
+  /// untappable.
   Future<void> pumpGraph(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1500, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: SizedBox(
-            width: 1400,
-            height: 900,
-            child: KnowledgeGraphView(
-              projectId: 'project-a',
-              repository: repository,
-            ),
+          body: KnowledgeGraphView(
+            projectId: 'project-a',
+            repository: repository,
           ),
         ),
       ),

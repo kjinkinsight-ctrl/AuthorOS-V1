@@ -2,7 +2,7 @@
 
 Status: Implemented and covered by focused domain and widget tests
 Updated: August 21, 2026
-Verification baseline: 1204 tests passing, 57 analyzer issues (0 errors), Flutter 3.44.9
+Verification baseline: 1206 tests passing, 57 analyzer issues (0 errors), Flutter 3.44.9
 
 ## Architecture
 
@@ -112,6 +112,10 @@ Recognition is book-aware: a Book 2 entity is not suggested against a Book 1 sce
 ## Entity Suggestions
 
 Link, Ignore, Create Entity, Create Alias, Review.
+
+Create Entity delegates to `ContinuityActionService`, which already knows how to mint a
+character or a location and refuses when a matching record exists. It accepts only those
+two kinds — anything else belongs in its own Studio, where its required fields are known.
 
 **A scan writes nothing.** A test pins that scanning leaves the record and link counts
 untouched. Only an explicit author action mutates anything, and `link` refuses an

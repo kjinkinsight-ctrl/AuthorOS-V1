@@ -9,6 +9,7 @@ import '../core/record_types.dart';
 import '../core/branch_domain.dart';
 import '../core/search_models.dart';
 import '../core/version_audit.dart';
+import '../core/writing_session.dart';
 
 part 'authoros_database.g.dart';
 
@@ -208,6 +209,39 @@ class AuditEventRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// Durable writing-session history.
+///
+/// Dedicated to that one job: it holds no manuscript text, joins to no
+/// record, and is never rewritten. Rows are project-scoped and immutable —
+/// a session is what happened, not a view of current state — so writes use
+/// insert-or-ignore and later manuscript edits can never revise history.
+///
+/// Timestamps use drift's `dateTime()` representation: an absolute instant
+/// stored as Unix epoch seconds, read back as a local `DateTime`. Calendar
+/// questions (today, this week, streaks) are then answered in the author's
+/// own local time by `WritingCalendar`.
+@TableIndex(name: 'writing_sessions_project', columns: {#projectId})
+@TableIndex(
+  name: 'writing_sessions_project_started',
+  columns: {#projectId, #startedAt},
+)
+class WritingSessionRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get projectId => text()();
+  DateTimeColumn get startedAt => dateTime()();
+  DateTimeColumn get endedAt => dateTime()();
+  IntColumn get durationSeconds => integer()();
+  IntColumn get startingWordCount => integer()();
+  IntColumn get endingWordCount => integer()();
+  IntColumn get wordsAdded => integer()();
+  IntColumn get wordsRemoved => integer()();
+  TextColumn get chapterId => text().nullable()();
+  TextColumn get sceneId => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     ConnectedEntities,
@@ -221,6 +255,7 @@ class AuditEventRows extends Table {
     BranchLinkOverlayRows,
     RecordVersionRows,
     AuditEventRows,
+    WritingSessionRows,
   ],
 )
 class AuthorOsDatabase extends _$AuthorOsDatabase {
@@ -233,7 +268,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
       : _schemaVersion = currentSchemaVersion,
         super(driftDatabase(name: 'authoros_creative'));
 
-  static const currentSchemaVersion = 8;
+  static const currentSchemaVersion = 9;
   final int _schemaVersion;
 
   @override
@@ -319,6 +354,9 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           if (from < 8 && to >= 8) {
             await migrator.createTable(recordVersionRows);
             await migrator.createTable(auditEventRows);
+          }
+          if (from < 9 && to >= 9) {
+            await migrator.createTable(writingSessionRows);
           }
         },
         beforeOpen: (details) async {
@@ -679,6 +717,106 @@ class DriftConnectedDomainRepository {
     final row = await query.getSingleOrNull();
     return row == null ? null : _versionFromRow(row);
   }
+
+  // --- Writing session history -------------------------------------------
+
+  /// Appends one finished writing session.
+  ///
+  /// Insert-or-ignore, deliberately: a session is a historical fact, so a
+  /// repeated write — a re-fired lifecycle event, a finalize that ran twice,
+  /// a replayed id — leaves the original row untouched instead of rewriting
+  /// what the author actually did.
+  Future<void> putWritingSession(WritingSession session) async {
+    await database.into(database.writingSessionRows).insert(
+          _writingSessionCompanion(session),
+          mode: InsertMode.insertOrIgnore,
+        );
+  }
+
+  /// Appends several sessions in one transaction, with the same
+  /// insert-or-ignore semantics as [putWritingSession].
+  Future<void> putWritingSessions(Iterable<WritingSession> sessions) async {
+    final sessionList = sessions.toList();
+    if (sessionList.isEmpty) return;
+    await database.transaction(() async {
+      for (final session in sessionList) {
+        await database.into(database.writingSessionRows).insert(
+              _writingSessionCompanion(session),
+              mode: InsertMode.insertOrIgnore,
+            );
+      }
+    });
+  }
+
+  /// Every session recorded for one project, oldest first.
+  ///
+  /// Project-scoped by the `where` clause, so one project's history can never
+  /// surface in another's analytics. [from] and [to] bound the query by start
+  /// instant for callers that only need a window; analytics loads the whole
+  /// history once and derives its metrics in memory.
+  Future<List<WritingSession>> writingSessionsForProject(
+    String projectId, {
+    DateTime? from,
+    DateTime? to,
+    int? limit,
+  }) async {
+    final query = database.select(database.writingSessionRows)
+      ..where((table) {
+        var predicate = table.projectId.equals(projectId);
+        if (from != null) {
+          predicate = predicate & table.startedAt.isBiggerOrEqualValue(from);
+        }
+        if (to != null) {
+          predicate = predicate & table.startedAt.isSmallerOrEqualValue(to);
+        }
+        return predicate;
+      })
+      ..orderBy([
+        (table) => OrderingTerm.asc(table.startedAt),
+        (table) => OrderingTerm.asc(table.id),
+      ]);
+    if (limit != null) query.limit(limit);
+    return (await query.get()).map(_writingSessionFromRow).toList();
+  }
+
+  /// Removes one project's writing history. Cleanup only — nothing in the
+  /// recording or analytics path calls this.
+  Future<int> deleteWritingSessionsForProject(String projectId) =>
+      (database.delete(database.writingSessionRows)
+            ..where((table) => table.projectId.equals(projectId)))
+          .go();
+
+  WritingSessionRowsCompanion _writingSessionCompanion(
+    WritingSession session,
+  ) =>
+      WritingSessionRowsCompanion.insert(
+        id: session.id,
+        projectId: session.projectId,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        durationSeconds: session.duration.inSeconds,
+        startingWordCount: session.startingWordCount,
+        endingWordCount: session.endingWordCount,
+        wordsAdded: session.wordsAdded,
+        wordsRemoved: session.wordsRemoved,
+        chapterId: Value(session.chapterId),
+        sceneId: Value(session.sceneId),
+      );
+
+  WritingSession _writingSessionFromRow(WritingSessionRow row) =>
+      WritingSession(
+        id: row.id,
+        projectId: row.projectId,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt,
+        duration: Duration(seconds: row.durationSeconds),
+        startingWordCount: row.startingWordCount,
+        endingWordCount: row.endingWordCount,
+        wordsAdded: row.wordsAdded,
+        wordsRemoved: row.wordsRemoved,
+        chapterId: row.chapterId,
+        sceneId: row.sceneId,
+      );
 
   Future<void> putRecordTypeDefinition(
     RecordTypeDefinition definition,

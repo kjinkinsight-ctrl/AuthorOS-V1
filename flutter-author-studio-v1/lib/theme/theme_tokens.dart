@@ -212,6 +212,7 @@ class StudioId {
   static const plot = StudioId('plot');
   static const worldBoard = StudioId('world_board');
   static const manuscript = StudioId('manuscript');
+  static const analytics = StudioId('analytics');
 
   @override
   bool operator ==(Object other) => other is StudioId && other.value == value;

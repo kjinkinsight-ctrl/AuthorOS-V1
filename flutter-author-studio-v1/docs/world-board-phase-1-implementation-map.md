@@ -129,12 +129,45 @@ The board reads only local, project-scoped author data. It has no notion of shar
 5. **One error state, not six.** A failure in any source shows one retry card, matching the Timeline and Plot Studios rather than inventing a per-section failure model.
 6. **The shell cannot inject a repository into a Studio.** This is pre-existing (see below) and limits how far a shell-level widget test can drive the board.
 
-## Pre-existing issues found, not fixed
+## Pre-existing issues found
 
-- **`test/timeline_studio_view_test.dart` — 3 failing tests, present before this milestone.** All three time out after 10 minutes. Cause: the tests construct `TimelineStudioView(project: ...)` with no `repository`, so the view falls back to the production `authorOsRepository`, whose `drift_flutter` connection never opens inside `flutter_test`. Mocking `path_provider` is not sufficient — the background isolate still hangs. The fix is to inject an in-memory repository the way `plot_studio_view_test.dart` does. Left alone: Timeline Studio is protected completed work.
-- **`_SectionView` renders non-manuscript Studios inside a `SingleChildScrollView`**, so any section using `Expanded` inside a `Column` gets unbounded constraints. `TimelineStudioView` does exactly that. The World Board is built as a self-measuring column to stay clear of it.
-- **`_ProjectsStudioView` and the Dashboard's "Ideas" tile contain hardcoded demo values.** Not touched.
-- **`tool/storage_benchmark.dart` has 21 analyzer errors** (`isar_community` is not a dependency). Not touched.
+Two were observed against the Timeline Studio as it stood at the start of this
+milestone and have since been **resolved by the Timeline Studio reconciliation
+pass** that landed concurrently (`16813f9`), not by this work:
+
+- ~~`test/timeline_studio_view_test.dart` — 3 tests timing out after 10 minutes
+  each.~~ **Resolved.** The cause was diagnosed here: the tests constructed
+  `TimelineStudioView(project: ...)` with no `repository`, so the view fell back
+  to the production `authorOsRepository`, whose `drift_flutter` connection never
+  opens inside `flutter_test`. (Mocking `path_provider` is not sufficient — the
+  background isolate still hangs.) The reconciled test file injects an in-memory
+  repository, which is exactly that fix.
+- ~~`_SectionView` renders non-manuscript Studios inside a
+  `SingleChildScrollView`, so a section using `Expanded` inside a `Column` gets
+  unbounded constraints.~~ **No longer reproduces.** Verified by mounting the
+  reconciled `TimelineStudioView` inside an unbounded `SingleChildScrollView`:
+  no exception. The World Board is a self-measuring column regardless, which is
+  the right shape for that host.
+
+Still open, and untouched:
+
+- **`_ProjectsStudioView` and the Dashboard's "Ideas" tile contain hardcoded demo values.**
+- **`tool/storage_benchmark.dart` has analyzer errors** (`isar_community` is not a dependency).
+
+## Verification
+
+Run against the merged tree, after the Timeline Studio reconciliation landed.
+
+| Check | Result |
+| --- | --- |
+| `flutter test` | **557 passed, 0 failed** |
+| World Board tests specifically | 48 passed (24 service/architecture, 17 view/theme/empty-state, 7 navigation) |
+| `flutter analyze` | 77 issues, **0 from `lib/world_board/`**; every remaining issue pre-exists in `tool/`, `test/`, and other Studios |
+| `flutter build web --release` | passed |
+| `flutter build windows --release` | passed |
+| `git diff --check` | clean |
+
+The pre-work baseline was 494 passed / 3 failed.
 
 ## Future architecture — roadmap
 

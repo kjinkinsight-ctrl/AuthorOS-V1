@@ -524,6 +524,14 @@ class DriftConnectedDomainRepository {
     if (ids.isEmpty) return;
     await database.transaction(() async {
       for (final id in ids) {
+        // Edges reference the entity row, so they have to go first. The
+        // foreign key would otherwise refuse the delete outright, and a node
+        // whose links were not disconnected beforehand could not be removed
+        // at all -- which is how a deleted scene became a permanent ghost.
+        await (database.delete(database.recordLinkRows)
+              ..where((table) =>
+                  table.sourceId.equals(id) | table.targetId.equals(id)))
+            .go();
         await (database.delete(database.manuscriptNodeRows)
               ..where((table) => table.id.equals(id)))
             .go();
@@ -1100,6 +1108,21 @@ class DriftConnectedDomainRepository {
           ..where((table) => table.id.equals(id)))
         .getSingleOrNull();
     return row == null ? null : _recordFromRow(row);
+  }
+
+  /// Every manuscript node the project owns.
+  ///
+  /// A project's manuscript is authoritative for its own chapters and scenes,
+  /// so saving one has to be able to see which nodes already exist in order to
+  /// retire the ones the manuscript no longer contains.
+  Future<List<ManuscriptNodeReference>> manuscriptNodesForProject(
+    String projectId,
+  ) async {
+    final rows = await (database.select(database.manuscriptNodeRows)
+          ..where((table) => table.projectId.equals(projectId))
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    return rows.map(_nodeFromRow).toList();
   }
 
   Future<ManuscriptNodeReference?> manuscriptNodeById(String id) async {

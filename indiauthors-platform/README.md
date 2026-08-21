@@ -38,6 +38,16 @@ W00 is implemented as a production-grade foundation:
 - No fake production authentication, payment, or licensing systems
 - Clear integration boundary with AuthorOS desktop app
 
+## Community & World Board Track
+
+A separate, planning-only architecture track covers the future public community layer
+(public author profiles, project/world/map showcases, discovery). It is numbered C0-C8 so it
+never collides with the W00-W18 gates, and nothing in it is implemented or authorised yet:
+
+- docs/architecture/authoros-web-community-directive.md
+- docs/architecture/authoros-web-community-reconciliation.md
+- docs/architecture/ADR-0003-community-publication-boundary.md
+
 ## Next Step
 
 Implement W01 after W00 architecture sign-off.

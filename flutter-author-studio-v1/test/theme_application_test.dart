@@ -335,6 +335,8 @@ void main() {
       const expected = <StudioSection, StudioId>{
         StudioSection.worldBoard: StudioId.worldBoard,
         StudioSection.analytics: StudioId.analytics,
+        StudioSection.map: StudioId.map,
+        StudioSection.research: StudioId.research,
         StudioSection.manuscript: StudioId.manuscript,
         StudioSection.chapters: StudioId.manuscript,
         StudioSection.characters: StudioId.character,

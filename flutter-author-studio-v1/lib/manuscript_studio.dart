@@ -7,6 +7,8 @@ import 'manuscript_export.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'reading_rhythm.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/theme_tokens.dart';
 
 class ManuscriptStudioView extends StatefulWidget {
   const ManuscriptStudioView({
@@ -1761,11 +1763,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                   maxLines: null,
                   expands: true,
                   keyboardType: TextInputType.multiline,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontFamily: 'monospace',
-                        fontSize: _readingRhythm.fontSize,
-                        height: _readingRhythm.lineHeight,
-                      ),
+                  style: _draftTextStyle(context),
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     hintText: 'Write this scene...',
@@ -1857,11 +1855,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                   maxLines: null,
                   expands: true,
                   keyboardType: TextInputType.multiline,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontFamily: 'monospace',
-                        fontSize: _readingRhythm.fontSize,
-                        height: _readingRhythm.lineHeight,
-                      ),
+                  style: _draftTextStyle(context),
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     hintText: 'Write this scene...',
@@ -2207,6 +2201,24 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     );
   }
 
+  /// The draft editor face.
+  ///
+  /// Comes from the theme's `code` typography role, which is what the
+  /// previously hard-coded `'monospace'` family was reproducing — same face,
+  /// plus the role's fallback families. Reading rhythm still owns size and
+  /// line height. Falls back to the literal family only when no
+  /// [StudioThemeScope] is installed above this Studio.
+  TextStyle? _draftTextStyle(BuildContext context) {
+    final code =
+        StudioThemeScope.maybeOf(context)?.theme.text(ThemeTextRole.code);
+    return Theme.of(context).textTheme.bodyLarge?.copyWith(
+          fontFamily: code?.family ?? 'monospace',
+          fontFamilyFallback: code?.fallbackFamilies,
+          fontSize: _readingRhythm.fontSize,
+          height: _readingRhythm.lineHeight,
+        );
+  }
+
   Widget _detailLine(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -2215,7 +2227,12 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         children: [
           SizedBox(
             width: 90,
-            child: Text(label, style: const TextStyle(color: Colors.white70)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           Expanded(child: Text(value)),
         ],

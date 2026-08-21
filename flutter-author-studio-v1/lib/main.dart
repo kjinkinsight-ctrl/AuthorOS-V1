@@ -18,6 +18,13 @@ import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
 import 'supabase_service.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/resolved_theme.dart';
+import 'theme/theme_definition.dart';
+import 'theme/theme_engine.dart';
+import 'theme/theme_persistence.dart';
+import 'theme/theme_registry.dart';
+import 'theme/theme_tokens.dart';
 import 'timeline.dart';
 import 'visual_planning.dart';
 import 'welcome_page.dart';
@@ -188,11 +195,24 @@ class AuthorStudioApp extends StatefulWidget {
 
 class _AuthorStudioAppState extends State<AuthorStudioApp> {
   bool _loadingTheme = true;
-  String _themeId = 'light';
-  String _accentId = 'default';
 
-  static const _themePreferenceKey = 'author_studio.theme_id';
-  static const _accentPreferenceKey = 'author_studio.accent_id';
+  /// The application's single theme engine. It is the only thing in the app
+  /// that reads or writes theme settings.
+  ThemeEngine? _engine;
+
+  /// Resolution is pure, so the pre-load splash frame can use a throwaway
+  /// in-memory engine rather than a second code path.
+  static final ThemeEngine _fallbackEngine =
+      ThemeEngine.standard(store: MemoryThemeSettingsStore());
+
+  /// The selection in force. Mirrors the engine; never persisted from here.
+  ThemeSelection _selection = const ThemeSelection(
+    themeId: 'light',
+    mode: AuthorOsThemeMode.light,
+  );
+
+  String get _themeId => _selection.themeId;
+  String get _accentId => _selection.accentId;
 
   @override
   void initState() {
@@ -201,175 +221,137 @@ class _AuthorStudioAppState extends State<AuthorStudioApp> {
   }
 
   Future<void> _loadThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedThemeId = prefs.getString(_themePreferenceKey);
-    final normalizedThemeId = AppThemePreset.normalizeId(savedThemeId);
+    // ThemePersistence owns legacy id migration and the preference keys, so
+    // the shell no longer normalizes or rewrites them itself.
+    final engine = ThemeEngine.standard(
+      store: await SharedPreferencesThemeStore.load(),
+    );
+    var selection = await engine.load();
+
+    // The pre-engine shell pinned the accent to 'default' on every launch,
+    // because the accent picker was retired. Preserve that exactly.
+    if (selection.accentId != 'default') {
+      selection = selection.copyWith(accentId: 'default');
+      await engine.persistence.save(selection);
+    }
+
     if (!mounted) {
       return;
     }
     setState(() {
-      _themeId = normalizedThemeId;
-      _accentId = 'default';
+      _engine = engine;
+      _selection = selection;
       _loadingTheme = false;
     });
-    if (savedThemeId != null && savedThemeId != normalizedThemeId) {
-      await prefs.setString(_themePreferenceKey, normalizedThemeId);
+  }
+
+  /// Applies a theme chosen in Settings.
+  ///
+  /// Both built-in themes render exactly one brightness, so choosing a theme
+  /// also chooses the mode. Persistence happens inside [ThemeEngine]; no UI
+  /// code writes theme preferences.
+  Future<void> _handleThemeChanged(String themeId, String accentId) async {
+    final engine = _engine;
+    if (engine == null) {
+      return;
     }
-    if (prefs.getString(_accentPreferenceKey) != 'default') {
-      await prefs.setString(_accentPreferenceKey, 'default');
+    final resolvedId = engine.registry.normalizeId(themeId);
+    final selection = _selection.copyWith(
+      themeId: resolvedId,
+      mode: _modeForTheme(engine.registry, resolvedId),
+      accentId: 'default',
+    );
+    if (mounted) {
+      setState(() => _selection = selection);
     }
-  }
-
-  Future<void> _saveThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themePreferenceKey, _themeId);
-    await prefs.setString(_accentPreferenceKey, _accentId);
-  }
-
-  void _updateThemeSelection(AppThemeSelection selection) {
-    setState(() {
-      _themeId = AppThemePreset.byId(selection.themeId).id;
-      _accentId = 'default';
-    });
-    _saveThemeSelection();
-  }
-
-  void _handleThemeChanged(String themeId, String accentId) {
-    _updateThemeSelection(
-      AppThemeSelection(themeId: themeId, accentId: accentId),
+    await engine.select(
+      selection: selection,
+      hostBrightness: _hostBrightness,
     );
   }
 
-  ThemeData _buildThemeData() {
-    final preset = AppThemePreset.byId(_themeId);
-    final isDark = preset.brightness == Brightness.dark;
-    final accent = AppThemeSelection(themeId: _themeId, accentId: _accentId)
-        .resolvedAccentColor;
-    final foregroundColor =
-        isDark ? const Color(0xFFFFFFFF) : const Color(0xFF17283A);
-    final outlineColor =
-        isDark ? const Color(0xFF8A8A8A) : const Color(0xFF718399);
-    final outlineVariantColor =
-        isDark ? const Color(0xFF363636) : const Color(0xFFD4E0EB);
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: preset.brightness,
-      surface: preset.surfaceColor,
-    ).copyWith(
-      onSurface: foregroundColor,
-      onSurfaceVariant: foregroundColor,
-      outline: outlineColor,
-      outlineVariant: outlineVariantColor,
-    );
+  /// The domain mode that renders [themeId] as its author intended.
+  static AuthorOsThemeMode _modeForTheme(
+    ThemeRegistry registry,
+    String themeId,
+  ) {
+    final definition = registry.byId(themeId);
+    return definition.supports(ThemeBrightness.dark) &&
+            !definition.supports(ThemeBrightness.light)
+        ? AuthorOsThemeMode.dark
+        : AuthorOsThemeMode.light;
+  }
 
-    final surfaceContainerColor =
-        isDark ? const Color(0xFF202020) : const Color(0xFFE7F0F8);
-    final textTheme = ThemeData(brightness: preset.brightness).textTheme.apply(
-          fontFamily: 'Merriweather',
-          bodyColor: foregroundColor,
-          displayColor: foregroundColor,
-        );
+  ThemeBrightness get _hostBrightness =>
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+              Brightness.dark
+          ? ThemeBrightness.dark
+          : ThemeBrightness.light;
 
-    return ThemeData(
-      useMaterial3: true,
-      brightness: preset.brightness,
-      fontFamily: 'Merriweather',
-      colorScheme: colorScheme,
-      textTheme: textTheme,
-      scaffoldBackgroundColor: preset.backgroundColor,
-      appBarTheme: AppBarTheme(
-        centerTitle: false,
-        backgroundColor: Colors.transparent,
-        foregroundColor: foregroundColor,
-        elevation: 0,
+  /// Resolves the theme that renders [brightness].
+  ///
+  /// Both `theme:` and `darkTheme:` are supplied so Flutter can honour
+  /// `system` mode at the [MaterialApp] boundary. When the selected theme
+  /// cannot render [brightness] — each built-in renders exactly one — the
+  /// registry's theme for that brightness is used instead, which is what
+  /// makes `system` meaningful.
+  ResolvedTheme _resolveFor(ThemeBrightness brightness) {
+    final engine = _engine ?? _fallbackEngine;
+    final selected = engine.registry.byId(_selection.themeId);
+    final themeId = selected.supports(brightness)
+        ? _selection.themeId
+        : (brightness == ThemeBrightness.dark ? 'dark' : 'light');
+    return engine.resolveSelection(
+      selection: _selection.copyWith(
+        themeId: themeId,
+        mode: brightness == ThemeBrightness.dark
+            ? AuthorOsThemeMode.dark
+            : AuthorOsThemeMode.light,
       ),
-      cardTheme: CardThemeData(
-        color: preset.surfaceColor,
-        surfaceTintColor: colorScheme.surfaceTint,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        elevation: 0,
-      ),
-      dividerTheme: DividerThemeData(
-        color: colorScheme.outlineVariant,
-        thickness: 1,
-      ),
-      chipTheme: ChipThemeData(
-        backgroundColor: surfaceContainerColor,
-        selectedColor: colorScheme.primaryContainer,
-        side: BorderSide(color: colorScheme.outlineVariant),
-        labelStyle: TextStyle(
-          color: colorScheme.onSurface,
-          fontWeight: FontWeight.w600,
-        ),
-        secondaryLabelStyle: TextStyle(
-          color: colorScheme.onPrimaryContainer,
-          fontWeight: FontWeight.w700,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: surfaceContainerColor,
-        labelStyle: TextStyle(color: foregroundColor),
-        hintStyle: TextStyle(color: foregroundColor),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
-        ),
-      ),
+      hostBrightness: brightness,
     );
   }
+
+  /// Flutter's [ThemeMode] exists only at this boundary; [AuthorOsThemeMode]
+  /// remains the domain type everywhere else in the application.
+  static ThemeMode _flutterThemeMode(AuthorOsThemeMode mode) => switch (mode) {
+        AuthorOsThemeMode.light => ThemeMode.light,
+        AuthorOsThemeMode.dark => ThemeMode.dark,
+        AuthorOsThemeMode.system => ThemeMode.system,
+      };
 
   @override
   Widget build(BuildContext context) {
-    if (_loadingTheme) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Indie Author OS',
-        theme: _buildThemeData(),
-        home: const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
-
-    final themeData = _buildThemeData();
+    // AuthorOsTheme.toThemeData is the application's only ThemeData boundary.
+    final lightTheme = _resolveFor(ThemeBrightness.light);
+    final darkTheme = _resolveFor(ThemeBrightness.dark);
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Indie Author OS',
-      theme: themeData,
-      home: _OnboardingBootstrap(
-        store: widget.store,
-        manuscriptStore: widget.manuscriptStore,
-        themeId: _themeId,
-        accentId: _accentId,
-        onThemeChanged: _handleThemeChanged,
-        showWelcome: widget.showWelcome,
+      theme: AuthorOsTheme.toThemeData(lightTheme),
+      darkTheme: AuthorOsTheme.toThemeData(darkTheme),
+      themeMode: _flutterThemeMode(_selection.mode),
+      // The shell scope sits above every route, so any widget can resolve
+      // tokens. Studios nest their own scope to pick up their overrides.
+      builder: (context, child) => StudioThemeScope(
+        theme: Theme.of(context).brightness == Brightness.dark
+            ? darkTheme
+            : lightTheme,
+        child: child ?? const SizedBox.shrink(),
       ),
+      home: _loadingTheme
+          ? const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            )
+          : _OnboardingBootstrap(
+              store: widget.store,
+              manuscriptStore: widget.manuscriptStore,
+              themeId: _themeId,
+              accentId: _accentId,
+              onThemeChanged: _handleThemeChanged,
+              showWelcome: widget.showWelcome,
+            ),
     );
   }
 }
@@ -1188,7 +1170,40 @@ extension StudioSectionData on StudioSection {
         StudioSection.notes => Icons.sticky_note_2_outlined,
         StudioSection.settings => Icons.settings_outlined,
       };
+
+  /// The Studio identity this section's subtree is themed as.
+  ///
+  /// Sections without a Studio of their own are shell chrome and resolve the
+  /// shell palette. `chapters` shares [StudioId.manuscript] because chapter
+  /// structure is part of the manuscript surface.
+  StudioId get studioId => switch (this) {
+        StudioSection.manuscript ||
+        StudioSection.chapters =>
+          StudioId.manuscript,
+        StudioSection.characters => StudioId.character,
+        StudioSection.codex => StudioId.storyCodex,
+        StudioSection.world => StudioId.world,
+        StudioSection.plot => StudioId.plot,
+        StudioSection.timeline => StudioId.timeline,
+        StudioSection.dashboard ||
+        StudioSection.search ||
+        StudioSection.statistics ||
+        StudioSection.backup ||
+        StudioSection.projects ||
+        StudioSection.ideas ||
+        StudioSection.notes ||
+        StudioSection.settings =>
+          StudioId.shell,
+      };
 }
+
+/// The muted foreground role, used for secondary text and captions.
+///
+/// Named rather than inlined so these surfaces de-emphasise automatically if
+/// `onSurfaceVariant` is ever given a value distinct from `onSurface`. See
+/// docs/theme-engine-phase-3-implementation-map.md §4.4.
+Color _mutedOn(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
 
 Future<void> _defaultLogout() async {}
 
@@ -1961,6 +1976,25 @@ class _SectionView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Every Studio subtree carries its own scope, so a Studio resolves its
+    // overrides while inheriting the shell palette for everything else.
+    //
+    // The scope is additive: the live shell always installs one above this
+    // widget, but a host that embeds AuthorStudioShell in a bare MaterialApp
+    // still renders — those subtrees simply read the shell ThemeData, which
+    // the engine produced anyway.
+    final shellScope = StudioThemeScope.maybeOf(context);
+    if (shellScope == null) {
+      return _buildSection(context);
+    }
+    return StudioThemeScope(
+      theme: shellScope.theme,
+      studio: section.studioId,
+      child: _buildSection(context),
+    );
+  }
+
+  Widget _buildSection(BuildContext context) {
     if (section == StudioSection.manuscript) {
       final studio = Padding(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
@@ -3924,7 +3958,7 @@ class _TimelineStudioViewState extends State<_TimelineStudioView> {
                     style: Theme.of(context)
                         .textTheme
                         .bodyMedium
-                        ?.copyWith(color: Colors.white70),
+                        ?.copyWith(color: _mutedOn(context)),
                   ),
               ],
             ),
@@ -4149,7 +4183,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
-                          ?.copyWith(color: Colors.white60),
+                          ?.copyWith(color: _mutedOn(context)),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -4345,7 +4379,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                       Text(
                         authorFocus,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white70,
+                              color: _mutedOn(context),
                             ),
                       ),
                       const SizedBox(height: 8),
@@ -4354,7 +4388,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white60,
+                              color: _mutedOn(context),
                             ),
                       ),
                     ],
@@ -4381,7 +4415,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                   Text(
                     'Template-aware project creation and project hub workflows.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: _mutedOn(context),
                         ),
                   ),
                 ],
@@ -4465,7 +4499,9 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.05),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
@@ -4474,7 +4510,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                                     .textTheme
                                     .bodySmall
                                     ?.copyWith(
-                                      color: Colors.white70,
+                                      color: _mutedOn(context),
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
@@ -4530,7 +4566,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
-                              ?.copyWith(color: Colors.white70),
+                              ?.copyWith(color: _mutedOn(context)),
                         ),
                       ),
                     ),
@@ -4579,7 +4615,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(color: _mutedOn(context)),
                             ),
                             const SizedBox(height: 10),
                             Text(
@@ -4587,7 +4623,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
-                                  ?.copyWith(color: Colors.white54),
+                                  ?.copyWith(color: _mutedOn(context)),
                             ),
                           ],
                         ),
@@ -4896,7 +4932,7 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                   Text(
                     'Capture, filter, and revise notes across your writing workspace.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: _mutedOn(context),
                         ),
                   ),
                 ],
@@ -4991,8 +5027,8 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                               ? Icons.push_pin
                               : Icons.sticky_note_2_outlined,
                           color: note.pinned
-                              ? const Color(0xFFC59B6D)
-                              : Colors.white70,
+                              ? Theme.of(context).colorScheme.primary
+                              : _mutedOn(context),
                         ),
                         title: Text(note.title),
                         subtitle: Text('${note.type} | ${note.status}'),
@@ -5064,7 +5100,7 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
-                              ?.copyWith(color: Colors.white70),
+                              ?.copyWith(color: _mutedOn(context)),
                         ),
                       ),
                     ),
@@ -5104,7 +5140,7 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(color: _mutedOn(context)),
                             ),
                           ],
                         ),

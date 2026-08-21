@@ -43,6 +43,7 @@ class ResearchDraft {
     this.sourceUrl = '',
     this.citation = '',
     this.tags = const [],
+    this.extensionData = const {},
   });
 
   final String id;
@@ -57,6 +58,12 @@ class ResearchDraft {
   final String sourceUrl;
   final String citation;
   final List<String> tags;
+
+  /// Extra record-level extension data, merged over the Studio's own marker.
+  ///
+  /// Used by the manuscript-panel migration to stamp provenance at creation
+  /// time, so a migrated record needs one revision rather than two.
+  final Map<String, Object?> extensionData;
 
   /// Reads a draft back out of a canonical record so the editor can round-trip
   /// an existing entry without inventing a parallel representation.
@@ -152,7 +159,7 @@ class ResearchService {
         tags: draft.tags,
         createdAt: now,
         updatedAt: now,
-        extensionData: const {'researchStudio': true},
+        extensionData: {'researchStudio': true, ...draft.extensionData},
       ),
     );
   }

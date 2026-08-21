@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_updater.dart';
+import 'main.dart' show AppThemePreset;
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';
@@ -2007,7 +2008,6 @@ class _LegacyStoryCodexViewState extends State<LegacyStoryCodexView> {
 
 class _LegacyCharacterBoardView extends StatefulWidget {
   const _LegacyCharacterBoardView({
-    super.key,
     required this.project,
   });
 

@@ -143,6 +143,39 @@ class TimelineCalendar {
     return yearOffset * yearLength + precedingMonths + (date.day ?? 1) - 1;
   }
 
+  /// Renders [date] through this calendar's [dateFormat] template.
+  ///
+  /// `{year}`, `{month}`, `{day}`, `{monthName}`, `{era}` and `{time}`
+  /// placeholders resolve from the date; components the date does not carry
+  /// collapse cleanly instead of printing placeholders. An explicit
+  /// [TimelineDate.displayFormat] on the date wins over the calendar template.
+  String format(TimelineDate date) {
+    if (!date.isDated) return 'Undated';
+    final monthName =
+        date.month != null && date.month! >= 1 && date.month! <= months.length
+            ? months[date.month! - 1].name
+            : '';
+    var text = date.displayFormat ?? dateFormat;
+    final replacements = <String, String>{
+      '{year}': '${date.year}',
+      '{month}': date.month == null ? '' : '${date.month}',
+      '{monthName}': monthName,
+      '{day}': date.day == null ? '' : '${date.day}',
+      '{era}': date.era ?? '',
+      '{time}': date.time ?? '',
+    };
+    replacements.forEach((token, value) {
+      text = text.replaceAll(token, value);
+    });
+    // Collapse separators left behind by missing components.
+    text = text
+        .replaceAll(RegExp(r'[-/.,:\s]+$'), '')
+        .replaceAll(RegExp(r'(--)+'), '-')
+        .trim();
+    if (text.isEmpty) return 'Year ${date.year}';
+    return date.approximate ? '~$text' : text;
+  }
+
   void validate(TimelineDate date) {
     if (date.calendarId != id) {
       throw ArgumentError('Date uses ${date.calendarId}, not calendar $id.');

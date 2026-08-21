@@ -39,7 +39,10 @@ The original `isar 3.1.0+1` package was not selected as the Isar candidate becau
 
 ## Benchmark workload
 
-The repeatable tool is `tool/storage_benchmark.dart`.
+The repeatable tool was `tool/storage_benchmark.dart`. It was removed once
+the decision below was implemented and `isar_community` left the dependency
+list: the benchmark imported that package, so it no longer compiled. The
+workload it measured is recorded here.
 
 Each candidate stored and queried the same deterministic workload:
 
@@ -196,14 +199,20 @@ Rejected because rewriting large project graphs increases corruption risk and ma
 
 ## Validation and review
 
-The measured benchmark is repeatable with:
+The measured benchmark ran as:
 
 ```powershell
 dart run build_runner build
 dart run tool/storage_benchmark.dart
 ```
 
-Run the benchmark multiple times and compare checksums before timings. Android and packaged Windows results must be appended to this ADR when the M1 vertical slice exists.
+That tool has since been deleted along with the `isar_community` dependency it
+compared against, so the numbers above are a historical record rather than a
+command you can re-run today. Reproducing them means restoring the benchmark
+and the Isar candidate from this commit's history first.
+
+Android and packaged Windows results must be appended to this ADR when the M1
+vertical slice exists.
 
 ## Related documents
 

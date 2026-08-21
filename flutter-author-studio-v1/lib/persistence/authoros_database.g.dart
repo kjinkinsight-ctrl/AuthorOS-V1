@@ -5266,6 +5266,581 @@ class AuditEventRowsCompanion extends UpdateCompanion<AuditEventRow> {
   }
 }
 
+class $WritingSessionRowsTable extends WritingSessionRows
+    with TableInfo<$WritingSessionRowsTable, WritingSessionRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $WritingSessionRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _projectIdMeta =
+      const VerificationMeta('projectId');
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+      'project_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _startedAtMeta =
+      const VerificationMeta('startedAt');
+  @override
+  late final GeneratedColumn<DateTime> startedAt = GeneratedColumn<DateTime>(
+      'started_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _endedAtMeta =
+      const VerificationMeta('endedAt');
+  @override
+  late final GeneratedColumn<DateTime> endedAt = GeneratedColumn<DateTime>(
+      'ended_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _durationSecondsMeta =
+      const VerificationMeta('durationSeconds');
+  @override
+  late final GeneratedColumn<int> durationSeconds = GeneratedColumn<int>(
+      'duration_seconds', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _startingWordCountMeta =
+      const VerificationMeta('startingWordCount');
+  @override
+  late final GeneratedColumn<int> startingWordCount = GeneratedColumn<int>(
+      'starting_word_count', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _endingWordCountMeta =
+      const VerificationMeta('endingWordCount');
+  @override
+  late final GeneratedColumn<int> endingWordCount = GeneratedColumn<int>(
+      'ending_word_count', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _wordsAddedMeta =
+      const VerificationMeta('wordsAdded');
+  @override
+  late final GeneratedColumn<int> wordsAdded = GeneratedColumn<int>(
+      'words_added', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _wordsRemovedMeta =
+      const VerificationMeta('wordsRemoved');
+  @override
+  late final GeneratedColumn<int> wordsRemoved = GeneratedColumn<int>(
+      'words_removed', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _chapterIdMeta =
+      const VerificationMeta('chapterId');
+  @override
+  late final GeneratedColumn<String> chapterId = GeneratedColumn<String>(
+      'chapter_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _sceneIdMeta =
+      const VerificationMeta('sceneId');
+  @override
+  late final GeneratedColumn<String> sceneId = GeneratedColumn<String>(
+      'scene_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        projectId,
+        startedAt,
+        endedAt,
+        durationSeconds,
+        startingWordCount,
+        endingWordCount,
+        wordsAdded,
+        wordsRemoved,
+        chapterId,
+        sceneId
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'writing_session_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<WritingSessionRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('project_id')) {
+      context.handle(_projectIdMeta,
+          projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta));
+    } else if (isInserting) {
+      context.missing(_projectIdMeta);
+    }
+    if (data.containsKey('started_at')) {
+      context.handle(_startedAtMeta,
+          startedAt.isAcceptableOrUnknown(data['started_at']!, _startedAtMeta));
+    } else if (isInserting) {
+      context.missing(_startedAtMeta);
+    }
+    if (data.containsKey('ended_at')) {
+      context.handle(_endedAtMeta,
+          endedAt.isAcceptableOrUnknown(data['ended_at']!, _endedAtMeta));
+    } else if (isInserting) {
+      context.missing(_endedAtMeta);
+    }
+    if (data.containsKey('duration_seconds')) {
+      context.handle(
+          _durationSecondsMeta,
+          durationSeconds.isAcceptableOrUnknown(
+              data['duration_seconds']!, _durationSecondsMeta));
+    } else if (isInserting) {
+      context.missing(_durationSecondsMeta);
+    }
+    if (data.containsKey('starting_word_count')) {
+      context.handle(
+          _startingWordCountMeta,
+          startingWordCount.isAcceptableOrUnknown(
+              data['starting_word_count']!, _startingWordCountMeta));
+    } else if (isInserting) {
+      context.missing(_startingWordCountMeta);
+    }
+    if (data.containsKey('ending_word_count')) {
+      context.handle(
+          _endingWordCountMeta,
+          endingWordCount.isAcceptableOrUnknown(
+              data['ending_word_count']!, _endingWordCountMeta));
+    } else if (isInserting) {
+      context.missing(_endingWordCountMeta);
+    }
+    if (data.containsKey('words_added')) {
+      context.handle(
+          _wordsAddedMeta,
+          wordsAdded.isAcceptableOrUnknown(
+              data['words_added']!, _wordsAddedMeta));
+    } else if (isInserting) {
+      context.missing(_wordsAddedMeta);
+    }
+    if (data.containsKey('words_removed')) {
+      context.handle(
+          _wordsRemovedMeta,
+          wordsRemoved.isAcceptableOrUnknown(
+              data['words_removed']!, _wordsRemovedMeta));
+    } else if (isInserting) {
+      context.missing(_wordsRemovedMeta);
+    }
+    if (data.containsKey('chapter_id')) {
+      context.handle(_chapterIdMeta,
+          chapterId.isAcceptableOrUnknown(data['chapter_id']!, _chapterIdMeta));
+    }
+    if (data.containsKey('scene_id')) {
+      context.handle(_sceneIdMeta,
+          sceneId.isAcceptableOrUnknown(data['scene_id']!, _sceneIdMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  WritingSessionRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return WritingSessionRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      projectId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}project_id'])!,
+      startedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}started_at'])!,
+      endedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}ended_at'])!,
+      durationSeconds: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}duration_seconds'])!,
+      startingWordCount: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}starting_word_count'])!,
+      endingWordCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}ending_word_count'])!,
+      wordsAdded: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}words_added'])!,
+      wordsRemoved: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}words_removed'])!,
+      chapterId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}chapter_id']),
+      sceneId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}scene_id']),
+    );
+  }
+
+  @override
+  $WritingSessionRowsTable createAlias(String alias) {
+    return $WritingSessionRowsTable(attachedDatabase, alias);
+  }
+}
+
+class WritingSessionRow extends DataClass
+    implements Insertable<WritingSessionRow> {
+  final String id;
+  final String projectId;
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final int durationSeconds;
+  final int startingWordCount;
+  final int endingWordCount;
+  final int wordsAdded;
+  final int wordsRemoved;
+  final String? chapterId;
+  final String? sceneId;
+  const WritingSessionRow(
+      {required this.id,
+      required this.projectId,
+      required this.startedAt,
+      required this.endedAt,
+      required this.durationSeconds,
+      required this.startingWordCount,
+      required this.endingWordCount,
+      required this.wordsAdded,
+      required this.wordsRemoved,
+      this.chapterId,
+      this.sceneId});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['project_id'] = Variable<String>(projectId);
+    map['started_at'] = Variable<DateTime>(startedAt);
+    map['ended_at'] = Variable<DateTime>(endedAt);
+    map['duration_seconds'] = Variable<int>(durationSeconds);
+    map['starting_word_count'] = Variable<int>(startingWordCount);
+    map['ending_word_count'] = Variable<int>(endingWordCount);
+    map['words_added'] = Variable<int>(wordsAdded);
+    map['words_removed'] = Variable<int>(wordsRemoved);
+    if (!nullToAbsent || chapterId != null) {
+      map['chapter_id'] = Variable<String>(chapterId);
+    }
+    if (!nullToAbsent || sceneId != null) {
+      map['scene_id'] = Variable<String>(sceneId);
+    }
+    return map;
+  }
+
+  WritingSessionRowsCompanion toCompanion(bool nullToAbsent) {
+    return WritingSessionRowsCompanion(
+      id: Value(id),
+      projectId: Value(projectId),
+      startedAt: Value(startedAt),
+      endedAt: Value(endedAt),
+      durationSeconds: Value(durationSeconds),
+      startingWordCount: Value(startingWordCount),
+      endingWordCount: Value(endingWordCount),
+      wordsAdded: Value(wordsAdded),
+      wordsRemoved: Value(wordsRemoved),
+      chapterId: chapterId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(chapterId),
+      sceneId: sceneId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sceneId),
+    );
+  }
+
+  factory WritingSessionRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return WritingSessionRow(
+      id: serializer.fromJson<String>(json['id']),
+      projectId: serializer.fromJson<String>(json['projectId']),
+      startedAt: serializer.fromJson<DateTime>(json['startedAt']),
+      endedAt: serializer.fromJson<DateTime>(json['endedAt']),
+      durationSeconds: serializer.fromJson<int>(json['durationSeconds']),
+      startingWordCount: serializer.fromJson<int>(json['startingWordCount']),
+      endingWordCount: serializer.fromJson<int>(json['endingWordCount']),
+      wordsAdded: serializer.fromJson<int>(json['wordsAdded']),
+      wordsRemoved: serializer.fromJson<int>(json['wordsRemoved']),
+      chapterId: serializer.fromJson<String?>(json['chapterId']),
+      sceneId: serializer.fromJson<String?>(json['sceneId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'projectId': serializer.toJson<String>(projectId),
+      'startedAt': serializer.toJson<DateTime>(startedAt),
+      'endedAt': serializer.toJson<DateTime>(endedAt),
+      'durationSeconds': serializer.toJson<int>(durationSeconds),
+      'startingWordCount': serializer.toJson<int>(startingWordCount),
+      'endingWordCount': serializer.toJson<int>(endingWordCount),
+      'wordsAdded': serializer.toJson<int>(wordsAdded),
+      'wordsRemoved': serializer.toJson<int>(wordsRemoved),
+      'chapterId': serializer.toJson<String?>(chapterId),
+      'sceneId': serializer.toJson<String?>(sceneId),
+    };
+  }
+
+  WritingSessionRow copyWith(
+          {String? id,
+          String? projectId,
+          DateTime? startedAt,
+          DateTime? endedAt,
+          int? durationSeconds,
+          int? startingWordCount,
+          int? endingWordCount,
+          int? wordsAdded,
+          int? wordsRemoved,
+          Value<String?> chapterId = const Value.absent(),
+          Value<String?> sceneId = const Value.absent()}) =>
+      WritingSessionRow(
+        id: id ?? this.id,
+        projectId: projectId ?? this.projectId,
+        startedAt: startedAt ?? this.startedAt,
+        endedAt: endedAt ?? this.endedAt,
+        durationSeconds: durationSeconds ?? this.durationSeconds,
+        startingWordCount: startingWordCount ?? this.startingWordCount,
+        endingWordCount: endingWordCount ?? this.endingWordCount,
+        wordsAdded: wordsAdded ?? this.wordsAdded,
+        wordsRemoved: wordsRemoved ?? this.wordsRemoved,
+        chapterId: chapterId.present ? chapterId.value : this.chapterId,
+        sceneId: sceneId.present ? sceneId.value : this.sceneId,
+      );
+  WritingSessionRow copyWithCompanion(WritingSessionRowsCompanion data) {
+    return WritingSessionRow(
+      id: data.id.present ? data.id.value : this.id,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+      endedAt: data.endedAt.present ? data.endedAt.value : this.endedAt,
+      durationSeconds: data.durationSeconds.present
+          ? data.durationSeconds.value
+          : this.durationSeconds,
+      startingWordCount: data.startingWordCount.present
+          ? data.startingWordCount.value
+          : this.startingWordCount,
+      endingWordCount: data.endingWordCount.present
+          ? data.endingWordCount.value
+          : this.endingWordCount,
+      wordsAdded:
+          data.wordsAdded.present ? data.wordsAdded.value : this.wordsAdded,
+      wordsRemoved: data.wordsRemoved.present
+          ? data.wordsRemoved.value
+          : this.wordsRemoved,
+      chapterId: data.chapterId.present ? data.chapterId.value : this.chapterId,
+      sceneId: data.sceneId.present ? data.sceneId.value : this.sceneId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WritingSessionRow(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('endedAt: $endedAt, ')
+          ..write('durationSeconds: $durationSeconds, ')
+          ..write('startingWordCount: $startingWordCount, ')
+          ..write('endingWordCount: $endingWordCount, ')
+          ..write('wordsAdded: $wordsAdded, ')
+          ..write('wordsRemoved: $wordsRemoved, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('sceneId: $sceneId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      projectId,
+      startedAt,
+      endedAt,
+      durationSeconds,
+      startingWordCount,
+      endingWordCount,
+      wordsAdded,
+      wordsRemoved,
+      chapterId,
+      sceneId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is WritingSessionRow &&
+          other.id == this.id &&
+          other.projectId == this.projectId &&
+          other.startedAt == this.startedAt &&
+          other.endedAt == this.endedAt &&
+          other.durationSeconds == this.durationSeconds &&
+          other.startingWordCount == this.startingWordCount &&
+          other.endingWordCount == this.endingWordCount &&
+          other.wordsAdded == this.wordsAdded &&
+          other.wordsRemoved == this.wordsRemoved &&
+          other.chapterId == this.chapterId &&
+          other.sceneId == this.sceneId);
+}
+
+class WritingSessionRowsCompanion extends UpdateCompanion<WritingSessionRow> {
+  final Value<String> id;
+  final Value<String> projectId;
+  final Value<DateTime> startedAt;
+  final Value<DateTime> endedAt;
+  final Value<int> durationSeconds;
+  final Value<int> startingWordCount;
+  final Value<int> endingWordCount;
+  final Value<int> wordsAdded;
+  final Value<int> wordsRemoved;
+  final Value<String?> chapterId;
+  final Value<String?> sceneId;
+  final Value<int> rowid;
+  const WritingSessionRowsCompanion({
+    this.id = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.startedAt = const Value.absent(),
+    this.endedAt = const Value.absent(),
+    this.durationSeconds = const Value.absent(),
+    this.startingWordCount = const Value.absent(),
+    this.endingWordCount = const Value.absent(),
+    this.wordsAdded = const Value.absent(),
+    this.wordsRemoved = const Value.absent(),
+    this.chapterId = const Value.absent(),
+    this.sceneId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  WritingSessionRowsCompanion.insert({
+    required String id,
+    required String projectId,
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required int durationSeconds,
+    required int startingWordCount,
+    required int endingWordCount,
+    required int wordsAdded,
+    required int wordsRemoved,
+    this.chapterId = const Value.absent(),
+    this.sceneId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        projectId = Value(projectId),
+        startedAt = Value(startedAt),
+        endedAt = Value(endedAt),
+        durationSeconds = Value(durationSeconds),
+        startingWordCount = Value(startingWordCount),
+        endingWordCount = Value(endingWordCount),
+        wordsAdded = Value(wordsAdded),
+        wordsRemoved = Value(wordsRemoved);
+  static Insertable<WritingSessionRow> custom({
+    Expression<String>? id,
+    Expression<String>? projectId,
+    Expression<DateTime>? startedAt,
+    Expression<DateTime>? endedAt,
+    Expression<int>? durationSeconds,
+    Expression<int>? startingWordCount,
+    Expression<int>? endingWordCount,
+    Expression<int>? wordsAdded,
+    Expression<int>? wordsRemoved,
+    Expression<String>? chapterId,
+    Expression<String>? sceneId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (projectId != null) 'project_id': projectId,
+      if (startedAt != null) 'started_at': startedAt,
+      if (endedAt != null) 'ended_at': endedAt,
+      if (durationSeconds != null) 'duration_seconds': durationSeconds,
+      if (startingWordCount != null) 'starting_word_count': startingWordCount,
+      if (endingWordCount != null) 'ending_word_count': endingWordCount,
+      if (wordsAdded != null) 'words_added': wordsAdded,
+      if (wordsRemoved != null) 'words_removed': wordsRemoved,
+      if (chapterId != null) 'chapter_id': chapterId,
+      if (sceneId != null) 'scene_id': sceneId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  WritingSessionRowsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? projectId,
+      Value<DateTime>? startedAt,
+      Value<DateTime>? endedAt,
+      Value<int>? durationSeconds,
+      Value<int>? startingWordCount,
+      Value<int>? endingWordCount,
+      Value<int>? wordsAdded,
+      Value<int>? wordsRemoved,
+      Value<String?>? chapterId,
+      Value<String?>? sceneId,
+      Value<int>? rowid}) {
+    return WritingSessionRowsCompanion(
+      id: id ?? this.id,
+      projectId: projectId ?? this.projectId,
+      startedAt: startedAt ?? this.startedAt,
+      endedAt: endedAt ?? this.endedAt,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      startingWordCount: startingWordCount ?? this.startingWordCount,
+      endingWordCount: endingWordCount ?? this.endingWordCount,
+      wordsAdded: wordsAdded ?? this.wordsAdded,
+      wordsRemoved: wordsRemoved ?? this.wordsRemoved,
+      chapterId: chapterId ?? this.chapterId,
+      sceneId: sceneId ?? this.sceneId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (startedAt.present) {
+      map['started_at'] = Variable<DateTime>(startedAt.value);
+    }
+    if (endedAt.present) {
+      map['ended_at'] = Variable<DateTime>(endedAt.value);
+    }
+    if (durationSeconds.present) {
+      map['duration_seconds'] = Variable<int>(durationSeconds.value);
+    }
+    if (startingWordCount.present) {
+      map['starting_word_count'] = Variable<int>(startingWordCount.value);
+    }
+    if (endingWordCount.present) {
+      map['ending_word_count'] = Variable<int>(endingWordCount.value);
+    }
+    if (wordsAdded.present) {
+      map['words_added'] = Variable<int>(wordsAdded.value);
+    }
+    if (wordsRemoved.present) {
+      map['words_removed'] = Variable<int>(wordsRemoved.value);
+    }
+    if (chapterId.present) {
+      map['chapter_id'] = Variable<String>(chapterId.value);
+    }
+    if (sceneId.present) {
+      map['scene_id'] = Variable<String>(sceneId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WritingSessionRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('endedAt: $endedAt, ')
+          ..write('durationSeconds: $durationSeconds, ')
+          ..write('startingWordCount: $startingWordCount, ')
+          ..write('endingWordCount: $endingWordCount, ')
+          ..write('wordsAdded: $wordsAdded, ')
+          ..write('wordsRemoved: $wordsRemoved, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('sceneId: $sceneId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   _$AuthorOsDatabase(QueryExecutor e) : super(e);
   $AuthorOsDatabaseManager get managers => $AuthorOsDatabaseManager(this);
@@ -5289,6 +5864,8 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   late final $RecordVersionRowsTable recordVersionRows =
       $RecordVersionRowsTable(this);
   late final $AuditEventRowsTable auditEventRows = $AuditEventRowsTable(this);
+  late final $WritingSessionRowsTable writingSessionRows =
+      $WritingSessionRowsTable(this);
   late final Index authorRecordsType = Index('author_records_type',
       'CREATE INDEX author_records_type ON author_record_rows (type_id)');
   late final Index authorRecordsScope = Index('author_records_scope',
@@ -5346,6 +5923,11 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
       'CREATE INDEX audit_events_change ON audit_event_rows (project_id, change_type)');
   late final Index auditEventsCreated = Index('audit_events_created',
       'CREATE INDEX audit_events_created ON audit_event_rows (project_id, created_at)');
+  late final Index writingSessionsProject = Index('writing_sessions_project',
+      'CREATE INDEX writing_sessions_project ON writing_session_rows (project_id)');
+  late final Index writingSessionsProjectStarted = Index(
+      'writing_sessions_project_started',
+      'CREATE INDEX writing_sessions_project_started ON writing_session_rows (project_id, started_at)');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5362,6 +5944,7 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         branchLinkOverlayRows,
         recordVersionRows,
         auditEventRows,
+        writingSessionRows,
         authorRecordsType,
         authorRecordsScope,
         authorRecordsProject,
@@ -5387,7 +5970,9 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         auditEventsSeriesBook,
         auditEventsBranch,
         auditEventsChange,
-        auditEventsCreated
+        auditEventsCreated,
+        writingSessionsProject,
+        writingSessionsProjectStarted
       ];
 }
 
@@ -9082,6 +9667,280 @@ typedef $$AuditEventRowsTableProcessedTableManager = ProcessedTableManager<
     ),
     AuditEventRow,
     PrefetchHooks Function()>;
+typedef $$WritingSessionRowsTableCreateCompanionBuilder
+    = WritingSessionRowsCompanion Function({
+  required String id,
+  required String projectId,
+  required DateTime startedAt,
+  required DateTime endedAt,
+  required int durationSeconds,
+  required int startingWordCount,
+  required int endingWordCount,
+  required int wordsAdded,
+  required int wordsRemoved,
+  Value<String?> chapterId,
+  Value<String?> sceneId,
+  Value<int> rowid,
+});
+typedef $$WritingSessionRowsTableUpdateCompanionBuilder
+    = WritingSessionRowsCompanion Function({
+  Value<String> id,
+  Value<String> projectId,
+  Value<DateTime> startedAt,
+  Value<DateTime> endedAt,
+  Value<int> durationSeconds,
+  Value<int> startingWordCount,
+  Value<int> endingWordCount,
+  Value<int> wordsAdded,
+  Value<int> wordsRemoved,
+  Value<String?> chapterId,
+  Value<String?> sceneId,
+  Value<int> rowid,
+});
+
+class $$WritingSessionRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $WritingSessionRowsTable> {
+  $$WritingSessionRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get startedAt => $composableBuilder(
+      column: $table.startedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get endedAt => $composableBuilder(
+      column: $table.endedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get durationSeconds => $composableBuilder(
+      column: $table.durationSeconds,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get startingWordCount => $composableBuilder(
+      column: $table.startingWordCount,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get endingWordCount => $composableBuilder(
+      column: $table.endingWordCount,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get wordsAdded => $composableBuilder(
+      column: $table.wordsAdded, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get wordsRemoved => $composableBuilder(
+      column: $table.wordsRemoved, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get chapterId => $composableBuilder(
+      column: $table.chapterId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get sceneId => $composableBuilder(
+      column: $table.sceneId, builder: (column) => ColumnFilters(column));
+}
+
+class $$WritingSessionRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $WritingSessionRowsTable> {
+  $$WritingSessionRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get startedAt => $composableBuilder(
+      column: $table.startedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get endedAt => $composableBuilder(
+      column: $table.endedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get durationSeconds => $composableBuilder(
+      column: $table.durationSeconds,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get startingWordCount => $composableBuilder(
+      column: $table.startingWordCount,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get endingWordCount => $composableBuilder(
+      column: $table.endingWordCount,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get wordsAdded => $composableBuilder(
+      column: $table.wordsAdded, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get wordsRemoved => $composableBuilder(
+      column: $table.wordsRemoved,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get chapterId => $composableBuilder(
+      column: $table.chapterId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get sceneId => $composableBuilder(
+      column: $table.sceneId, builder: (column) => ColumnOrderings(column));
+}
+
+class $$WritingSessionRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $WritingSessionRowsTable> {
+  $$WritingSessionRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get startedAt =>
+      $composableBuilder(column: $table.startedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get endedAt =>
+      $composableBuilder(column: $table.endedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get durationSeconds => $composableBuilder(
+      column: $table.durationSeconds, builder: (column) => column);
+
+  GeneratedColumn<int> get startingWordCount => $composableBuilder(
+      column: $table.startingWordCount, builder: (column) => column);
+
+  GeneratedColumn<int> get endingWordCount => $composableBuilder(
+      column: $table.endingWordCount, builder: (column) => column);
+
+  GeneratedColumn<int> get wordsAdded => $composableBuilder(
+      column: $table.wordsAdded, builder: (column) => column);
+
+  GeneratedColumn<int> get wordsRemoved => $composableBuilder(
+      column: $table.wordsRemoved, builder: (column) => column);
+
+  GeneratedColumn<String> get chapterId =>
+      $composableBuilder(column: $table.chapterId, builder: (column) => column);
+
+  GeneratedColumn<String> get sceneId =>
+      $composableBuilder(column: $table.sceneId, builder: (column) => column);
+}
+
+class $$WritingSessionRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $WritingSessionRowsTable,
+    WritingSessionRow,
+    $$WritingSessionRowsTableFilterComposer,
+    $$WritingSessionRowsTableOrderingComposer,
+    $$WritingSessionRowsTableAnnotationComposer,
+    $$WritingSessionRowsTableCreateCompanionBuilder,
+    $$WritingSessionRowsTableUpdateCompanionBuilder,
+    (
+      WritingSessionRow,
+      BaseReferences<_$AuthorOsDatabase, $WritingSessionRowsTable,
+          WritingSessionRow>
+    ),
+    WritingSessionRow,
+    PrefetchHooks Function()> {
+  $$WritingSessionRowsTableTableManager(
+      _$AuthorOsDatabase db, $WritingSessionRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$WritingSessionRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$WritingSessionRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$WritingSessionRowsTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> projectId = const Value.absent(),
+            Value<DateTime> startedAt = const Value.absent(),
+            Value<DateTime> endedAt = const Value.absent(),
+            Value<int> durationSeconds = const Value.absent(),
+            Value<int> startingWordCount = const Value.absent(),
+            Value<int> endingWordCount = const Value.absent(),
+            Value<int> wordsAdded = const Value.absent(),
+            Value<int> wordsRemoved = const Value.absent(),
+            Value<String?> chapterId = const Value.absent(),
+            Value<String?> sceneId = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              WritingSessionRowsCompanion(
+            id: id,
+            projectId: projectId,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationSeconds: durationSeconds,
+            startingWordCount: startingWordCount,
+            endingWordCount: endingWordCount,
+            wordsAdded: wordsAdded,
+            wordsRemoved: wordsRemoved,
+            chapterId: chapterId,
+            sceneId: sceneId,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String projectId,
+            required DateTime startedAt,
+            required DateTime endedAt,
+            required int durationSeconds,
+            required int startingWordCount,
+            required int endingWordCount,
+            required int wordsAdded,
+            required int wordsRemoved,
+            Value<String?> chapterId = const Value.absent(),
+            Value<String?> sceneId = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              WritingSessionRowsCompanion.insert(
+            id: id,
+            projectId: projectId,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationSeconds: durationSeconds,
+            startingWordCount: startingWordCount,
+            endingWordCount: endingWordCount,
+            wordsAdded: wordsAdded,
+            wordsRemoved: wordsRemoved,
+            chapterId: chapterId,
+            sceneId: sceneId,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$WritingSessionRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $WritingSessionRowsTable,
+    WritingSessionRow,
+    $$WritingSessionRowsTableFilterComposer,
+    $$WritingSessionRowsTableOrderingComposer,
+    $$WritingSessionRowsTableAnnotationComposer,
+    $$WritingSessionRowsTableCreateCompanionBuilder,
+    $$WritingSessionRowsTableUpdateCompanionBuilder,
+    (
+      WritingSessionRow,
+      BaseReferences<_$AuthorOsDatabase, $WritingSessionRowsTable,
+          WritingSessionRow>
+    ),
+    WritingSessionRow,
+    PrefetchHooks Function()>;
 
 class $AuthorOsDatabaseManager {
   final _$AuthorOsDatabase _db;
@@ -9112,4 +9971,6 @@ class $AuthorOsDatabaseManager {
       $$RecordVersionRowsTableTableManager(_db, _db.recordVersionRows);
   $$AuditEventRowsTableTableManager get auditEventRows =>
       $$AuditEventRowsTableTableManager(_db, _db.auditEventRows);
+  $$WritingSessionRowsTableTableManager get writingSessionRows =>
+      $$WritingSessionRowsTableTableManager(_db, _db.writingSessionRows);
 }

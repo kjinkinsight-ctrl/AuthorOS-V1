@@ -16,12 +16,15 @@ import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
 import 'map_studio_view.dart';
+import 'navigation/authoros_router.dart';
 import 'onboarding.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
+import 'platform/url_strategy.dart';
 import 'release_destinations.dart';
 import 'research_service.dart';
 import 'research_studio_view.dart';
+import 'startup_status.dart';
 import 'supabase_service.dart';
 import 'timeline_studio_view.dart';
 import 'plot_studio_view.dart';
@@ -38,7 +41,34 @@ import 'theme/theme_tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Real URL paths rather than hash routes, so `/manuscript` is what an author
+  // sees, bookmarks, and shares. No-op off the web. See
+  // `lib/platform/url_strategy.dart`.
+  configureUrlStrategy();
+
+  // A widget that throws while building would otherwise paint Flutter's grey
+  // "red screen" replacement in release -- or, in a browser, nothing at all.
+  // Authors get an AuthorOS surface instead. The framework has already logged
+  // the real error by the time this runs, so nothing is hidden.
+  ErrorWidget.builder = (details) => StartupFailureScreen(
+        message: 'Something in AuthorOS stopped responding.',
+        detail: details.exceptionAsString(),
+        onRetry: _reloadApp,
+        onReturnToStart: _reloadApp,
+      );
+
   await AppSupabase.initialize();
+  runApp(const AuthorStudioApp());
+}
+
+/// Rebuilds the application from scratch after a failure.
+///
+/// Nothing here is persistent state, so tearing the tree down and starting
+/// again is enough to recover from a transient failure -- a database that was
+/// not ready, a preference read that timed out -- without asking the author to
+/// find the reload button themselves.
+void _reloadApp() {
   runApp(const AuthorStudioApp());
 }
 
@@ -206,6 +236,22 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
   ThemeSelection? _themeSelection;
   ResolvedTheme? _resolvedTheme;
 
+  /// Why the theme could not be read, if it could not.
+  ///
+  /// Reading the theme is the first thing AuthorOS does, and on the web it is
+  /// the first thing that can fail for a reason the author did not cause --
+  /// browser storage refused in a private window, for instance. Holding the
+  /// error lets the app say so rather than sit on a loading screen.
+  Object? _startupError;
+
+  /// Where the author is, and what the address bar says.
+  ///
+  /// Created once and kept for the life of the app: recreating it would drop
+  /// the current section and reset the URL on every theme change.
+  late final AuthorOsRouterDelegate _routerDelegate;
+
+  static const _routeParser = AuthorOsRouteParser();
+
   ThemeBrightness get _hostBrightness =>
       WidgetsBinding.instance.platformDispatcher.platformBrightness ==
               Brightness.dark
@@ -216,6 +262,7 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _routerDelegate = AuthorOsRouterDelegate(builder: _buildForRoute);
     _loadThemeSelection();
   }
 
@@ -237,20 +284,50 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
   }
 
   Future<void> _loadThemeSelection() async {
-    final engine = ThemeEngine.standard(
-      store: await SharedPreferencesThemeStore.load(),
-    );
-    final selection = await engine.load();
-    final resolved = await engine.resolve(hostBrightness: _hostBrightness);
-    if (!mounted) {
-      return;
+    try {
+      final engine = ThemeEngine.standard(
+        store: await SharedPreferencesThemeStore.load(),
+      );
+      final selection = await engine.load();
+      final resolved = await engine.resolve(hostBrightness: _hostBrightness);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _themeEngine = engine;
+        _themeSelection = selection;
+        _resolvedTheme = resolved;
+        _startupError = null;
+        _loadingTheme = false;
+      });
+    } catch (error, stackTrace) {
+      // Reported to the framework so it reaches the console and any crash
+      // handler, then shown to the author as a workspace that would not open.
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'AuthorOS startup',
+          context: ErrorDescription('while loading the theme selection'),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _startupError = error;
+        _loadingTheme = false;
+      });
     }
+  }
+
+  /// Retries the theme load after a failure.
+  void _retryStartup() {
     setState(() {
-      _themeEngine = engine;
-      _themeSelection = selection;
-      _resolvedTheme = resolved;
-      _loadingTheme = false;
+      _startupError = null;
+      _loadingTheme = true;
     });
+    unawaited(_loadThemeSelection());
   }
 
   Future<void> _resolveCurrentTheme() async {
@@ -310,40 +387,65 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
 
   @override
   Widget build(BuildContext context) {
-    final themeData = _buildThemeData();
+    // One app, one Router, from the very first frame -- including while the
+    // theme is still loading and if it fails.
+    //
+    // Showing a plain `MaterialApp` for those states looked harmless and was
+    // not: a plain MaterialApp installs its own Navigator, which on the web
+    // reports its `/` route to the browser and overwrites the address an author
+    // arrived on. Opening `/plot` and refreshing landed back at `/`, which is
+    // the whole feature failing quietly at the one moment it is needed.
+    return MaterialApp.router(
+      debugShowCheckedModeBanner: false,
+      title: 'AuthorOS',
+      theme: _buildThemeData(),
+      routerDelegate: _routerDelegate,
+      routeInformationParser: _routeParser,
+    );
+  }
 
-    if (_loadingTheme || _resolvedTheme == null || _themeSelection == null) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'AuthorOS',
-        theme: themeData,
-        home: const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+  /// Builds the application for whatever section the router is pointing at.
+  ///
+  /// The router decides *where*; this still decides *what an author in that
+  /// state should see*, which is the same startup gate as before. A section in
+  /// the URL does not skip signing in -- it is remembered through the gate and
+  /// honoured once the workspace opens.
+  Widget _buildForRoute(
+    BuildContext context,
+    AuthorOsRouterDelegate delegate,
+  ) {
+    final startupError = _startupError;
+    if (startupError != null) {
+      return StartupFailureScreen(
+        detail: startupError.toString(),
+        onRetry: _retryStartup,
+        onReturnToStart: _retryStartup,
       );
     }
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'AuthorOS',
-      theme: themeData,
-      home: StudioThemeScope(
-        theme: _resolvedTheme!,
-        studio: StudioId.shell,
-        child: _OnboardingBootstrap(
-          store: widget.store,
-          manuscriptStore: widget.manuscriptStore,
-          themeSelection: _themeSelection!,
-          onThemeSelectionChanged: (selection) {
-            unawaited(_applySelection(selection));
-          },
-          themeId: _themeSelection!.themeId,
-          accentId: _themeSelection!.accentId,
-          onThemeChanged: (themeId, accentId) {
-            unawaited(_handleLegacyThemeChanged(themeId, accentId));
-          },
-          showWelcome: widget.showWelcome,
-        ),
+    if (_loadingTheme || _resolvedTheme == null || _themeSelection == null) {
+      return const StartupLoadingScreen();
+    }
+
+    return StudioThemeScope(
+      theme: _resolvedTheme!,
+      studio: StudioId.shell,
+      child: _OnboardingBootstrap(
+        store: widget.store,
+        manuscriptStore: widget.manuscriptStore,
+        themeSelection: _themeSelection!,
+        onThemeSelectionChanged: (selection) {
+          unawaited(_applySelection(selection));
+        },
+        themeId: _themeSelection!.themeId,
+        accentId: _themeSelection!.accentId,
+        onThemeChanged: (themeId, accentId) {
+          unawaited(_handleLegacyThemeChanged(themeId, accentId));
+        },
+        showWelcome: widget.showWelcome,
+        requestedSection: delegate.pendingSection,
+        onSectionChanged: delegate.goToSection,
+        onLeaveWorkspace: delegate.returnToStartup,
       ),
     );
   }
@@ -359,7 +461,25 @@ class _OnboardingBootstrap extends StatefulWidget {
     required this.accentId,
     required this.onThemeChanged,
     this.showWelcome = true,
+    this.requestedSection,
+    this.onSectionChanged,
+    this.onLeaveWorkspace,
   });
+
+  /// The section the URL is asking for, if any.
+  ///
+  /// A cold load of `/manuscript` still has to pass the startup gate, so this
+  /// survives sign-in and is handed to the shell when the workspace opens.
+  /// Without it every deep link would resolve to the default section, which is
+  /// the same as having no deep links at all.
+  final StudioSection? requestedSection;
+
+  /// Reports the section the author moved to, so the URL can follow.
+  final ValueChanged<StudioSection>? onSectionChanged;
+
+  /// Called when the author leaves the workspace, so the URL stops pointing
+  /// into a workspace that is no longer open.
+  final VoidCallback? onLeaveWorkspace;
 
   final OnboardingStore store;
   final ManuscriptStore manuscriptStore;
@@ -520,9 +640,13 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       startSprint = false;
       // Signing back in passes through the opening page again.
       welcomeDismissed = false;
+      welcomeTarget = null;
       existingProfileName = storedName.isEmpty ? null : storedName;
       existingProfileEmail = storedEmail.isEmpty ? null : storedEmail;
     });
+    // The address bar should stop pointing into a workspace that is no longer
+    // open -- otherwise signing out leaves a link straight back into it.
+    widget.onLeaveWorkspace?.call();
   }
 
   /// Set once the author leaves the welcome page, so returning to the shell
@@ -538,9 +662,18 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   /// own section yet -- templates and recent projects both live in Projects,
   /// and "continue writing" drops straight into the manuscript.
   void _openFromWelcome(WelcomeAction action) {
+    final target = _sectionForWelcomeAction(action);
     setState(() {
       welcomeDismissed = true;
-      welcomeTarget = switch (action) {
+      welcomeTarget = target;
+    });
+    // Entering the workspace from the launcher is the first thing that gives
+    // the author an address worth keeping, so the URL follows it too.
+    widget.onSectionChanged?.call(target);
+  }
+
+  StudioSection _sectionForWelcomeAction(WelcomeAction action) =>
+      switch (action) {
         WelcomeAction.openProject ||
         WelcomeAction.newProject ||
         WelcomeAction.recentProjects ||
@@ -554,15 +687,11 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
         WelcomeAction.continueWriting =>
           StudioSection.manuscript,
       };
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const StartupLoadingScreen();
     }
 
     // Startup asks who is entering before anything else is shown. Only once a
@@ -582,10 +711,17 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       );
     }
 
-    // The welcome page is now the authenticated landing page: it greets the
-    // author who just signed in, then falls through to whichever step is still
+    // The welcome page is the authenticated landing page: it greets the author
+    // who just signed in, then falls through to whichever step is still
     // outstanding -- the first project, or the studio itself.
-    if (widget.showWelcome && !welcomeDismissed) {
+    //
+    // It is skipped when the URL already names a section. An author opening a
+    // bookmark has said where they are going; greeting them and asking again
+    // is the difference between a link that works and a link that merely gets
+    // you into the app.
+    if (widget.showWelcome &&
+        !welcomeDismissed &&
+        widget.requestedSection == null) {
       return WelcomePage(
         onAction: _openFromWelcome,
         authorName: existingProfileName,
@@ -612,7 +748,13 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       accentId: widget.accentId,
       onThemeChanged: widget.onThemeChanged,
       onLogout: _logoutToProfileSelection,
-      initialSection: welcomeTarget,
+      // Two things can name a section: the URL the author arrived on, and the
+      // launcher button they pressed. The URL wins, because it is the more
+      // recent statement of intent in every case that matters -- a pasted
+      // link, a bookmark, browser back -- and the launcher's choice is written
+      // to the URL the moment it is made, so the two agree from then on.
+      initialSection: widget.requestedSection ?? welcomeTarget,
+      onSectionChanged: widget.onSectionChanged,
     );
   }
 }
@@ -640,6 +782,34 @@ enum StudioSection {
 }
 
 extension StudioSectionData on StudioSection {
+  /// The section's address, the part of the URL after the origin.
+  ///
+  /// Written out rather than derived from [name] so that renaming an enum
+  /// value, or reordering the enum, never silently invalidates a link an
+  /// author has bookmarked or shared. A slug is a published contract; the
+  /// Dart identifier beside it is not.
+  String get slug => switch (this) {
+        StudioSection.dashboard => 'dashboard',
+        StudioSection.worldBoard => 'world-board',
+        StudioSection.search => 'search',
+        StudioSection.statistics => 'statistics',
+        StudioSection.analytics => 'analytics',
+        StudioSection.backup => 'backup',
+        StudioSection.projects => 'projects',
+        StudioSection.ideas => 'ideas',
+        StudioSection.manuscript => 'manuscript',
+        StudioSection.chapters => 'chapters',
+        StudioSection.characters => 'characters',
+        StudioSection.codex => 'story-codex',
+        StudioSection.world => 'world',
+        StudioSection.map => 'map',
+        StudioSection.plot => 'plot',
+        StudioSection.timeline => 'timeline',
+        StudioSection.research => 'research',
+        StudioSection.notes => 'notes',
+        StudioSection.settings => 'settings',
+      };
+
   String get label => switch (this) {
         StudioSection.dashboard => 'Dashboard',
         StudioSection.worldBoard => 'World Board',
@@ -685,6 +855,22 @@ extension StudioSectionData on StudioSection {
       };
 }
 
+/// Finds the section a URL slug addresses, or null if it addresses nothing.
+///
+/// Unknown slugs are a normal thing to receive -- a stale bookmark, a typo, a
+/// link from a build where the section had a different name -- so this reports
+/// "no such section" rather than throwing, and callers decide where to send
+/// the author instead.
+StudioSection? studioSectionForSlug(String slug) {
+  final normalized = slug.trim().toLowerCase();
+  for (final section in StudioSection.values) {
+    if (section.slug == normalized) {
+      return section;
+    }
+  }
+  return null;
+}
+
 Future<void> _defaultLogout() async {}
 
 class AuthorStudioShell extends StatefulWidget {
@@ -701,14 +887,23 @@ class AuthorStudioShell extends StatefulWidget {
     this.manuscriptStore = const ManuscriptStore(),
     this.onLogout = _defaultLogout,
     this.initialSection,
+    this.onSectionChanged,
   });
 
   final StarterProject project;
   final bool openFirstDraft;
   final bool startSprint;
 
-  /// Section to open on first build; defaults to the manuscript.
+  /// Section to show. Re-supplying a different one moves the shell there, so
+  /// the URL can drive it; null keeps whatever the shell is already showing.
   final StudioSection? initialSection;
+
+  /// Reports a section the author chose from the navigation.
+  ///
+  /// Null when nothing outside the shell cares -- a test driving it directly,
+  /// for instance. When the router supplies it, this is what puts the section
+  /// in the address bar and in browser history.
+  final ValueChanged<StudioSection>? onSectionChanged;
   final ThemeSelection? themeSelection;
   final ValueChanged<ThemeSelection>? onThemeSelectionChanged;
   final String themeId;
@@ -721,9 +916,50 @@ class AuthorStudioShell extends StatefulWidget {
   State<AuthorStudioShell> createState() => _AuthorStudioShellState();
 }
 
+/// How much room the shell has, and therefore which navigation it shows.
+///
+/// AuthorOS has one navigation architecture -- the sections in
+/// [_AuthorStudioShellState.sections], drawn by [_NavigationGroup] and
+/// [_NavigationTile]. This decides how much of it is on screen at once, not
+/// what it contains.
+enum ShellLayout {
+  /// Full sidebar beside the workspace: labelled tiles, grouped, always
+  /// visible. What a desktop window and a maximised browser get.
+  expanded,
+
+  /// The same tiles collapsed to an icon rail. Every section is still one
+  /// click away and the workspace gets back the ~200px the labels were using.
+  /// What a small laptop or a landscape tablet gets.
+  rail,
+
+  /// Navigation moves into a drawer behind a menu button in the top bar, so
+  /// the workspace has the whole width. What a portrait tablet and anything
+  /// narrower gets.
+  drawer;
+
+  /// Chooses the layout for a shell [width].
+  ///
+  /// The thresholds are derived from what the workspace needs rather than from
+  /// device names. The sidebar occupies 312px including its margins and the
+  /// rail 108px, and the workspace itself wants roughly 820px before its
+  /// studios start crowding -- so the sidebar is affordable from 1180px, the
+  /// rail from 820px, and below that neither is.
+  static ShellLayout forWidth(double width) {
+    if (width >= expandedBreakpoint) return ShellLayout.expanded;
+    if (width >= railBreakpoint) return ShellLayout.rail;
+    return ShellLayout.drawer;
+  }
+
+  static const double expandedBreakpoint = 1180;
+  static const double railBreakpoint = 820;
+}
+
 class _AuthorStudioShellState extends State<AuthorStudioShell> {
   int selectedIndex = 0;
   bool focusModeEnabled = false;
+
+  /// Opens the navigation drawer at widths where it is the only navigation.
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
@@ -758,15 +994,45 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   @override
   void initState() {
     super.initState();
-    final requested = widget.initialSection ?? StudioSection.manuscript;
-    final index = sections.indexOf(requested);
-    selectedIndex = index >= 0 ? index : sections.indexOf(StudioSection.manuscript);
+    selectedIndex = _indexFor(widget.initialSection);
+  }
+
+  @override
+  void didUpdateWidget(AuthorStudioShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The section can now change from outside -- browser back, a pasted URL, a
+    // restored bookmark -- so the shell follows it rather than only reading it
+    // once at startup.
+    final requested = widget.initialSection;
+    if (requested != null && requested != oldWidget.initialSection) {
+      final index = sections.indexOf(requested);
+      if (index >= 0 && index != selectedIndex) {
+        setState(() => selectedIndex = index);
+      }
+    }
+  }
+
+  int _indexFor(StudioSection? section) {
+    final index = sections.indexOf(section ?? StudioSection.manuscript);
+    return index >= 0 ? index : sections.indexOf(StudioSection.manuscript);
   }
 
   void _selectSection(StudioSection section) {
     final index = sections.indexOf(section);
     if (index >= 0) {
+      _selectIndex(index);
+    }
+  }
+
+  /// Selects by index, tells whoever is listening, and closes the drawer if the
+  /// choice came from inside it.
+  void _selectIndex(int index, {bool fromDrawer = false}) {
+    if (index != selectedIndex) {
       setState(() => selectedIndex = index);
+      widget.onSectionChanged?.call(sections[index]);
+    }
+    if (fromDrawer && (_scaffoldKey.currentState?.isDrawerOpen ?? false)) {
+      Navigator.of(context).pop();
     }
   }
 
@@ -778,7 +1044,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 980;
+        final layout = ShellLayout.forWidth(constraints.maxWidth);
         final currentSection = sections[selectedIndex];
         final theme = Theme.of(context);
 
@@ -871,16 +1137,30 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
           );
         }
 
+        // Only the drawer layout hangs navigation off the Scaffold; giving the
+        // other two a drawer as well would put a menu button in a top bar that
+        // already has the sidebar beside it.
+        final usesDrawer = layout == ShellLayout.drawer;
+
         return Scaffold(
+          key: _scaffoldKey,
+          drawer: usesDrawer
+              ? _NavigationDrawerPanel(
+                  sections: sections,
+                  selectedIndex: selectedIndex,
+                  onSelected: (index) =>
+                      _selectIndex(index, fromDrawer: true),
+                )
+              : null,
           body: SafeArea(
             child: Row(
               children: [
-                if (isWide)
+                if (layout != ShellLayout.drawer)
                   _DesktopNavigation(
                     sections: sections,
                     selectedIndex: selectedIndex,
-                    onSelected: (index) =>
-                        setState(() => selectedIndex = index),
+                    onSelected: _selectIndex,
+                    collapsed: layout == ShellLayout.rail,
                   ),
                 Expanded(
                   child: Padding(
@@ -892,10 +1172,20 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
                           onNavigate: _selectSection,
                           focusMode: false,
                           onToggleFocus: _toggleFocusMode,
+                          // Non-null only in the drawer layout, where the top
+                          // bar is the only way back to the section list.
+                          onOpenNavigation: usesDrawer
+                              ? () => _scaffoldKey.currentState?.openDrawer()
+                              : null,
                         ),
                         Expanded(
                           child: Container(
-                            margin: const EdgeInsets.fromLTRB(12, 0, 0, 0),
+                            margin: EdgeInsets.fromLTRB(
+                              usesDrawer ? 0 : 12,
+                              0,
+                              0,
+                              0,
+                            ),
                             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                             decoration: BoxDecoration(
                               color: theme.colorScheme.surface.withValues(
@@ -909,13 +1199,6 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
                             child: content,
                           ),
                         ),
-                        if (!isWide)
-                          _MobileNavigation(
-                            sections: sections,
-                            selectedIndex: selectedIndex,
-                            onSelected: (index) =>
-                                setState(() => selectedIndex = index),
-                          ),
                       ],
                     ),
                   ),
@@ -935,12 +1218,19 @@ class _TopBar extends StatelessWidget {
     required this.onNavigate,
     required this.focusMode,
     required this.onToggleFocus,
+    this.onOpenNavigation,
   });
 
   final StudioSection section;
   final ValueChanged<StudioSection> onNavigate;
   final bool focusMode;
   final VoidCallback onToggleFocus;
+
+  /// Opens the navigation drawer, in the one layout that has one.
+  ///
+  /// Null wherever the sidebar or the rail is already on screen, which is also
+  /// what tells the bar it has the room for the full workspace heading.
+  final VoidCallback? onOpenNavigation;
 
   @override
   Widget build(BuildContext context) {
@@ -983,33 +1273,50 @@ class _TopBar extends StatelessWidget {
       ),
     ];
 
+    // In the drawer layout the bar has to fit a menu button and the same five
+    // actions into a phone-width row, so the logo and the tagline give up
+    // their space to the section the author is actually in.
+    final compact = onOpenNavigation != null;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 20, 12),
+      padding: EdgeInsets.fromLTRB(compact ? 4 : 16, 18, 20, 12),
       child: Row(
         children: [
-          const _AppMark(),
-          const SizedBox(width: 16),
+          if (onOpenNavigation != null)
+            IconButton(
+              key: const Key('open-navigation'),
+              icon: const Icon(Icons.menu_rounded),
+              tooltip: 'Open navigation',
+              onPressed: onOpenNavigation,
+            )
+          else ...[
+            const _AppMark(),
+            const SizedBox(width: 16),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'AuthorOS',
+                  compact ? section.label : 'AuthorOS',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
-                Text(
-                  focusMode
-                      ? 'Focused drafting mode'
-                      : 'Write with structure, continuity, and momentum',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                if (!compact)
+                  Text(
+                    focusMode
+                        ? 'Focused drafting mode'
+                        : 'Write with structure, continuity, and momentum',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1164,16 +1471,27 @@ class _AppMark extends StatelessWidget {
   }
 }
 
+/// The sidebar beside the workspace, in either of its two widths.
+///
+/// Collapsed, it is the same list of sections with the labels taken away
+/// rather than a different navigation: identical order, identical grouping,
+/// identical selection, and Settings still pinned at the foot. Each tile keeps
+/// its label as a tooltip and as its accessible name, so nothing is lost to a
+/// screen reader or to a pointer that hovers.
 class _DesktopNavigation extends StatelessWidget {
   const _DesktopNavigation({
     required this.sections,
     required this.selectedIndex,
     required this.onSelected,
+    this.collapsed = false,
   });
 
   final List<StudioSection> sections;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+
+  /// Whether to show the icon rail rather than the full labelled sidebar.
+  final bool collapsed;
 
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
@@ -1204,75 +1522,177 @@ class _DesktopNavigation extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      width: 280,
+      width: collapsed ? 76 : 280,
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
+      child: _NavigationBody(
+        sections: sections,
+        selectedIndex: selectedIndex,
+        onSelected: onSelected,
+        collapsed: collapsed,
+      ),
+    );
+  }
+}
+
+/// The contents of the navigation, shared by the sidebar, the rail, and the
+/// drawer.
+///
+/// Having one widget build all three is what keeps AuthorOS to a single
+/// navigation: adding a section to [StudioSection] puts it in every layout at
+/// once, in the same group and the same order, with Settings still pinned
+/// below the scrolling groups.
+class _NavigationBody extends StatelessWidget {
+  const _NavigationBody({
+    required this.sections,
+    required this.selectedIndex,
+    required this.onSelected,
+    this.collapsed = false,
+  });
+
+  final List<StudioSection> sections;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final bool collapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    final settingsIndex = sections.indexOf(StudioSection.settings);
+    final padding = collapsed
+        ? const EdgeInsets.fromLTRB(8, 0, 8, 12)
+        : const EdgeInsets.fromLTRB(12, 0, 12, 12);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _NavigationHeader(collapsed: collapsed),
+        Expanded(
+          child: ListView(
+            padding: padding,
+            children: [
+              _NavigationGroup(
+                label: 'WORKSPACE',
+                items: _DesktopNavigation.workspaceSections,
+                selectedIndex: selectedIndex,
+                onSelected: onSelected,
+                sections: sections,
+                collapsed: collapsed,
+              ),
+              const SizedBox(height: 16),
+              _NavigationGroup(
+                label: 'STORY',
+                items: _DesktopNavigation.storySections,
+                selectedIndex: selectedIndex,
+                onSelected: onSelected,
+                sections: sections,
+                collapsed: collapsed,
+              ),
+            ],
+          ),
+        ),
+        // Settings is pinned below the scrolling groups so it stays
+        // reachable however many Studios the workspace grows to hold.
+        Padding(
+          padding: padding,
+          child: _NavigationTile(
+            section: StudioSection.settings,
+            isSelected: selectedIndex == settingsIndex,
+            onTap: () => onSelected(settingsIndex),
+            collapsed: collapsed,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The AuthorOS mark at the top of the navigation, in either width.
+///
+/// Collapsed there is no room for the wordmark, so the monogram carries the
+/// identity and the full name moves into its tooltip.
+class _NavigationHeader extends StatelessWidget {
+  const _NavigationHeader({required this.collapsed});
+
+  final bool collapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (collapsed) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(0, 20, 0, 14),
+        child: Center(
+          child: Tooltip(
+            message: 'AuthorOS workspace',
+            child: Text(
+              'A',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'WORKSPACE',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.primary,
-                    letterSpacing: 1.2,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'AuthorOS',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-              ],
+          Text(
+            'WORKSPACE',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.primary,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              children: [
-                _NavigationGroup(
-                  label: 'WORKSPACE',
-                  items: workspaceSections,
-                  selectedIndex: selectedIndex,
-                  onSelected: onSelected,
-                  sections: sections,
-                ),
-                const SizedBox(height: 16),
-                _NavigationGroup(
-                  label: 'STORY',
-                  items: storySections,
-                  selectedIndex: selectedIndex,
-                  onSelected: onSelected,
-                  sections: sections,
-                ),
-              ],
-            ),
-          ),
-          // Settings is pinned below the scrolling groups so it stays
-          // reachable however many Studios the workspace grows to hold.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: _NavigationTile(
-              section: StudioSection.settings,
-              isSelected:
-                  selectedIndex == sections.indexOf(StudioSection.settings),
-              onTap: () => onSelected(sections.indexOf(StudioSection.settings)),
+          const SizedBox(height: 8),
+          Text(
+            'AuthorOS',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: theme.colorScheme.onSurface,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Navigation for the narrowest layout, where the workspace needs the whole
+/// width and the sections live behind the top bar's menu button.
+class _NavigationDrawerPanel extends StatelessWidget {
+  const _NavigationDrawerPanel({
+    required this.sections,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<StudioSection> sections;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: SafeArea(
+        child: _NavigationBody(
+          sections: sections,
+          selectedIndex: selectedIndex,
+          onSelected: onSelected,
+        ),
       ),
     );
   }
@@ -1285,6 +1705,7 @@ class _NavigationGroup extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.sections,
+    this.collapsed = false,
   });
 
   final String label;
@@ -1292,6 +1713,7 @@ class _NavigationGroup extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final List<StudioSection> sections;
+  final bool collapsed;
 
   @override
   Widget build(BuildContext context) {
@@ -1300,23 +1722,36 @@ class _NavigationGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
-          child: Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.primary,
-              letterSpacing: 1.2,
-              fontWeight: FontWeight.w700,
+        // Collapsed, the group heading would not fit and would only repeat
+        // what the rule already says, so a divider carries the grouping.
+        if (collapsed)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: theme.colorScheme.outlineVariant,
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
+            child: Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-        ),
         ...items.map((section) {
           final sectionIndex = sections.indexOf(section);
           return _NavigationTile(
             section: section,
             isSelected: sectionIndex == selectedIndex,
             onTap: () => onSelected(sectionIndex),
+            collapsed: collapsed,
           );
         }),
       ],
@@ -1329,17 +1764,24 @@ class _NavigationTile extends StatelessWidget {
     required this.section,
     required this.isSelected,
     required this.onTap,
+    this.collapsed = false,
   });
 
   final StudioSection section;
   final bool isSelected;
   final VoidCallback onTap;
 
+  /// Whether to draw the icon alone, with the label moved into a tooltip.
+  final bool collapsed;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final foreground = isSelected
+        ? theme.colorScheme.onPrimaryContainer
+        : theme.colorScheme.onSurface;
 
-    return Padding(
+    final tile = Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Material(
         color: isSelected
@@ -1349,97 +1791,53 @@ class _NavigationTile extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
+          // Without this a keyboard user tabbing the rail has no idea which
+          // section they are on, since the icon alone carries no focus cue.
+          focusColor: theme.colorScheme.primary.withValues(alpha: 0.18),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: collapsed
+                ? const EdgeInsets.symmetric(horizontal: 8, vertical: 11)
+                : const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             child: Row(
+              mainAxisAlignment: collapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
               children: [
-                Icon(
-                  section.icon,
-                  color: isSelected
-                      ? theme.colorScheme.onPrimaryContainer
-                      : theme.colorScheme.onSurface,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    section.label,
-                    style: TextStyle(
-                      color: isSelected
-                          ? theme.colorScheme.onPrimaryContainer
-                          : theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
+                Icon(section.icon, color: foreground),
+                if (!collapsed) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      section.label,
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
         ),
       ),
     );
-  }
-}
 
-class _MobileNavigation extends StatelessWidget {
-  const _MobileNavigation({
-    required this.sections,
-    required this.selectedIndex,
-    required this.onSelected,
-  });
+    if (!collapsed) {
+      return tile;
+    }
 
-  final List<StudioSection> sections;
-  final int selectedIndex;
-  final ValueChanged<int> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      height: 88,
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        itemCount: sections.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final section = sections[index];
-          final isSelected = index == selectedIndex;
-          return ChoiceChip(
-            selected: isSelected,
-            onSelected: (_) => onSelected(index),
-            label: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  section.icon,
-                  size: 18,
-                  color: isSelected
-                      ? theme.colorScheme.onPrimaryContainer
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(section.label),
-              ],
-            ),
-            backgroundColor: theme.colorScheme.surface,
-            selectedColor: theme.colorScheme.primaryContainer,
-            labelStyle: TextStyle(
-              color: isSelected
-                  ? theme.colorScheme.onPrimaryContainer
-                  : theme.colorScheme.onSurface,
-              fontWeight: FontWeight.w600,
-            ),
-            side: BorderSide(color: theme.colorScheme.outlineVariant),
-          );
-        },
+    // The label is the only thing the rail drops, so it is put back twice: as
+    // a tooltip for a pointer, and as the accessible name for anything reading
+    // the tree, which would otherwise announce an unnamed button.
+    return Tooltip(
+      message: section.label,
+      waitDuration: const Duration(milliseconds: 400),
+      child: Semantics(
+        label: section.label,
+        selected: isSelected,
+        button: true,
+        child: tile,
       ),
     );
   }
@@ -2121,7 +2519,9 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
-                          ?.copyWith(color: Colors.white60),
+                          ?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -2315,7 +2715,8 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                       Text(
                         authorFocus,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white70,
+                              color:
+                                  Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                       ),
                       const SizedBox(height: 8),
@@ -2324,7 +2725,8 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white60,
+                              color:
+                                  Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                       ),
                     ],
@@ -2351,7 +2753,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                   Text(
                     'Template-aware project creation and project hub workflows.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                   ),
                 ],
@@ -2444,7 +2846,9 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                                     .textTheme
                                     .bodySmall
                                     ?.copyWith(
-                                      color: Colors.white70,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
@@ -2500,7 +2904,11 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
-                              ?.copyWith(color: Colors.white70),
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
                         ),
                       ),
                     ),
@@ -2549,7 +2957,11 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
                             ),
                             const SizedBox(height: 10),
                             Text(
@@ -2557,7 +2969,11 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
-                                  ?.copyWith(color: Colors.white54),
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
                             ),
                           ],
                         ),
@@ -2866,7 +3282,7 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                   Text(
                     'Capture, filter, and revise notes across your writing workspace.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                   ),
                 ],
@@ -2961,8 +3377,8 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                               ? Icons.push_pin
                               : Icons.sticky_note_2_outlined,
                           color: note.pinned
-                              ? const Color(0xFFC59B6D)
-                              : Colors.white70,
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                         title: Text(note.title),
                         subtitle: Text('${note.type} | ${note.status}'),
@@ -3034,7 +3450,11 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
-                              ?.copyWith(color: Colors.white70),
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
                         ),
                       ),
                     ),
@@ -3074,7 +3494,11 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
                             ),
                           ],
                         ),

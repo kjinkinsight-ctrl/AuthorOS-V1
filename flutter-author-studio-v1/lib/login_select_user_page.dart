@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'author_profile_store.dart';
 import 'startup_authentication.dart';
 import 'startup_backdrop.dart';
+import 'startup_status.dart';
 
 /// The cold-start screen: choose who enters the world of AuthorOS.
 class LoginSelectUserPage extends StatefulWidget {
@@ -89,6 +90,49 @@ class _LoginSelectUserPageState extends State<LoginSelectUserPage> {
     );
   }
 
+  /// Confirms before clearing everything this device holds.
+  ///
+  /// The action erases every local profile and the saved project, and there is
+  /// no undo. On a public web deployment it sits one tap from the sign-in
+  /// screen, where a curious visitor can reach it, so it asks first and names
+  /// what it will take.
+  Future<void> _confirmReset() async {
+    final palette = StartupPalette.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('startup-reset-confirm'),
+        backgroundColor: palette.panel,
+        title: Text(
+          'Start over on this device?',
+          style: TextStyle(fontFamily: 'Merriweather', color: palette.gold),
+        ),
+        content: Text(
+          'This erases every profile and project saved in this browser. '
+          'It cannot be undone.',
+          style: TextStyle(color: palette.onSurface),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Keep my work',
+                style: TextStyle(color: palette.onSurface)),
+          ),
+          TextButton(
+            key: const Key('startup-reset-confirm-action'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('Erase everything',
+                style: TextStyle(color: palette.gold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await widget.onReset();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = StartupPalette.of(context);
@@ -102,25 +146,8 @@ class _LoginSelectUserPageState extends State<LoginSelectUserPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            firstRun ? 'Welcome to' : 'Welcome Back to',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Merriweather',
-              fontSize: 17,
-              color: palette.gold.withValues(alpha: 0.85),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Author OS',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Merriweather',
-              fontSize: 38,
-              fontWeight: FontWeight.w700,
-              color: palette.gold,
-            ),
+          StartupWordmark(
+            eyebrow: firstRun ? 'Welcome to' : 'Welcome Back to',
           ),
           const SizedBox(height: 12),
           const StartupOrnament(),
@@ -208,9 +235,9 @@ class _LoginSelectUserPageState extends State<LoginSelectUserPage> {
           ),
           TextButton(
             key: const Key('startup-reset'),
-            onPressed: widget.onReset,
+            onPressed: _confirmReset,
             child: Text(
-              'Reset app state',
+              'Start over on this device',
               style: TextStyle(
                 color: palette.onSurface.withValues(alpha: 0.5),
                 fontSize: 12,

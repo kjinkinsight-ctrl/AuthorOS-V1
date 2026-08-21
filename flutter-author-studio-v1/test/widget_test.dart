@@ -253,11 +253,11 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Author OS'), findsOneWidget);
+    expect(find.text('AuthorOS'), findsOneWidget);
     // With no profiles the primary action is creating the first one.
     expect(find.text('Welcome to'), findsOneWidget);
     expect(find.text('Create Your Profile'), findsOneWidget);
-    expect(find.text('Reset app state'), findsOneWidget);
+    expect(find.text('Start over on this device'), findsOneWidget);
     expect(find.text('No profiles on this device yet.'), findsOneWidget);
     expect(find.text('Welcome to your writing workspace'), findsNothing);
   });
@@ -286,7 +286,7 @@ void main() {
     await tester.tap(find.byKey(const Key('startup-continue')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Author OS'), findsNothing);
+    expect(find.text('AuthorOS'), findsNothing);
     expect(find.byKey(const Key('focus-mode-toggle')), findsOneWidget);
   });
 

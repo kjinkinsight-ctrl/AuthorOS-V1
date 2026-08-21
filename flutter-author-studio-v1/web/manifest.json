@@ -1,12 +1,18 @@
 {
     "name": "AuthorOS",
     "short_name": "AuthorOS",
+    "id": "/",
     "start_url": ".",
+    "scope": ".",
     "display": "standalone",
-    "background_color": "#f4dfe7",
-    "theme_color": "#f4dfe7",
-    "description": "AuthorOS — a personal writing workspace for authors, researchers, and storytellers.",
-    "orientation": "portrait-primary",
+    "background_color": "#080808",
+    "theme_color": "#080808",
+    "description": "AuthorOS — a complete book creation studio for authors, researchers, and storytellers.",
+    "orientation": "any",
+    "categories": [
+        "productivity",
+        "books"
+    ],
     "prefer_related_applications": false,
     "icons": [
         {

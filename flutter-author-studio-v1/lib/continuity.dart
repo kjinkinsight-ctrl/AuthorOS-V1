@@ -9,6 +9,13 @@ enum ContinuityWarningType {
   invalidRange,
   impossibleSequence,
   missingRelationship,
+
+  /// Two typed facts about the same thing disagree.
+  ///
+  /// Raised only from structured data — record fields, per-book states, and
+  /// typed relationships. Prose is never parsed for facts, so AuthorOS can
+  /// point at both sides of a contradiction and never has to guess.
+  canonContradiction,
 }
 
 enum ContinuitySeverity { notice, warning, critical }
@@ -124,6 +131,8 @@ class ContinuityAnalyzer {
         return 'Reorder the event chronology so the sequence follows the actual story timeline.';
       case ContinuityWarningType.missingRelationship:
         return 'Link the existing records so their relationship is represented with stable IDs.';
+      case ContinuityWarningType.canonContradiction:
+        return 'Two records state different things about the same fact. Decide which is canon; AuthorOS will not choose for you.';
     }
   }
 

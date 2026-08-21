@@ -48,3 +48,8 @@ app.*.map.json
 /android/key.properties
 /android/*.jks
 /android/app/*.jks
+
+# Provisioned from the resolved drift package by
+# scripts/provision-drift-web-assets.sh, not authored here.
+/web/drift_worker.js
+/web/sqlite3.wasm

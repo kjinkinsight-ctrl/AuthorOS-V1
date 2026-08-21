@@ -928,7 +928,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
             palette: palette,
             title: '3. Continuity-first workflow',
             subtitle:
-                'Before you draft, Indie Author OS helps you lock the narrative foundations that keep the story coherent.',
+                'Before you draft, AuthorOS helps you lock the narrative foundations that keep the story coherent.',
           ),
           const SizedBox(height: 14),
           LayoutBuilder(
@@ -1007,7 +1007,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
     (
       Icons.fact_check_outlined,
       'Run continuity checks',
-      'Let Indie Author OS flag missing POVs, impossible travel, character overlaps, and timeline issues.',
+      'Let AuthorOS flag missing POVs, impossible travel, character overlaps, and timeline issues.',
     ),
   ];
 
@@ -1349,7 +1349,7 @@ class _WorkspacePreviewSidebar extends StatelessWidget {
     (
       Icons.fact_check_outlined,
       'Run continuity checks',
-      'Let Indie Author OS flag missing POVs, impossible travel, character overlaps, and timeline issues.',
+      'Let AuthorOS flag missing POVs, impossible travel, character overlaps, and timeline issues.',
       null,
     ),
     (

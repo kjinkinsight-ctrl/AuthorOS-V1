@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +13,7 @@ import 'core/record_inspection.dart';
 import 'core/record_service.dart';
 import 'core/record_types.dart';
 import 'core/record_validation.dart';
+import 'local_image.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 
@@ -2119,20 +2119,19 @@ class _CharacterPortrait extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final file =
-        character.portraitPath.isEmpty ? null : File(character.portraitPath);
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: SizedBox.square(
         dimension: size,
-        child: file != null && file.existsSync()
-            ? Image.file(file, fit: BoxFit.cover)
-            : ColoredBox(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                child: Icon(Icons.person_rounded,
-                    size: size * .5,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer),
-              ),
+        child: LocalImage(
+          path: character.portraitPath,
+          fallback: ColoredBox(
+            color: Theme.of(context).colorScheme.primaryContainer,
+            child: Icon(Icons.person_rounded,
+                size: size * .5,
+                color: Theme.of(context).colorScheme.onPrimaryContainer),
+          ),
+        ),
       ),
     );
   }

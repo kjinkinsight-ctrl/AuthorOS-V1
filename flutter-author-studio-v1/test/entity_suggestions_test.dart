@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:author_studio_v1/archive/authoros_archive.dart';
+import 'package:author_studio_v1/continuity_actions.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/record_service.dart';
 import 'package:author_studio_v1/entity_suggestions.dart';
@@ -226,6 +227,73 @@ void main() {
         contains('red widow'),
       );
       expect(suggestion.actions, contains(EntitySuggestionAction.ignore));
+    });
+
+    test('Create Entity mints the missing record through the shared service',
+        () async {
+      // An unknown name has no candidates, so there is nothing to link. The
+      // author can make the record instead — through the same path Continuity
+      // Intelligence already uses, not a second way to create a character.
+      await character('kali', 'Kali Vale');
+      final (manuscript, sceneId) =
+          await sceneSaying('Kali Vale met Cassian Vane at the harbour.');
+      final suggestion = EntitySuggestion(
+        anchorId: sceneId,
+        anchorKind: EntityAnchorKind.scene,
+        anchorTitle: manuscript.chapters.first.scenes.first.title,
+        matchedName: 'Cassian Vane',
+        candidateIds: const [],
+        state: EntityRecognitionState.unconfirmed,
+        isAlias: false,
+        snippet: 'Kali Vale met Cassian Vane at the harbour.',
+      );
+      expect(suggestion.isUnknownName, isTrue);
+      expect(
+        suggestion.actions,
+        contains(EntitySuggestionAction.createEntity),
+      );
+
+      final result = await suggestions.createEntity(
+        suggestion,
+        confirmed: true,
+      );
+
+      expect(result.status, ContinuityActionStatus.resolved);
+      expect(result.recordId, isNotNull);
+      final created = await records.getRecord(result.recordId!);
+      expect(created!.title, 'Cassian Vane');
+
+      // ...and the new record is recognised from now on.
+      final rescanned = await suggestions.forScene(manuscript, sceneId);
+      expect(
+        rescanned.map((each) => each.matchedName),
+        contains('Cassian Vane'),
+      );
+    });
+
+    test('Create Entity does nothing unless the author confirms', () async {
+      await character('kali', 'Kali Vale');
+      final (manuscript, sceneId) = await sceneSaying('Cassian Vane waited.');
+      final before = await repository.snapshot();
+
+      final result = await suggestions.createEntity(
+        EntitySuggestion(
+          anchorId: sceneId,
+          anchorKind: EntityAnchorKind.scene,
+          anchorTitle: 'Scene',
+          matchedName: 'Cassian Vane',
+          candidateIds: const [],
+          state: EntityRecognitionState.unconfirmed,
+          isAlias: false,
+          snippet: 'Cassian Vane waited.',
+        ),
+        confirmed: false,
+      );
+
+      expect(result.status, ContinuityActionStatus.cancelled);
+      expect((await repository.snapshot()).records.length,
+          before.records.length);
+      expect(manuscript.chapters, isNotEmpty);
     });
 
     test('adding an alias twice does not duplicate it', () async {

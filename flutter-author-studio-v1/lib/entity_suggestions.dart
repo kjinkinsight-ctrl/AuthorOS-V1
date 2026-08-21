@@ -1,3 +1,5 @@
+import 'continuity.dart';
+import 'continuity_actions.dart';
 import 'core/book_scope.dart';
 import 'core/connected_domain.dart';
 import 'core/connection_engine.dart';
@@ -280,6 +282,65 @@ class EntitySuggestionService {
       },
       timestamp: timestamp,
     );
+  }
+
+  /// Creates a record for a name the prose uses that nothing answers to.
+  ///
+  /// Delegates to the existing [ContinuityActionService], which already knows
+  /// how to mint a character through `CharacterService` or a location through
+  /// `WorldService`, refuses when a matching record already exists, and
+  /// verifies the result reached the search index before reporting success.
+  /// Reimplementing that here would be a second way to create a character.
+  ///
+  /// [confirmed] must be true. It is the author's decision, passed through
+  /// rather than assumed.
+  Future<ContinuityActionResult> createEntity(
+    EntitySuggestion suggestion, {
+    required bool confirmed,
+    ContinuityWarningType kind = ContinuityWarningType.unknownCharacter,
+    String? name,
+    DateTime? timestamp,
+  }) {
+    if (kind != ContinuityWarningType.unknownCharacter &&
+        kind != ContinuityWarningType.unknownLocation) {
+      throw ArgumentError(
+        'Only characters and locations can be created from a suggestion. '
+        'Anything else belongs in its own Studio.',
+      );
+    }
+    final issue = ContinuityIntegrityIssue(
+      type: kind,
+      severity: ContinuitySeverity.warning,
+      title: 'Missing record for ${suggestion.matchedName}',
+      message: '${suggestion.anchorTitle} names "${suggestion.matchedName}" '
+          'but no record answers to it.',
+      recommendation: 'Create the record, or ignore the name.',
+      eventIds: [suggestion.anchorId],
+    );
+    final wanted = name ?? suggestion.matchedName;
+    return ContinuityActionService(
+      projectId: projectId,
+      repository: repository,
+    ).createForRecommendation(
+      issue,
+      name: wanted,
+      confirmed: confirmed,
+      // Without a recheck the shared service always reports that the warning
+      // remains, because it cannot know what would resolve it. Here it is
+      // knowable: the name was unresolved, so the warning is gone once
+      // something answers to it.
+      recheck: () async => !await _nameResolves(wanted),
+      timestamp: timestamp,
+    );
+  }
+
+  /// Whether any active record in the project answers to [name].
+  Future<bool> _nameResolves(String name) async {
+    final all = await repository.recordsByProject(projectId);
+    final index = EntityNameIndex.fromRecords(
+      all.where((record) => record.status == AuthorRecordStatus.active),
+    );
+    return index.isKnown(name);
   }
 
   /// Adds the written name to an entity's aliases, so it is recognised

@@ -41,12 +41,18 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # Analyzer errors fail the build. The pre-existing infos and warnings are
-      # still reported but do not, so this gate can be switched on now rather
-      # than waiting on a repo-wide lint cleanup. Drop these two flags once
-      # that cleanup lands.
+      # Scoped to the shipped app and its tests. tool/storage_benchmark.dart is
+      # a dead benchmark harness importing package:isar_community, a dependency
+      # this project no longer has, so it cannot compile and carries every one
+      # of the analyzer's errors. Scoping the command leaves the script on disk
+      # and, unlike an analysis_options.yaml exclusion, keeps it visible in
+      # contributors' editors.
+      #
+      # Errors fail the build. Infos and warnings are reported without failing,
+      # because lib and test carry a pre-existing backlog of them. Drop these
+      # two flags once that backlog is cleared to tighten the gate.
       - name: Analyze project source
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze lib test --no-fatal-infos --no-fatal-warnings
 
       - name: Run tests
         run: flutter test

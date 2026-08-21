@@ -145,6 +145,18 @@ class ThemeDefinition {
   bool supports(ThemeBrightness brightness) =>
       palettes.containsKey(brightness);
 
+  /// The explicit mode that matches this theme when no mode has been chosen.
+  ///
+  /// A theme offering only a dark palette pins itself to dark; anything else
+  /// reads as light. Two callers need this and must agree: migrating a
+  /// pre-engine install, which persisted a theme id but no mode, and settings
+  /// UI deriving a mode from a bare theme choice. Deriving it here keeps that
+  /// rule in the engine rather than restating it at each call site.
+  AuthorOsThemeMode get defaultMode =>
+      supports(ThemeBrightness.dark) && !supports(ThemeBrightness.light)
+          ? AuthorOsThemeMode.dark
+          : AuthorOsThemeMode.light;
+
   /// The brightness this theme falls back to when the requested one is absent.
   ///
   /// Phase 1 fallback rule: prefer the theme's own supported brightness, with

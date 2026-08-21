@@ -50,6 +50,7 @@ flutter:
     - assets/author-studio-logo.png
     - assets/welcome-hero.png
     - assets/startup-doorway.png
+    - assets/onboarding-doorway.png
     - assets/fonts/Inter-400.ttf
     - assets/fonts/Inter-700.ttf
     - assets/fonts/Merriweather-400.ttf

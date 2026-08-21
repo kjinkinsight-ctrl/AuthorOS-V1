@@ -15,6 +15,7 @@ import 'package:author_studio_v1/author_profile_store.dart';
 import 'package:author_studio_v1/liquid_aurora_background.dart';
 import 'package:author_studio_v1/main.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
+import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/startup_backdrop.dart';
 import 'package:drift/native.dart';
@@ -272,6 +273,34 @@ void main() {
     await tester.tap(find.byKey(const Key('start-your-adventure')));
     await tester.pumpAndSettle();
     await capture(tester, 'g_opening_page');
+  });
+
+  testWidgets('G2 first-run workspace setup', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await pumpApp(tester, showWelcome: false);
+    await tester.tap(find.byKey(const Key('startup-add-user')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('profile-name-field')),
+      'Sophie Marchetti',
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-email-field')),
+      'sophie@example.com',
+    );
+    await tester.ensureVisible(find.byKey(const Key('start-your-adventure')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('start-your-adventure')));
+    await tester.pumpAndSettle();
+
+    await tester.runAsync(() async {
+      await precacheImage(
+        onboardingDoorway,
+        tester.element(find.byType(Stack).first),
+      );
+    });
+    await tester.pumpAndSettle();
+    await capture(tester, 'g2_first_run_workspace');
   });
 
   testWidgets('H workspace after continuing from the opening page', (

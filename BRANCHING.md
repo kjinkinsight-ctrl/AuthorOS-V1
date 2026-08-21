@@ -118,11 +118,13 @@ family trunk covers the same ground.
 
 Two parts of the model are dashboard settings and have to be set by hand.
 
-**Branch protection** (GitHub → Settings → Branches):
-
-- `main` — require a pull request, require the `build` check to pass, block
-  force pushes and deletion.
-- `debug/base` — require a pull request, require the `build` check to pass.
+**Branch protection.** Both trunks require a pull request and a passing `build`
+check; `main` additionally blocks force pushes, and neither can be deleted.
+These are written as importable rulesets in `.github/rulesets/`, because a
+ruleset is account state rather than repository content and cannot be applied
+from a commit. Upload each once under **Settings → Rules → Rulesets → New
+ruleset → Import a ruleset**. `.github/rulesets/README.md` covers what each
+rule does and why the two trunks differ.
 
 **Netlify branch deploys** (Site configuration → Build & deploy → Branches):
 set branch deploys to *Let me add individual branches* and add `debug/base`

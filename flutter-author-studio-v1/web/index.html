@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -18,21 +18,156 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Indie Author OS — a personal writing workspace for authors, researchers, and storytellers.">
+  <meta name="description" content="AuthorOS — a personal writing workspace for authors, researchers, and storytellers.">
+
+  <!--
+    Sizes the loading screen below correctly on phones. Flutter replaces this
+    tag with its own equivalent once the engine boots; it is here so the
+    seconds before that are not rendered at a 980px desktop width.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Indie Author OS">
+  <meta name="apple-mobile-web-app-title" content="AuthorOS">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>Indie Author OS</title>
+  <title>AuthorOS</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    /*
+      The application is several megabytes of engine and code. Until it has
+      downloaded and painted its first frame the page would otherwise be blank
+      white, then jump straight into the near-black startup doorway. This
+      screen holds AuthorOS's own night palette for that gap so the load reads
+      as the app opening rather than as a page still arriving.
+
+      The colours are the Theme Engine's registered dark palette — background
+      #080808, gold #D4AF37 — the same values the startup screens paint with.
+    */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background-color: #080808;
+    }
+
+    #authoros-loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      background-color: #080808;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+      z-index: 2147483647;
+      transition: opacity 260ms ease-out;
+    }
+
+    #authoros-loading.authoros-loading--done {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .authoros-loading__mark {
+      font-size: clamp(26px, 7vw, 40px);
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #d4af37;
+    }
+
+    .authoros-loading__tagline {
+      font-size: clamp(12px, 3.4vw, 14px);
+      letter-spacing: 0.05em;
+      color: #8a8a8a;
+      max-width: 34ch;
+      line-height: 1.5;
+    }
+
+    .authoros-loading__rule {
+      width: min(220px, 62vw);
+      height: 1px;
+      background: linear-gradient(
+        to right,
+        rgba(212, 175, 55, 0),
+        rgba(212, 175, 55, 0.55),
+        rgba(212, 175, 55, 0)
+      );
+    }
+
+    .authoros-loading__bar {
+      width: min(220px, 62vw);
+      height: 2px;
+      overflow: hidden;
+      background-color: #202020;
+      border-radius: 2px;
+    }
+
+    .authoros-loading__bar span {
+      display: block;
+      width: 40%;
+      height: 100%;
+      background-color: #d4af37;
+      border-radius: 2px;
+      animation: authoros-loading-sweep 1400ms ease-in-out infinite;
+    }
+
+    @keyframes authoros-loading-sweep {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(250%); }
+    }
+
+    /* Honour the reduced-motion preference the workspace also respects. */
+    @media (prefers-reduced-motion: reduce) {
+      #authoros-loading { transition: none; }
+      .authoros-loading__bar span {
+        animation: none;
+        width: 100%;
+        opacity: 0.6;
+      }
+    }
+  </style>
 </head>
 <body>
+  <div id="authoros-loading" role="status" aria-live="polite">
+    <div class="authoros-loading__mark">AuthorOS</div>
+    <div class="authoros-loading__rule"></div>
+    <div class="authoros-loading__tagline">Opening your writing workspace</div>
+    <div class="authoros-loading__bar"><span></span></div>
+  </div>
+
+  <script>
+    // Flutter fires this on the window once it has painted its first frame.
+    // Fade the loading screen out then take it out of the tree entirely so it
+    // can never sit above the app or trap pointer events.
+    (function () {
+      var screenEl = document.getElementById('authoros-loading');
+      if (!screenEl) {
+        return;
+      }
+      window.addEventListener('flutter-first-frame', function () {
+        screenEl.classList.add('authoros-loading--done');
+        window.setTimeout(function () {
+          if (screenEl.parentNode) {
+            screenEl.parentNode.removeChild(screenEl);
+          }
+        }, 300);
+      });
+    })();
+  </script>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

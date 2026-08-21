@@ -2,15 +2,23 @@
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_updater.dart';
+import 'local_image.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';
+import 'sync/project_sync_service.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/theme_definition.dart';
+import 'theme/theme_persistence.dart';
+import 'theme/theme_registry.dart';
+import 'theme/theme_tokens.dart';
 
 export 'character_studio.dart';
 export 'story_codex.dart';
@@ -2002,7 +2010,6 @@ class _LegacyStoryCodexViewState extends State<LegacyStoryCodexView> {
 
 class _LegacyCharacterBoardView extends StatefulWidget {
   const _LegacyCharacterBoardView({
-    super.key,
     required this.project,
   });
 
@@ -2599,6 +2606,8 @@ Future<void> _defaultSettingsLogout() async {}
 class SettingsStudioView extends StatefulWidget {
   const SettingsStudioView({
     super.key,
+    this.selection,
+    this.onSelectionChanged,
     this.themeId = 'light',
     this.accentId = 'default',
     required this.onThemeChanged,
@@ -2607,6 +2616,8 @@ class SettingsStudioView extends StatefulWidget {
     this.currentVersion,
   });
 
+  final ThemeSelection? selection;
+  final ValueChanged<ThemeSelection>? onSelectionChanged;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -2661,8 +2672,15 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
         description: 'Low-glare and focused for evening writing.'),
   ];
 
+  /// The built-in theme registry, consulted only to derive a mode from a bare
+  /// theme id on the legacy callback path. The Theme Engine path receives a
+  /// fully-formed [ThemeSelection] from the shell and never needs this.
+  static final ThemeRegistry _themeRegistry = ThemeRegistry.standard();
+
   String selectedTheme = 'light';
   String selectedAccent = 'default';
+  AuthorOsThemeMode selectedMode = AuthorOsThemeMode.light;
+  ThemeAccessibility selectedAccessibility = ThemeAccessibility.none;
   bool autosave = true;
   bool focusDefaults = false;
   String writerName = 'Ari Rowan';
@@ -2691,11 +2709,13 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   late final TextEditingController _goodreadsController;
   late final TextEditingController _newsletterController;
 
+  bool get _usesThemeEngineSelection =>
+      widget.selection != null && widget.onSelectionChanged != null;
+
   @override
   void initState() {
     super.initState();
-    selectedTheme = widget.themeId;
-    selectedAccent = widget.accentId;
+    _syncSelectionFromWidget();
     _expandedSections = {
       _profileSectionId: false,
       _appearanceSectionId: false,
@@ -2727,11 +2747,51 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   @override
   void didUpdateWidget(covariant SettingsStudioView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.themeId != widget.themeId) {
-      selectedTheme = widget.themeId;
+    if (oldWidget.selection != widget.selection ||
+        oldWidget.themeId != widget.themeId ||
+        oldWidget.accentId != widget.accentId) {
+      _syncSelectionFromWidget();
     }
-    if (oldWidget.accentId != widget.accentId) {
-      selectedAccent = widget.accentId;
+  }
+
+  void _syncSelectionFromWidget() {
+    final selection = widget.selection;
+    if (selection != null) {
+      selectedTheme = selection.themeId;
+      selectedAccent = selection.accentId;
+      selectedMode = selection.mode;
+      selectedAccessibility = selection.accessibility;
+      return;
+    }
+    selectedTheme = widget.themeId;
+    selectedAccent = widget.accentId;
+    selectedMode = _themeRegistry.byId(widget.themeId).defaultMode;
+    selectedAccessibility = ThemeAccessibility.none;
+  }
+
+  ThemeSelection _currentSelection() => widget.selection?.copyWith(
+        themeId: selectedTheme,
+        accentId: selectedAccent,
+        mode: selectedMode,
+        accessibility: selectedAccessibility,
+      ) ??
+      ThemeSelection(
+        themeId: selectedTheme,
+        mode: selectedMode,
+        accentId: selectedAccent,
+        accessibility: selectedAccessibility,
+      );
+
+  void _applySelection(ThemeSelection selection) {
+    setState(() {
+      selectedTheme = selection.themeId;
+      selectedAccent = selection.accentId;
+      selectedMode = selection.mode;
+      selectedAccessibility = selection.accessibility;
+    });
+    widget.onSelectionChanged?.call(selection);
+    if (!_usesThemeEngineSelection) {
+      widget.onThemeChanged(selection.themeId, selection.accentId);
     }
   }
 
@@ -2767,6 +2827,12 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   }
 
   Future<void> _checkForAppUpdate() async {
+    // The version feed below advertises desktop installers. The browser build
+    // is whatever kjii.info last served, so on the web there is no newer
+    // download to offer and no reason to make the cross-origin request.
+    if (kIsWeb && widget.versionChecker == null) {
+      return;
+    }
     final currentVersion = widget.currentVersion ??
         (await PackageInfo.fromPlatform())
             .version; // keep the real installed version when not overridden
@@ -2857,6 +2923,13 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
     }
 
     setState(() {});
+
+    // Drain anything saved while signed out.
+    await const ProjectSyncService().flushQueue();
+    if (!mounted) {
+      return;
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
           content: Text(
@@ -2865,6 +2938,28 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   }
 
   Future<void> _handleUpdateNow() async {
+    if (kIsWeb) {
+      // There is no installer to run and no process to restart in a browser:
+      // reloading the tab fetches whatever build the site is now serving.
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Update now'),
+          content: const Text(
+            'AuthorOS updates itself on the web. Reload this page to load the '
+            'latest build — your work stays saved in this browser.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Got it'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -3008,24 +3103,22 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   }
 
   Widget _buildAvatarPreview({bool compact = false}) {
-    final avatarContent = avatarPath.isNotEmpty
-        ? Image.file(
-            File(avatarPath),
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-          )
-        : Container(
-            alignment: Alignment.center,
-            color: Theme.of(context).colorScheme.primaryContainer,
-            child: Text(
-              writerName.isNotEmpty ? writerName[0].toUpperCase() : 'A',
-              style: TextStyle(
-                fontSize: compact ? 26 : 36,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          );
+    final avatarContent = LocalImage(
+      path: avatarPath,
+      width: double.infinity,
+      height: double.infinity,
+      fallback: Container(
+        alignment: Alignment.center,
+        color: Theme.of(context).colorScheme.primaryContainer,
+        child: Text(
+          writerName.isNotEmpty ? writerName[0].toUpperCase() : 'A',
+          style: TextStyle(
+            fontSize: compact ? 26 : 36,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
 
     return Container(
       width: compact ? 72 : 120,
@@ -3423,6 +3516,255 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   }
 
   Widget _buildAppearancePage() {
+    if (_usesThemeEngineSelection) {
+      final scope = StudioThemeScope.maybeOf(context);
+      final theme = Theme.of(context);
+      final surfaceContainer =
+          scope?.color(ThemeColorRef.surfaceContainer) ??
+              theme.colorScheme.surfaceContainerHighest;
+      final primary = scope?.color(ThemeColorRef.primary) ?? theme.colorScheme.primary;
+      final onSurface =
+          scope?.color(ThemeColorRef.onSurface) ?? theme.colorScheme.onSurface;
+      final onSurfaceVariant = scope?.color(ThemeColorRef.onSurfaceVariant) ??
+          theme.colorScheme.onSurfaceVariant;
+      final outline =
+          scope?.color(ThemeColorRef.outlineVariant) ?? theme.colorScheme.outlineVariant;
+
+      Widget modeCard(_ThemeOption option, AuthorOsThemeMode mode) {
+        final isSelected = selectedMode == mode;
+        final targetThemeId = switch (mode) {
+          AuthorOsThemeMode.system => selectedTheme,
+          AuthorOsThemeMode.light => 'light',
+          AuthorOsThemeMode.dark => 'dark',
+        };
+        final selection = _currentSelection().copyWith(
+          themeId: targetThemeId,
+          mode: mode,
+        );
+        return InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _applySelection(selection),
+          child: Container(
+            width: 170,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isSelected ? primary.withValues(alpha: 0.16) : surfaceContainer,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected ? primary : outline,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  option.name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  option.description,
+                  style: TextStyle(
+                    color: onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      return Column(
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Theme mode',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      modeCard(
+                        const _ThemeOption(
+                          id: 'system',
+                          name: 'System',
+                          description: 'Follow the host brightness when possible.',
+                        ),
+                        AuthorOsThemeMode.system,
+                      ),
+                      modeCard(
+                        const _ThemeOption(
+                          id: 'light',
+                          name: 'Light',
+                          description: 'Bright and comfortable for daytime writing.',
+                        ),
+                        AuthorOsThemeMode.light,
+                      ),
+                      modeCard(
+                        const _ThemeOption(
+                          id: 'dark',
+                          name: 'Dark',
+                          description: 'Low-glare and focused for evening writing.',
+                        ),
+                        AuthorOsThemeMode.dark,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Accessibility',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: selectedAccessibility.highContrast,
+                    onChanged: (value) => _applySelection(
+                      _currentSelection().copyWith(
+                        accessibility: selectedAccessibility.copyWith(
+                          highContrast: value,
+                        ),
+                      ),
+                    ),
+                    title: const Text('High contrast'),
+                    subtitle: const Text(
+                      'Increase foreground separation for legibility.',
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: selectedAccessibility.reduceIntensity,
+                    onChanged: (value) => _applySelection(
+                      _currentSelection().copyWith(
+                        accessibility: selectedAccessibility.copyWith(
+                          reduceIntensity: value,
+                        ),
+                      ),
+                    ),
+                    title: const Text('Reduce intensity'),
+                    subtitle: const Text(
+                      'Soften decorative colour without changing text contrast.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Column(
+              children: [
+                SwitchListTile(
+                  value: autosave,
+                  onChanged: (value) {
+                    setState(() => autosave = value);
+                    _set(_autosaveKey, value);
+                  },
+                  title: const Text('Automatic draft saving'),
+                  subtitle:
+                      const Text('Keep enabled to protect manuscript changes.'),
+                  secondary: const Icon(Icons.save_outlined),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  value: focusDefaults,
+                  onChanged: (value) {
+                    setState(() => focusDefaults = value);
+                    _set(_focusKey, value);
+                  },
+                  title: const Text('Open in focus mode'),
+                  subtitle:
+                      const Text('Use the manuscript as the default workspace.'),
+                  secondary: const Icon(Icons.center_focus_strong),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: Text(
+                AppSupabase.isSignedIn ? 'Google connected' : 'Google sign-in',
+              ),
+              subtitle: Text(
+                AppSupabase.isSignedIn
+                    ? 'Projects and drafts can sync to your Supabase account.'
+                    : 'Connect your Google account to sync projects across devices.',
+              ),
+              trailing: AppSupabase.isSignedIn
+                  ? FilledButton.tonal(
+                      onPressed: _handleSignOut,
+                      child: const Text('Sign out'),
+                    )
+                  : FilledButton.icon(
+                      onPressed: _handleGoogleSignIn,
+                      icon: const Icon(Icons.g_mobiledata_rounded),
+                      label: const Text('Google'),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('Cloud sync status'),
+              subtitle: Text(AppSupabase.hasCredentials
+                  ? (AppSupabase.isSignedIn
+                      ? 'Supabase is configured and the user is signed in.'
+                      : 'Supabase is configured but the user is not signed in yet.')
+                  : 'Supabase is not configured yet. Add your URL and anon key first.'),
+            ),
+          ),
+          if (updateAvailable) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.system_update_alt_outlined),
+                title: Text('Update available: $latestAppVersion'),
+                subtitle: const Text(
+                  'Restart the app to apply the newest build and changes.',
+                ),
+                trailing: FilledButton.icon(
+                  onPressed: _handleUpdateNow,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Update now'),
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
     return Column(
       children: [
         Card(
@@ -3444,7 +3786,11 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
                     return InkWell(
                       borderRadius: BorderRadius.circular(16),
                       onTap: () {
-                        setState(() => selectedTheme = theme.id);
+                        setState(() {
+                          selectedTheme = theme.id;
+                          selectedMode =
+                              _themeRegistry.byId(theme.id).defaultMode;
+                        });
                         widget.onThemeChanged(selectedTheme, selectedAccent);
                       },
                       child: Container(

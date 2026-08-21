@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'startup_backdrop.dart';
 import 'supabase_service.dart';
+import 'sync/project_sync_service.dart';
 
 class StarterChapter {
   const StarterChapter({
@@ -585,6 +587,10 @@ class OnboardingStore {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_projectKey, jsonEncode(project.toJson()));
     await preferences.setBool(_completeKey, true);
+
+    // Queued after the local write so a sync failure can never cost the
+    // user their save; the queue retries on the next flush.
+    await const ProjectSyncService().recordProjectSaved(project);
   }
 
   static Future<void> clearProjectState() async {
@@ -594,13 +600,25 @@ class OnboardingStore {
   }
 }
 
+/// Artwork behind the first-run wizard: the startup doorway pulled wide so
+/// the welcome form sits on the dark study wall to its left.
+const AssetImage onboardingDoorway = AssetImage('assets/onboarding-doorway.png');
+
+/// Single-page workspace setup shown after the first sign-in: project details,
+/// workspace shape, and the continuity-first workflow on one screen, with a
+/// sidebar preview of what the workspace will contain.
 class FirstRunProjectWizard extends StatefulWidget {
   const FirstRunProjectWizard({
     super.key,
     required this.onComplete,
+    this.onSignIn,
   });
 
   final ValueChanged<OnboardingResult> onComplete;
+
+  /// Top-right "Already have an account? Sign in" action; returns the author
+  /// to profile selection.
+  final VoidCallback? onSignIn;
 
   @override
   State<FirstRunProjectWizard> createState() => _FirstRunProjectWizardState();
@@ -609,31 +627,9 @@ class FirstRunProjectWizard extends StatefulWidget {
 class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
   final titleController = TextEditingController();
   final goalController = TextEditingController(text: '80000');
-  final List<TextEditingController> castControllers = List.generate(
-    3,
-    (index) => TextEditingController(
-      text: switch (index) {
-        0 => 'Protagonist',
-        1 => 'Primary Opposition',
-        _ => 'Key Ally',
-      },
-    ),
-  );
-  final List<TextEditingController> actControllers = List.generate(
-    3,
-    (index) => TextEditingController(
-      text: switch (index) {
-        0 => 'Act I - Setup',
-        1 => 'Act II - Confrontation',
-        _ => 'Act III - Resolution',
-      },
-    ),
-  );
-  int step = 0;
   String genre = 'Fantasy';
   String projectType = 'Novel';
   String selectedTemplate = 'Classic';
-  bool startSprint = true;
 
   static const genres = [
     'Fantasy',
@@ -647,10 +643,10 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
   ];
 
   static const projectTypes = [
-    'Novel',
-    'Memoir',
-    'Short Story',
-    'Screenplay',
+    ('Novel', Icons.menu_book_outlined),
+    ('Memoir', Icons.history_edu_outlined),
+    ('Short Story', Icons.chat_bubble_outline),
+    ('Screenplay', Icons.theaters_outlined),
   ];
 
   List<String> get templateOptions => [
@@ -662,16 +658,10 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
   void dispose() {
     titleController.dispose();
     goalController.dispose();
-    for (final controller in castControllers) {
-      controller.dispose();
-    }
-    for (final controller in actControllers) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
-  StarterProject _buildProjectForWizard() {
+  StarterProject _buildProject() {
     final goal = int.tryParse(goalController.text) ?? 80000;
     final clampedGoal = goal.clamp(1000, 500000);
 
@@ -681,7 +671,7 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
         ? StoryTemplateLibrary.templateFor(selectedTemplate) ??
             StoryTemplateLibrary.templateFor(genre)
         : null;
-    final baseProject = projectType == 'Screenplay'
+    return projectType == 'Screenplay'
         ? ScreenplayStarterKit.create(
             title: titleController.text,
             genre: genre,
@@ -695,354 +685,431 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
             wordGoal: clampedGoal,
             templateName: resolvedTemplate?.name,
           );
-
-    final castNames = List.generate(castControllers.length, (index) {
-      final value = castControllers[index].text.trim();
-      return value.isEmpty
-          ? switch (index) {
-              0 => 'Protagonist',
-              1 => 'Primary Opposition',
-              _ => 'Key Ally',
-            }
-          : value;
-    });
-
-    final timelineNames = List.generate(actControllers.length, (index) {
-      final value = actControllers[index].text.trim();
-      return value.isEmpty
-          ? switch (index) {
-              0 => 'Act I - Setup',
-              1 => 'Act II - Confrontation',
-              _ => 'Act III - Resolution',
-            }
-          : value;
-    });
-
-    return baseProject.copyWith(
-      acts: timelineNames,
-      characterSheets: [
-        for (var i = 0; i < castNames.length; i++)
-          StarterCharacterSheet(
-            name: castNames[i],
-            role: switch (i) {
-              0 => 'Lead goal, flaw, and arc',
-              1 => 'Pressure, obstacle, and counter-goal',
-              _ => 'Support, contrast, and relationship thread',
-            },
-          ),
-      ],
-    );
   }
 
-  void finish() {
+  void _createWorkspace() {
     widget.onComplete(
-      OnboardingResult(
-        project: _buildProjectForWizard(),
-        startSprint: startSprint,
-      ),
+      OnboardingResult(project: _buildProject(), startSprint: true),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = StartupPalette.of(context);
+
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 920),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _WizardBrand(),
-                  const SizedBox(height: 28),
-                  Text(
-                    'Start your writing workspace',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'A focused setup for your project, structure, and first drafting session.',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                  ),
-                  const SizedBox(height: 24),
-                  _StepRail(currentStep: step),
-                  const SizedBox(height: 18),
-                  Expanded(
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: SingleChildScrollView(child: _buildStep(context)),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      if (step > 0)
-                        TextButton.icon(
-                          onPressed: () => setState(() => step -= 1),
-                          icon: const Icon(Icons.arrow_back),
-                          label: const Text('Back'),
-                        ),
-                      const Spacer(),
-                      FilledButton.icon(
-                        onPressed: step == 2
-                            ? finish
-                            : () => setState(() => step += 1),
-                        icon: Icon(
-                            step == 2 ? Icons.edit_note : Icons.arrow_forward),
-                        label:
-                            Text(step == 2 ? 'Open first scene' : 'Continue'),
-                      ),
-                    ],
-                  ),
+      backgroundColor: palette.background,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image(
+            image: onboardingDoorway,
+            fit: BoxFit.cover,
+            alignment: Alignment.centerRight,
+            errorBuilder: (context, error, stackTrace) =>
+                ColoredBox(color: palette.background),
+          ),
+          // Deepens the left side so the form keeps its contrast; the doorway
+          // stays readable on the right.
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  palette.background.withValues(alpha: 0.92),
+                  palette.background.withValues(alpha: 0.5),
+                  palette.background.withValues(alpha: 0.05),
                 ],
+                stops: const [0, 0.62, 1],
               ),
             ),
           ),
-        ),
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1180),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTopBar(palette),
+                      const SizedBox(height: 26),
+                      Text(
+                        'Welcome to your writing workspace',
+                        style: TextStyle(
+                          fontFamily: 'Merriweather',
+                          fontSize: 30,
+                          fontWeight: FontWeight.w700,
+                          color: palette.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Create your project, set your foundations, and step into your story.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: palette.onSurface.withValues(alpha: 0.7),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final wide = constraints.maxWidth >= 900;
+                          final form = _buildFormPanel(palette);
+                          final sidebar = _WorkspacePreviewSidebar(
+                            palette: palette,
+                          );
+                          if (!wide) {
+                            return Column(
+                              children: [
+                                form,
+                                const SizedBox(height: 18),
+                                sidebar,
+                              ],
+                            );
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: form),
+                              const SizedBox(width: 20),
+                              SizedBox(width: 320, child: sidebar),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildStep(BuildContext context) {
-    if (step == 0) {
-      return Column(
+  Widget _buildTopBar(StartupPalette palette) {
+    return Row(
+      children: [
+        Icon(Icons.auto_stories, color: palette.gold, size: 28),
+        const Spacer(),
+        if (widget.onSignIn != null) ...[
+          Text(
+            'Already have an account?',
+            style: TextStyle(
+              fontSize: 13,
+              color: palette.onSurface.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            key: const Key('onboarding-sign-in'),
+            onPressed: widget.onSignIn,
+            icon: const Icon(Icons.login, size: 16),
+            label: const Text('Sign in'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: palette.gold,
+              side: BorderSide(color: palette.gold.withValues(alpha: 0.6)),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFormPanel(StartupPalette palette) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: _panelDecoration(palette),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Project basics', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 18),
+          _SectionHeader(
+            palette: palette,
+            title: '1. Project details',
+            subtitle: 'Start with the basics of your story.',
+          ),
+          const SizedBox(height: 16),
+          _FieldLabel(palette: palette, label: 'Project title'),
           TextField(
             key: const Key('project-title-field'),
             controller: titleController,
-            decoration: const InputDecoration(
-              labelText: 'Project title',
-              hintText: 'The working title is fine',
-              border: OutlineInputBorder(),
+            style: TextStyle(color: palette.onSurface),
+            decoration: _inputDecoration(
+              palette,
+              hint: 'Enter your project title',
             ),
           ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: genre,
-            decoration: const InputDecoration(
-              labelText: 'Genre',
-              border: OutlineInputBorder(),
-            ),
-            items: genres
-                .map((value) =>
-                    DropdownMenuItem(value: value, child: Text(value)))
-                .toList(),
-            onChanged: (value) {
-              final nextGenre = value ?? genre;
-              setState(() {
-                genre = nextGenre;
-                selectedTemplate = 'Classic';
-              });
-            },
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _FieldLabel(palette: palette, label: 'Genre'),
+                    _buildDropdown(
+                      palette: palette,
+                      value: genre,
+                      options: genres,
+                      onChanged: (value) => setState(() {
+                        genre = value ?? genre;
+                        selectedTemplate = 'Classic';
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _FieldLabel(palette: palette, label: 'Story template'),
+                    _buildDropdown(
+                      palette: palette,
+                      value: selectedTemplate,
+                      options: templateOptions,
+                      onChanged: (value) => setState(
+                        () => selectedTemplate = value ?? selectedTemplate,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: selectedTemplate,
-            decoration: const InputDecoration(
-              labelText: 'Story template',
-              border: OutlineInputBorder(),
-            ),
-            items: templateOptions
-                .map((template) =>
-                    DropdownMenuItem(value: template, child: Text(template)))
-                .toList(),
-            onChanged: (value) =>
-                setState(() => selectedTemplate = value ?? selectedTemplate),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+          _FieldLabel(palette: palette, label: 'Draft word goal'),
           TextField(
             key: const Key('word-goal-field'),
             controller: goalController,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Draft word goal',
-              suffixText: 'words',
-              border: OutlineInputBorder(),
-            ),
+            style: TextStyle(color: palette.onSurface),
+            decoration: _inputDecoration(palette, suffixText: 'words'),
           ),
-        ],
-      );
-    }
-
-    if (step == 1) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Project type', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          const Text('Choose the workspace shape for this project.'),
-          const SizedBox(height: 18),
-          SegmentedButton<String>(
-            segments: projectTypes
-                .map((value) => ButtonSegment(value: value, label: Text(value)))
-                .toList(),
-            selected: {projectType},
-            onSelectionChanged: (selection) =>
-                setState(() => projectType = selection.first),
+          _sectionDivider(palette),
+          _SectionHeader(
+            palette: palette,
+            title: '2. Choose your workspace setup',
+            subtitle: 'Select the foundation that fits your story.',
           ),
-          const SizedBox(height: 18),
-          DropdownButtonFormField<String>(
-            initialValue: selectedTemplate,
-            decoration: const InputDecoration(
-              labelText: 'Structure template',
-              border: OutlineInputBorder(),
-            ),
-            items: templateOptions
-                .map((template) => DropdownMenuItem(
-                      value: template,
-                      child: Text(template),
-                    ))
-                .toList(),
-            onChanged: (value) =>
-                setState(() => selectedTemplate = value ?? selectedTemplate),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final (label, icon) in projectTypes)
+                _WorkspaceTypeChip(
+                  palette: palette,
+                  label: label,
+                  icon: icon,
+                  selected: projectType == label,
+                  onTap: () => setState(() => projectType = label),
+                ),
+            ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _StarterKitPreview(
-              projectType: projectType, templateName: selectedTemplate),
+            palette: palette,
+            projectType: projectType,
+          ),
+          _sectionDivider(palette),
+          _SectionHeader(
+            palette: palette,
+            title: '3. Continuity-first workflow',
+            subtitle:
+                'Before you draft, AuthorOS helps you lock the narrative foundations that keep the story coherent.',
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 640 ? 3 : 1;
+              final width = columns == 1
+                  ? constraints.maxWidth
+                  : (constraints.maxWidth - 24) / 3;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  for (final step in _continuitySteps)
+                    _WorkflowCard(
+                      palette: palette,
+                      width: width,
+                      icon: step.$1,
+                      title: step.$2,
+                      description: step.$3,
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const Key('create-workspace-button'),
+              onPressed: _createWorkspace,
+              icon: const Icon(Icons.arrow_forward, size: 20),
+              label: const Text('Create workspace'),
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.gold,
+                foregroundColor: palette.background,
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                textStyle: const TextStyle(
+                  fontFamily: 'Merriweather',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Center(
+            child: Text(
+              projectType == 'Screenplay'
+                  ? 'Your screenplay will open in Sequence 1 at the first scene heading.'
+                  : 'Your starter project will open in Chapter 1 at the Opening Scene.',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: palette.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+          ),
         ],
-      );
-    }
+      ),
+    );
+  }
 
+  static const _continuitySteps = [
+    (
+      Icons.groups_outlined,
+      'Build the cast',
+      'Define the core characters, POVs, and relationships before the first major scene.',
+    ),
+    (
+      Icons.timeline_outlined,
+      'Map the timeline',
+      'Place scenes in order, track dates, and note travel, locations, and plotline movement.',
+    ),
+    (
+      Icons.fact_check_outlined,
+      'Run continuity checks',
+      'Let AuthorOS flag missing POVs, impossible travel, character overlaps, and timeline issues.',
+    ),
+  ];
+
+  Widget _buildDropdown({
+    required StartupPalette palette,
+    required String value,
+    required List<String> options,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      dropdownColor: palette.panel,
+      iconEnabledColor: palette.gold,
+      // An explicit family: DropdownButton replaces the inherited text style
+      // wholesale, and a family-less style loses the theme's Inter face.
+      style: TextStyle(
+        fontFamily: 'Inter',
+        color: palette.onSurface,
+        fontSize: 14,
+      ),
+      decoration: _inputDecoration(palette),
+      items: options
+          .map((option) =>
+              DropdownMenuItem(value: option, child: Text(option)))
+          .toList(),
+      onChanged: onChanged,
+    );
+  }
+
+  Widget _sectionDivider(StartupPalette palette) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Container(
+          height: 1,
+          color: palette.gold.withValues(alpha: 0.15),
+        ),
+      );
+}
+
+BoxDecoration _panelDecoration(StartupPalette palette) => BoxDecoration(
+      color: palette.background.withValues(alpha: 0.82),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: palette.gold.withValues(alpha: 0.22)),
+    );
+
+InputDecoration _inputDecoration(
+  StartupPalette palette, {
+  String? hint,
+  String? suffixText,
+}) =>
+    InputDecoration(
+      hintText: hint,
+      suffixText: suffixText,
+      suffixStyle:
+          TextStyle(color: palette.onSurface.withValues(alpha: 0.55)),
+      hintStyle: TextStyle(color: palette.onSurface.withValues(alpha: 0.4)),
+      isDense: true,
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      filled: true,
+      fillColor: palette.panel.withValues(alpha: 0.6),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: palette.outline),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: palette.focusRing, width: 2),
+      ),
+    );
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.palette,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final StartupPalette palette;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Continuity-first workflow',
-            style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 10),
         Text(
-          'Before you draft, Indie Author OS helps you lock the narrative foundations that keep the story coherent.',
-          style: Theme.of(context)
-              .textTheme
-              .bodyLarge
-              ?.copyWith(color: Theme.of(context).colorScheme.onSurface),
-        ),
-        const SizedBox(height: 20),
-        _ContinuityWorkflowStep(
-          icon: Icons.groups_outlined,
-          title: 'Build the cast',
-          description:
-              'Define the core characters, POVs, and relationships before the first major scene.',
-          trailing: Column(
-            children: List.generate(castControllers.length, (index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: TextField(
-                  key: Key('cast-name-$index'),
-                  controller: castControllers[index],
-                  decoration: InputDecoration(
-                    labelText: switch (index) {
-                      0 => 'Lead character',
-                      1 => 'Primary rival',
-                      _ => 'Key ally',
-                    },
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              );
-            }),
+          title,
+          style: TextStyle(
+            fontFamily: 'Merriweather',
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: palette.onSurface,
           ),
         ),
-        const SizedBox(height: 12),
-        _ContinuityWorkflowStep(
-          icon: Icons.timeline_outlined,
-          title: 'Map the timeline',
-          description:
-              'Place scenes in order, track dates, and note travel, locations, and plotline movement.',
-          trailing: Column(
-            children: List.generate(actControllers.length, (index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: TextField(
-                  key: Key('act-name-$index'),
-                  controller: actControllers[index],
-                  decoration: InputDecoration(
-                    labelText: switch (index) {
-                      0 => 'Act I label',
-                      1 => 'Act II label',
-                      _ => 'Act III label',
-                    },
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              );
-            }),
-          ),
-        ),
-        const SizedBox(height: 12),
-        const _ContinuityWorkflowStep(
-          icon: Icons.fact_check_outlined,
-          title: 'Run continuity checks',
-          description:
-              'Let Indie Author OS flag missing POVs, impossible travel, character overlaps, and timeline issues.',
-        ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 4),
         Text(
-          projectType == 'Screenplay'
-              ? 'Your screenplay will open in Sequence 1 at the first scene heading.'
-              : 'Your starter project will open in Chapter 1 at the Opening Scene.',
-        ),
-        const SizedBox(height: 18),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => setState(() => startSprint = !startSprint),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Start a 15-minute writing sprint',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'The timer begins when the first draft opens.',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Switch(
-                    key: const Key('sprint-toggle'),
-                    value: startSprint,
-                    onChanged: (value) => setState(() => startSprint = value),
-                  ),
-                ],
-              ),
-            ),
+          subtitle,
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.4,
+            color: palette.onSurface.withValues(alpha: 0.65),
           ),
         ),
       ],
@@ -1050,140 +1117,157 @@ class _FirstRunProjectWizardState extends State<FirstRunProjectWizard> {
   }
 }
 
-class _ContinuityWorkflowStep extends StatelessWidget {
-  const _ContinuityWorkflowStep({
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({required this.palette, required this.label});
+
+  final StartupPalette palette;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: palette.onSurface,
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkspaceTypeChip extends StatelessWidget {
+  const _WorkspaceTypeChip({
+    required this.palette,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final StartupPalette palette;
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          decoration: BoxDecoration(
+            color: selected
+                ? palette.gold.withValues(alpha: 0.12)
+                : palette.panel.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? palette.gold.withValues(alpha: 0.9)
+                  : palette.outline,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: selected
+                    ? palette.gold
+                    : palette.onSurface.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? palette.gold : palette.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkflowCard extends StatelessWidget {
+  const _WorkflowCard({
+    required this.palette,
+    required this.width,
     required this.icon,
     required this.title,
     required this.description,
-    this.trailing,
   });
 
+  final StartupPalette palette;
+  final double width;
   final IconData icon;
   final String title;
   final String description;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      width: width,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: palette.panel.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
+        border: Border.all(color: palette.outline),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              color: Theme.of(context).colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
+          Row(
+            children: [
+              Icon(icon, size: 18, color: palette.gold),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
                   title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  description,
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    height: 1.4,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: palette.onSurface,
                   ),
                 ),
-                if (trailing != null) ...[
-                  const SizedBox(height: 12),
-                  trailing!,
-                ],
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            description,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.45,
+              color: palette.onSurface.withValues(alpha: 0.65),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _WizardBrand extends StatelessWidget {
-  const _WizardBrand();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(Icons.auto_stories, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 10),
-        const Text(
-          'INDIE AUTHOR OS',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-      ],
-    );
-  }
-}
-
-class _StepRail extends StatelessWidget {
-  const _StepRail({required this.currentStep});
-
-  final int currentStep;
-
-  @override
-  Widget build(BuildContext context) {
-    const labels = ['Project', 'Template', 'Draft'];
-    return Row(
-      children: List.generate(labels.length, (index) {
-        final active = index <= currentStep;
-        return Expanded(
-          child: Container(
-            margin: EdgeInsets.only(right: index == labels.length - 1 ? 0 : 8),
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(
-                  width: 3,
-                  color: active
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.outlineVariant,
-                ),
-              ),
-            ),
-            child: Text(
-              labels[index],
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-            ),
-          ),
-        );
-      }),
     );
   }
 }
 
 class _StarterKitPreview extends StatelessWidget {
-  const _StarterKitPreview({required this.projectType, this.templateName});
+  const _StarterKitPreview({
+    required this.palette,
+    required this.projectType,
+  });
 
+  final StartupPalette palette;
   final String projectType;
-  final String? templateName;
 
   @override
   Widget build(BuildContext context) {
@@ -1201,29 +1285,227 @@ class _StarterKitPreview extends StatelessWidget {
             (Icons.checklist_outlined, 'Eight-beat checklist'),
           ];
 
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: items
-          .map((item) => Container(
-                width: 250,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                  borderRadius: BorderRadius.circular(8),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth = constraints.maxWidth >= 470
+            ? (constraints.maxWidth - 12) / 2
+            : constraints.maxWidth;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: items
+              .map((item) => Container(
+                    width: itemWidth,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 13,
+                    ),
+                    decoration: BoxDecoration(
+                      color: palette.panel.withValues(alpha: 0.55),
+                      border: Border.all(color: palette.outline),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(item.$1, size: 18, color: palette.gold),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            item.$2,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: palette.onSurface,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ))
+              .toList(),
+        );
+      },
+    );
+  }
+}
+
+class _WorkspacePreviewSidebar extends StatelessWidget {
+  const _WorkspacePreviewSidebar({required this.palette});
+
+  final StartupPalette palette;
+
+  static const _entries = [
+    (
+      Icons.groups_outlined,
+      'Build the cast',
+      'Define the core characters, POVs, and relationships before the first major scene.',
+      'Lead character • Primary rival • Key ally',
+    ),
+    (
+      Icons.timeline_outlined,
+      'Map the timeline',
+      'Place scenes in order, track dates, and note travel, locations, and plotline movement.',
+      'Act I - Setup • Act II - Confrontation • Act III - Resolution',
+    ),
+    (
+      Icons.fact_check_outlined,
+      'Run continuity checks',
+      'Let AuthorOS flag missing POVs, impossible travel, character overlaps, and timeline issues.',
+      null,
+    ),
+    (
+      Icons.edit_note_outlined,
+      'Start drafting with confidence',
+      'With your foundation in place, step into the writing desk and bring your story to life.',
+      null,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: _panelDecoration(palette),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Your workspace will include',
+            style: TextStyle(
+              fontFamily: 'Merriweather',
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: palette.onSurface,
+            ),
+          ),
+          const SizedBox(height: 16),
+          for (var i = 0; i < _entries.length; i++) ...[
+            if (i > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Container(
+                  height: 1,
+                  color: palette.gold.withValues(alpha: 0.12),
                 ),
-                child: Row(
+              ),
+            _SidebarEntry(
+              palette: palette,
+              icon: _entries[i].$1,
+              title: _entries[i].$2,
+              description: _entries[i].$3,
+              meta: _entries[i].$4,
+            ),
+          ],
+          const SizedBox(height: 18),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: palette.gold.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: palette.gold.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Icon(item.$1, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(item.$2)),
+                    Icon(Icons.auto_awesome, size: 15, color: palette.gold),
+                    const SizedBox(width: 7),
+                    Text(
+                      'Tip',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: palette.onSurface,
+                      ),
+                    ),
                   ],
                 ),
-              ))
-          .toList(),
+                const SizedBox(height: 6),
+                Text(
+                  'You can change any of these settings later inside the project settings.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: palette.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarEntry extends StatelessWidget {
+  const _SidebarEntry({
+    required this.palette,
+    required this.icon,
+    required this.title,
+    required this.description,
+    this.meta,
+  });
+
+  final StartupPalette palette;
+  final IconData icon;
+  final String title;
+  final String description;
+  final String? meta;
+
+  @override
+  Widget build(BuildContext context) {
+    final metaText = meta;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: palette.gold.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+            border: Border.all(color: palette.gold.withValues(alpha: 0.3)),
+          ),
+          child: Icon(icon, size: 18, color: palette.gold),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: palette.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.45,
+                  color: palette.onSurface.withValues(alpha: 0.65),
+                ),
+              ),
+              if (metaText != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  metaText,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: palette.gold.withValues(alpha: 0.85),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

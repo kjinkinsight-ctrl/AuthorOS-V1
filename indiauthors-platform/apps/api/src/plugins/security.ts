@@ -10,14 +10,31 @@ export async function registerSecurityPlugins(app: FastifyInstance) {
 
   await app.register(cors, {
     origin: (origin, callback) => {
-      const allowedOrigin = process.env.PUBLIC_SITE_URL;
+      const allowedOrigin = process.env.PUBLIC_SITE_URL?.trim();
 
       if (!origin) {
         callback(null, true);
         return;
       }
 
-      if (allowedOrigin && origin === allowedOrigin) {
+      if (!allowedOrigin) {
+        callback(null, true);
+        return;
+      }
+
+      try {
+        const normalizedAllowedOrigin = new URL(allowedOrigin).origin;
+        const normalizedRequestOrigin = new URL(origin).origin;
+
+        if (normalizedRequestOrigin === normalizedAllowedOrigin) {
+          callback(null, true);
+          return;
+        }
+      } catch {
+        // Fall back to a literal comparison for non-URL input.
+      }
+
+      if (origin === allowedOrigin || origin === `${allowedOrigin.replace(/\/$/, "")}/`) {
         callback(null, true);
         return;
       }

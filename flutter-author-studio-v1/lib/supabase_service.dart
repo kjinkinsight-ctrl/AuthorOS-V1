@@ -9,7 +9,7 @@ class AppSupabase {
   static const _initializationTimeout = Duration(seconds: 5);
   static const String _defaultUrl = 'https://dzhfhypgkukvfliubykv.supabase.co';
   static const String _defaultAnonKey =
-      'oLQ9HlLF/6GHNuryu4XEfcm59wPOFBp/x6TiZe+FBQWBk8P+smALpCSCDG8qtWeMnKTkRX1C+PYdC1ycSUNSTA==';
+      'sb_publishable_-gYq0Uwtme6kexFgp4sG9g_DDtF7eBc';
 
   static String get resolvedUrl => const String.fromEnvironment(
         'SUPABASE_URL',

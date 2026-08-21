@@ -1,14 +1,26 @@
+import 'dart:async';
+
+import 'package:author_studio_v1/liquid_aurora_background.dart';
 import 'package:author_studio_v1/main.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/release_destinations.dart';
+import 'package:author_studio_v1/theme/theme_definition.dart';
+import 'package:author_studio_v1/theme/theme_engine.dart';
+import 'package:author_studio_v1/theme/theme_persistence.dart';
+import 'package:author_studio_v1/theme/theme_registry.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  // The profile screen's aurora loops forever, which would stall
+  // `pumpAndSettle`; pin it to a static frame for the widget tests.
+  setUp(() => debugDisableAuroraAnimation = true);
+  tearDown(() => debugDisableAuroraAnimation = false);
+
   double contrastRatio(Color first, Color second) {
     final lighter = first.computeLuminance() > second.computeLuminance()
         ? first.computeLuminance()
@@ -38,6 +50,52 @@ void main() {
     expect(AppThemePreset.byId('slate').id, 'light');
     expect(AppThemePreset.byId('obsidian').id, 'dark');
     expect(AppThemePreset.byId('midnight').id, 'dark');
+  });
+
+  group('ThemeDefinition.defaultMode', () {
+    final registry = ThemeRegistry.standard();
+
+    AuthorOsThemeMode modeFor(String id) => registry.byId(id).defaultMode;
+
+    test('a single-brightness theme pins its own mode', () {
+      expect(modeFor('light'), AuthorOsThemeMode.light);
+      expect(modeFor('dark'), AuthorOsThemeMode.dark);
+    });
+
+    test('every legacy id keeps the mode it had before the engine', () {
+      // The same eight ids the registry aliases. These mappings are a
+      // compatibility contract: changing one silently re-themes an install.
+      expect(modeFor('paper'), AuthorOsThemeMode.light);
+      expect(modeFor('slate'), AuthorOsThemeMode.light);
+      expect(modeFor('obsidian'), AuthorOsThemeMode.dark);
+      expect(modeFor('midnight'), AuthorOsThemeMode.dark);
+      expect(modeFor('forest'), AuthorOsThemeMode.dark);
+      expect(modeFor('burgundy'), AuthorOsThemeMode.dark);
+      expect(modeFor('plum'), AuthorOsThemeMode.dark);
+      expect(modeFor('ocean'), AuthorOsThemeMode.dark);
+    });
+
+    test('agrees with the brightness the legacy preset reported', () {
+      // Settings previously derived its mode from AppThemePreset.brightness.
+      // The registry now answers instead, and must give the same answer.
+      for (final id in const [
+        'light',
+        'dark',
+        'paper',
+        'slate',
+        'obsidian',
+        'midnight',
+      ]) {
+        final expected = AppThemePreset.byId(id).brightness == Brightness.dark
+            ? AuthorOsThemeMode.dark
+            : AuthorOsThemeMode.light;
+        expect(modeFor(id), expected, reason: 'mode drifted for "$id"');
+      }
+    });
+
+    test('an unknown id falls back to the registry default', () {
+      expect(modeFor('not-a-theme'), AuthorOsThemeMode.light);
+    });
   });
 
   for (final themeId in ['light', 'dark']) {
@@ -189,6 +247,60 @@ void main() {
           .resolvedAccentColor,
       AppThemePreset.byId('light').accentColor,
     );
+  });
+
+  testWidgets('engine-backed appearance exposes system, light, dark, and accessibility',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+
+    final store = MemoryThemeSettingsStore();
+    final engine = ThemeEngine.standard(store: store);
+    await engine.load();
+    ThemeSelection? reportedSelection;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsStudioView(
+          selection: const ThemeSelection(
+            themeId: 'light',
+            mode: AuthorOsThemeMode.light,
+          ),
+          onSelectionChanged: (selection) {
+            reportedSelection = selection;
+            unawaited(
+              engine.select(
+                selection: selection,
+                hostBrightness: ThemeBrightness.light,
+              ),
+            );
+          },
+          themeId: 'light',
+          accentId: 'default',
+          onThemeChanged: (_, __) {},
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Appearance'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('System'), findsOneWidget);
+    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('Dark'), findsOneWidget);
+    expect(find.text('High contrast'), findsOneWidget);
+    expect(find.text('Reduce intensity'), findsOneWidget);
+
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+
+    expect(reportedSelection, isNotNull);
+    expect(reportedSelection!.mode, AuthorOsThemeMode.dark);
+    expect(reportedSelection!.themeId, 'dark');
+
+    final reloaded = ThemeEngine.standard(store: store);
+    final selection = await reloaded.load();
+    expect(selection.mode, AuthorOsThemeMode.dark);
+    expect(selection.themeId, 'dark');
   });
 
   testWidgets('account security controls are inside a collapsible section',

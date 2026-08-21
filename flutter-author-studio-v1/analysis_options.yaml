@@ -11,6 +11,10 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    # Standalone benchmark tooling, not part of the app. It imports
+    # `package:isar_community`, which is no longer a dependency, so analysing it
+    # reports 21 errors that say nothing about the shipping code.
+    - tool/storage_benchmark.dart
     - tool/storage_benchmark.g.dart
 
 linter:

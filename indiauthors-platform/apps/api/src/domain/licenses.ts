@@ -82,7 +82,9 @@ const allowedTransitions: Record<LicenseStatus, Set<LicenseStatus>> = {
 };
 
 function parseVersionParts(version: string): number[] {
-  const parts = version
+  const normalized = version.trim().toLowerCase().replace(/^v/, "");
+  const [base] = normalized.split("-");
+  const parts = (base ?? "")
     .split(".")
     .map((part) => Number.parseInt(part.replace(/\D/g, ""), 10))
     .filter((value) => Number.isFinite(value));
@@ -108,7 +110,58 @@ function compareVersions(left: string, right: string): number {
     }
   }
 
-  return 0;
+  const leftPrerelease = left.trim().toLowerCase().replace(/^v/, "").split("-")[1];
+  const rightPrerelease = right.trim().toLowerCase().replace(/^v/, "").split("-")[1];
+
+  if (!leftPrerelease && !rightPrerelease) {
+    return 0;
+  }
+
+  if (!leftPrerelease) {
+    return 1;
+  }
+
+  if (!rightPrerelease) {
+    return -1;
+  }
+
+  const leftTokens = leftPrerelease.split(".");
+  const rightTokens = rightPrerelease.split(".");
+  const tokenLimit = Math.max(leftTokens.length, rightTokens.length);
+
+  for (let i = 0; i < tokenLimit; i += 1) {
+    const leftToken = leftTokens[i] ?? "";
+    const rightToken = rightTokens[i] ?? "";
+
+    const leftNumeric = Number.parseInt(leftToken, 10);
+    const rightNumeric = Number.parseInt(rightToken, 10);
+
+    if (leftToken === rightToken) {
+      continue;
+    }
+
+    if (Number.isNaN(leftNumeric) && Number.isNaN(rightNumeric)) {
+      return leftToken.localeCompare(rightToken);
+    }
+
+    if (Number.isNaN(leftNumeric)) {
+      return 1;
+    }
+
+    if (Number.isNaN(rightNumeric)) {
+      return -1;
+    }
+
+    if (leftNumeric > rightNumeric) {
+      return 1;
+    }
+
+    if (leftNumeric < rightNumeric) {
+      return -1;
+    }
+  }
+
+  return leftTokens.length === rightTokens.length ? 0 : leftTokens.length > rightTokens.length ? 1 : -1;
 }
 
 export function listLicensesForUser(userId: string): LicenseRecord[] {

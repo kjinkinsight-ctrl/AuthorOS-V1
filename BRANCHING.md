@@ -18,10 +18,11 @@ would mean re-pointing all three for no behavioural gain.
 
 ## Branch families
 
-Each tree carries the same set of families: one per studio, plus `core` for the
-shared app layer (records, persistence, theme, navigation, startup), `platform`
-for `indiauthors-platform/`, and `ci` for the workflow and build pipeline. The
-debug tree prefixes them `debug/`, the release tree `rel/`.
+Each tree carries the same set of families: one per studio, plus `story-graph`
+for the universal record graph and its explorer, `core` for the rest of the
+shared app layer (persistence, theme, navigation, startup), `platform` for
+`indiauthors-platform/`, and `ci` for the workflow and build pipeline. The debug
+tree prefixes them `debug/`, the release tree `rel/`.
 
 ```
 debug/base                         main
@@ -34,6 +35,7 @@ debug/base                         main
 ├── debug/research-studio/base     ├── rel/research-studio/base
 ├── debug/analytics-studio/base    ├── rel/analytics-studio/base
 ├── debug/story-codex/base         ├── rel/story-codex/base
+├── debug/story-graph/base         ├── rel/story-graph/base
 ├── debug/core/base                ├── rel/core/base
 ├── debug/platform/base            ├── rel/platform/base
 └── debug/ci/base                  └── rel/ci/base

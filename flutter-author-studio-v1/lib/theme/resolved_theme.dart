@@ -73,6 +73,12 @@ class ResolvedTheme {
     return palette.merge(overrides);
   }
 
+  /// Resolves a categorical slot.
+  ///
+  /// The ramp is palette-level and shared across Studios, so one data
+  /// category keeps one colour everywhere it appears.
+  ThemeColor category(ThemeCategoryRef ref) => palette.category(ref);
+
   ThemeTextStyle text(ThemeTextRole role) => typography[role];
 
   bool get isDark => brightness == ThemeBrightness.dark;

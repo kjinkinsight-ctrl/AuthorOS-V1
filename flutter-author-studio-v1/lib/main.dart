@@ -1205,6 +1205,10 @@ extension StudioSectionData on StudioSection {
 Color _mutedOn(BuildContext context) =>
     Theme.of(context).colorScheme.onSurfaceVariant;
 
+/// The status roles and categorical ramp, from the application's ThemeData.
+AuthorOsSemanticColors _semantic(BuildContext context) =>
+    AuthorOsSemanticColors.of(context);
+
 Future<void> _defaultLogout() async {}
 
 class AuthorStudioShell extends StatefulWidget {
@@ -4356,8 +4360,12 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                             ),
                             decoration: BoxDecoration(
                               color: publicProfile
-                                  ? Colors.green.withValues(alpha: 0.14)
-                                  : Colors.orange.withValues(alpha: 0.12),
+                                  ? _semantic(context)
+                                      .success
+                                      .withValues(alpha: 0.14)
+                                  : _semantic(context)
+                                      .warning
+                                      .withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
@@ -4366,8 +4374,8 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                                   : 'Private profile',
                               style: TextStyle(
                                 color: publicProfile
-                                    ? Colors.greenAccent
-                                    : Colors.orangeAccent,
+                                    ? _semantic(context).success
+                                    : _semantic(context).warning,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),

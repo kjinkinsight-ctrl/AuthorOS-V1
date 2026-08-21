@@ -55,6 +55,38 @@ The trade-off, stated honestly:
 R-1 and R-2 keep their CRITICAL rank. Under D-3 they are addressed by the integrity
 milestone below rather than by a migration.
 
+**Two node kinds are an accepted architectural reality, not a defect to remove.** Phase 0
+must not try to eliminate the second kind — it exists to make the manuscript kind *safe*:
+a reliable node lifecycle, no ghost nodes, no structure pointing at absent prose. Any
+future graph read model handles both kinds permanently and by design.
+
+### The graph boundary
+
+D-3 raises a question the audit answered only case by case, and the writing-session
+discovery (§0) settled it in general. Rather than ruling on each new subsystem as it
+arrives, the boundary is:
+
+| In the story graph | Outside it |
+|---|---|
+| Manuscript entities (scenes, chapters) | Writing sessions |
+| Characters | Audit history |
+| Locations and world entities | Version history |
+| Plot | Activity history |
+| Timeline | |
+| Research | |
+| Map entities, where appropriate | |
+| Relationships between all of the above | |
+
+The test is **participation, not proximity**. Everything on the left is a thing the story
+is *made of*, and can be an endpoint of a `RecordLink`. Everything on the right is a record
+of *what happened to* the story — it may reference graph entities by id, and it may be
+read alongside them, but it is never a node and never an edge endpoint.
+
+`writing_session_rows` is the worked example: it carries `chapterId` and `sceneId`, so it
+sits close to the graph, but they are nullable soft pointers with no foreign key into
+`connected_entities`. Proximity without participation. That is the shape every
+historical or operational subsystem should take, and invariant I-16 holds it there.
+
 ### Phase plan superseded
 
 §20's Phase 0 was written for D-1 and no longer applies. The live plan is:
@@ -1013,6 +1045,7 @@ Each rule is marked with whether the architecture already enforces it.
 | I-13 | **One edge table.** No second relationship model, ever | **HOLDS** — `record_link_rows` is the only edge table. **At risk**: `ImpactTraceAnalyzer`'s `TraceLink` and `ManuscriptScene.relationships` are both parallel edge shapes already in the tree (§18) |
 | I-14 | **Manuscript-node edges must tolerate a non-record endpoint.** | **Permanent under D-3** (was transitional under the withdrawn D-1). `entityTypeId` already falls back to `nodeType`, but `RecordService.getRecord` returns `null` and `ConnectionEngine.linkedRecords` silently drops manuscript nodes. Phase 0 removes the need |
 | I-15 | **The graph owns no storage.** | **Future requirement** — the defining constraint of the whole design |
+| I-16 | **Historical and operational data never participates in the graph.** Writing sessions, audit history, version history and activity history may reference graph entities by id, but must never be a node, a record type, or an edge endpoint | **HOLDS** — generalises I-12 from writing sessions to the whole class. The test is participation, not proximity: a soft id reference is fine, a foreign key into `connected_entities` is not. See "The graph boundary" in §0 |
 
 ---
 

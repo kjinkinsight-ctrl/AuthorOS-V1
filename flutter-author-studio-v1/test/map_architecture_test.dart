@@ -310,6 +310,170 @@ void main() {
     });
   });
 
+  group('Phase 2 editor architecture', () {
+    test('the editor adds no store, no cache and no file of its own', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        for (final banned in const [
+          'class MapRepository',
+          'class MapDatabase',
+          'class MapStore',
+          'class MapCameraStore',
+          'class MapEditorStore',
+          'class MapCache',
+          'SharedPreferences',
+          'dart:io',
+          'File(',
+          'Hive',
+          'localStorage',
+          'jsonEncode',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '$path introduces $banned');
+        }
+      }
+    });
+
+    test('the editor writes through the Phase 2 service vocabulary', () {
+      final service = read('lib/map_service.dart');
+      for (final api in const [
+        'moveLocation',
+        'moveMarker',
+        'moveRegion',
+        'setRegionGeometry',
+        'moveRegionPoint',
+        'addRegionPoint',
+        'removeRegionPoint',
+        'reshapeRegion',
+        'regionGeometry',
+      ]) {
+        expect(service, contains(api), reason: 'MapService lacks $api');
+      }
+      // Still through the shared layers, still no repository writes.
+      expect(service, contains('RecordService'));
+      expect(service, contains('ConnectionEngine'));
+      expect(service, isNot(contains('repository.putRecord')));
+      expect(service, isNot(contains('repository.deleteRecord')));
+    });
+
+    test('the view still issues no record or link write itself', () {
+      final view = read('lib/map_studio_view.dart');
+      for (final banned in const [
+        'AuthorRecord(',
+        'RecordService',
+        'ConnectionEngine',
+        'createRecord',
+        'updateRecord',
+        'archiveRecord',
+        'deleteRecord',
+        'connect(',
+      ]) {
+        expect(view, isNot(contains(banned)), reason: 'the view calls $banned');
+      }
+    });
+
+    test('the camera never reaches the service, and no pixel is ever stored',
+        () {
+      final service = read('lib/map_service.dart');
+      // The service has no idea a camera exists; that is what keeps zoom and
+      // pan out of the persistence model.
+      expect(service, isNot(contains('MapCamera')));
+      expect(service, isNot(contains('camera')));
+      for (final banned in const [
+        'screenX',
+        'screenY',
+        'pixelX',
+        'pixelY',
+        'canvasX',
+        'canvasY',
+        'viewportOffset',
+        'widgetX',
+        'devicePixelRatio',
+        'Offset(',
+      ]) {
+        expect(service, isNot(contains(banned)),
+            reason: 'MapService touches $banned');
+      }
+      // Every field the Studio owns is map space under one namespace.
+      for (final field in const [
+        MapFields.mapId,
+        MapFields.x,
+        MapFields.y,
+        MapFields.geometry,
+      ]) {
+        expect(field, startsWith(MapFields.prefix));
+      }
+    });
+
+    test('zoom and pan are camera arithmetic, not a second canvas', () {
+      final view = read('lib/map_studio_view.dart');
+      final domain = read('lib/map_domain.dart');
+      expect(view, contains('MapProjection'));
+      expect(view, contains('MapCamera'));
+      expect(domain, contains('zoomedTo'));
+      expect(domain, contains('pannedBy'));
+      for (final banned in const [
+        'InteractiveViewer',
+        'Transform.scale',
+        'TransformationController',
+        'MatrixGestureDetector',
+      ]) {
+        expect(view, isNot(contains(banned)),
+            reason: 'the canvas reaches for $banned');
+      }
+    });
+
+    test('the draw order is one declared order', () {
+      expect(MapLayer.values.map((layer) => layer.name), [
+        'base',
+        'regions',
+        'locations',
+        'markers',
+        'selection',
+        'interaction',
+      ]);
+      // The canvas walks the enum rather than hand-ordering a stack.
+      expect(read('lib/map_studio_view.dart'), contains('MapLayer.values'));
+    });
+
+    test('the editor vocabulary lives in the domain, not the widget', () {
+      final domain = read('lib/map_domain.dart');
+      for (final api in const [
+        'enum MapEditorTool',
+        'enum MapLayer',
+        'class MapRect',
+        'class MapMarquee',
+        'MapPlacementKind',
+      ]) {
+        expect(domain, contains(api), reason: 'the domain lacks $api');
+      }
+      // And it is still plain Dart.
+      expect(domain, isNot(contains('package:flutter/')));
+    });
+
+    test('selection is UI state and is never persisted', () {
+      final service = read('lib/map_service.dart');
+      expect(service, isNot(contains('MapSelection')));
+      expect(service, isNot(contains('marquee')));
+      expect(service, isNot(contains('selectedIds')));
+    });
+
+    test('the Studio still resolves every colour through the engine', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        expect(source, isNot(contains('Color(0x')), reason: path);
+        expect(source, isNot(contains('Colors.')), reason: path);
+        expect(source, isNot(contains('ThemeData(')), reason: path);
+        expect(source, isNot(contains('MapThemeScope')), reason: path);
+      }
+      final view = read('lib/map_studio_view.dart');
+      expect(view, contains('StudioThemeScope'));
+      expect(view, contains('StudioId.map'));
+      expect(view, contains('ThemeColorRef.'));
+      expect(view, contains('ThemeTextRole.'));
+    });
+  });
+
   group('phase boundary', () {
     test('the service exposes no later-phase entry point', () {
       final service = read('lib/map_service.dart');
@@ -338,7 +502,42 @@ void main() {
         'InteractiveViewer',
         'PolygonEditor',
       ]) {
-        expect(view, isNot(contains(banned)), reason: 'the canvas uses $banned');
+        expect(view, isNot(contains(banned)), reason: 'the canvas uses \$banned');
+      }
+    });
+
+    test('no Phase 3 or later API has been introduced anywhere', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        for (final banned in const [
+          'Terrain',
+          'terrain',
+          'Biome',
+          'biome',
+          'heightMap',
+          'heightmap',
+          'MapBrush',
+          'brushStroke',
+          'assetLibrary',
+          'AssetLibrary',
+          'backgroundImage',
+          'exportMap',
+          'printMap',
+          'shareMap',
+          'publishMap',
+          'communityMap',
+          'marketplace',
+          'weatherSimulation',
+          'populationSimulation',
+          'politicalSimulation',
+          'characterOverlay',
+          'plotOverlay',
+          'timelineOverlay',
+          'researchOverlay',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '\$path introduces the Phase 3+ API \$banned');
+        }
       }
     });
   });

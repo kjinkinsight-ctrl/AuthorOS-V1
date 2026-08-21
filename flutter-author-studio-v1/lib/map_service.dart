@@ -471,6 +471,115 @@ class MapService {
     return MapRegionView(record: updated, mapId: mapId);
   }
 
+  /// Replaces a region's shape.
+  ///
+  /// The whole geometry editor funnels through here: every point the writer
+  /// drags is map space, clamped into the map's extent, written onto the same
+  /// record. No new record, no second store, no pixels.
+  Future<MapRegionView> setRegionGeometry(
+    String id,
+    MapGeometry geometry, {
+    DateTime? timestamp,
+  }) =>
+      updateRegion(id, geometry: geometry, timestamp: timestamp);
+
+  /// Moves one point of a region's shape.
+  Future<MapRegionView> moveRegionPoint(
+    String id,
+    int index,
+    MapPosition position, {
+    DateTime? timestamp,
+  }) async {
+    final geometry = await regionGeometry(id);
+    if (index < 0 || index >= geometry.points.length) {
+      throw MapStudioException(
+        'Region $id has no geometry point at index $index.',
+      );
+    }
+    return updateRegion(
+      id,
+      geometry: geometry.withPointAt(index, position),
+      timestamp: timestamp,
+    );
+  }
+
+  /// Adds a point to a region's shape, appended when [index] is absent.
+  Future<MapRegionView> addRegionPoint(
+    String id,
+    MapPosition position, {
+    int? index,
+    DateTime? timestamp,
+  }) async {
+    final geometry = await regionGeometry(id);
+    return updateRegion(
+      id,
+      geometry: geometry.withPointAdded(position, index: index),
+      timestamp: timestamp,
+    );
+  }
+
+  /// Removes a point, unless that would leave the shape with too few.
+  Future<MapRegionView> removeRegionPoint(
+    String id,
+    int index, {
+    DateTime? timestamp,
+  }) async {
+    final geometry = await regionGeometry(id);
+    return updateRegion(
+      id,
+      geometry: geometry.withPointRemoved(index),
+      timestamp: timestamp,
+    );
+  }
+
+  /// Re-expresses a region as another kind of shape.
+  ///
+  /// A bounds region becomes the four corners of its box; a polygon collapses
+  /// back to the box it occupies. The record and its history are the same.
+  Future<MapRegionView> reshapeRegion(
+    String id,
+    MapGeometryKind kind, {
+    DateTime? timestamp,
+  }) async {
+    final geometry = await regionGeometry(id);
+    final next = switch (kind) {
+      MapGeometryKind.polygon => geometry.asPolygon(),
+      MapGeometryKind.bounds => geometry.asBounds(),
+      MapGeometryKind.polyline => MapGeometry(
+          kind: MapGeometryKind.polyline,
+          points: geometry.asPolygon().points,
+        ),
+      MapGeometryKind.point => MapGeometry(
+          kind: MapGeometryKind.point,
+          points: [
+            if (geometry.centre != null) geometry.centre!,
+          ],
+        ),
+    };
+    return updateRegion(id, geometry: next, timestamp: timestamp);
+  }
+
+  /// Drags a whole region so its centre lands on [anchor].
+  Future<MapRegionView> moveRegion(
+    String id,
+    MapPosition anchor, {
+    DateTime? timestamp,
+  }) async {
+    final geometry = await regionGeometry(id);
+    if (geometry.isEmpty) {
+      throw MapStudioException('Region $id has no geometry to move.');
+    }
+    return updateRegion(
+      id,
+      geometry: geometry.movedTo(anchor),
+      timestamp: timestamp,
+    );
+  }
+
+  /// The stored shape of a region.
+  Future<MapGeometry> regionGeometry(String id) async =>
+      MapGeometry.read((await _requirePlace(id, const {MapTypes.region})).fields);
+
   Future<MapRegionView> archiveRegion(String id, {DateTime? timestamp}) async {
     final existing = await _requirePlace(id, const {MapTypes.region});
     return MapRegionView(

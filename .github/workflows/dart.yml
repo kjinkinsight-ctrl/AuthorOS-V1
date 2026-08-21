@@ -15,28 +15,38 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # The Flutter app is not at the repository root; every `run` step below
+    # executes inside it. `uses` steps are unaffected.
+    defaults:
+      run:
+        working-directory: flutter-author-studio-v1
+
     steps:
       - uses: actions/checkout@v4
 
-      # Note: This workflow uses the latest stable version of the Dart SDK.
-      # You can specify other versions if desired, see documentation here:
-      # https://github.com/dart-lang/setup-dart/blob/main/README.md
-      # - uses: dart-lang/setup-dart@v1
-      - uses: dart-lang/setup-dart@9a04e6d73cca37bd455e0608d7e5092f881fd603
+      # This is a Flutter app, so it needs the Flutter SDK rather than a bare
+      # Dart SDK: `dart pub get` cannot resolve the `flutter` SDK dependency.
+      # The version is pinned so CI is reproducible; bump it deliberately.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.9
+          channel: stable
+          cache: true
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
-      # Uncomment this step to verify the use of 'dart format' on each commit.
-      # - name: Verify formatting
-      #   run: dart format --output=none --set-exit-if-changed .
-
-      # Consider passing '--fatal-infos' for slightly stricter analysis.
+      # Scoped to the shipped app and its tests. `tool/storage_benchmark.dart`
+      # is a one-off benchmark for ADR-0004 that imports `isar_community`, a
+      # dependency dropped when the ADR chose Drift; it has 13 analyzer errors
+      # and is excluded here rather than silently deleted.
+      #
+      # Infos and warnings are reported but not fatal, because `lib` and `test`
+      # carry a pre-existing backlog of 47 infos and 8 warnings (all dead code
+      # or unused imports). Errors still fail the build. Once that backlog is
+      # cleared, drop these two flags to tighten the gate.
       - name: Analyze project source
-        run: dart analyze
+        run: flutter analyze lib test --no-fatal-infos --no-fatal-warnings
 
-      # Your project will need to have tests in test/ and a dependency on
-      # package:test for this step to succeed. Note that Flutter projects will
-      # want to change this to 'flutter test'.
       - name: Run tests
-        run: dart test
+        run: flutter test

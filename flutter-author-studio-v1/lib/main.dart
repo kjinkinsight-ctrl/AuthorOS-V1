@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'author_profile_store.dart';
+import 'analytics_service.dart';
+import 'analytics_studio_view.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
 import 'core/search_models.dart' show SearchDestination;
@@ -618,6 +620,7 @@ enum StudioSection {
   worldBoard,
   search,
   statistics,
+  analytics,
   backup,
   projects,
   ideas,
@@ -639,6 +642,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.worldBoard => 'World Board',
         StudioSection.search => 'Search',
         StudioSection.statistics => 'Statistics',
+        StudioSection.analytics => 'Analytics',
         StudioSection.backup => 'Backup',
         StudioSection.projects => 'Projects',
         StudioSection.ideas => 'Ideas',
@@ -659,6 +663,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.worldBoard => Icons.hub_outlined,
         StudioSection.search => Icons.search_outlined,
         StudioSection.statistics => Icons.bar_chart_outlined,
+        StudioSection.analytics => Icons.insights_outlined,
         StudioSection.backup => Icons.backup_outlined,
         StudioSection.projects => Icons.folder_copy_outlined,
         StudioSection.ideas => Icons.lightbulb_outline,
@@ -720,6 +725,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.worldBoard,
     StudioSection.search,
     StudioSection.statistics,
+    StudioSection.analytics,
     StudioSection.backup,
     StudioSection.projects,
     StudioSection.ideas,
@@ -1168,6 +1174,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.worldBoard,
     StudioSection.search,
     StudioSection.statistics,
+    StudioSection.analytics,
     StudioSection.backup,
     StudioSection.projects,
     StudioSection.ideas,
@@ -1529,6 +1536,14 @@ class _SectionView extends StatelessWidget {
           ),
         StudioSection.search => SearchStudioView(project: project),
         StudioSection.statistics => StatisticsStudioView(project: project),
+        StudioSection.analytics => AnalyticsStudioView(
+            project: project,
+            service: AnalyticsService(
+              project: project,
+              repository: authorOsRepository,
+              manuscriptStore: manuscriptStore,
+            ),
+          ),
         StudioSection.backup => const BackupHealthView(),
         StudioSection.projects => const _ProjectsStudioView(),
         StudioSection.ideas => const RecordStudioView(

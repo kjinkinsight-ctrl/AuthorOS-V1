@@ -6,6 +6,7 @@ import 'core/safe_delete.dart';
 import 'core/search_models.dart';
 import 'core/timeline_record_types.dart';
 import 'core/universal_search.dart';
+import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/theme_tokens.dart';
@@ -37,13 +38,18 @@ class TimelineNavigationRequest {
 class TimelineStudioView extends StatefulWidget {
   const TimelineStudioView({
     super.key,
-    required this.projectId,
+    required this.project,
     this.repository,
+    this.service,
     this.onNavigate,
   });
 
-  final String projectId;
+  final StarterProject project;
   final DriftConnectedDomainRepository? repository;
+
+  /// An explicit service, for tests that drive the Studio against a fixture
+  /// database. When absent the Studio builds one for [project].
+  final TimelineService? service;
   final ValueChanged<TimelineNavigationRequest>? onNavigate;
 
   @override
@@ -87,10 +93,11 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
   @override
   void initState() {
     super.initState();
-    service = TimelineService(
-      projectId: widget.projectId,
-      repository: widget.repository ?? authorOsRepository,
-    );
+    service = widget.service ??
+        TimelineService(
+          projectId: widget.project.id,
+          repository: widget.repository ?? authorOsRepository,
+        );
     _load();
   }
 
@@ -262,7 +269,7 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
   Future<TimelineCalendar> _ensureCalendar() async {
     if (calendars.isNotEmpty) return calendars.first;
     final calendar = TimelineCalendar(
-      id: 'calendar-${widget.projectId}',
+      id: 'calendar-${service.projectId}',
       name: 'Story Calendar',
       months: [
         for (var month = 1; month <= 12; month++)
@@ -350,6 +357,7 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
       analysis = null;
     }
     if (!mounted) return;
+    final palette = _TimelinePalette.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -370,7 +378,7 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
               Text(
                 '${analysis.incomingConnections.length + analysis.outgoingConnections.length} '
                 'connection(s) reference this event.',
-                style: Theme.of(context).textTheme.bodySmall,
+                style: palette.label,
               ),
             ],
           ],
@@ -518,19 +526,13 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
             children: [
               Text(
                 'Timeline Studio',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: palette.heading.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
               Text(
                 'Chart the chronology of your story world through shared '
                 'Universal Records.',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: palette.onSurfaceVariant),
+                style: palette.body.copyWith(color: palette.onSurfaceVariant),
               ),
             ],
           ),
@@ -652,7 +654,7 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
         ),
         child: Text(
           'No timeline events match the current filters.',
-          style: Theme.of(context).textTheme.bodyLarge,
+          style: palette.body,
         ),
       );
     }
@@ -686,7 +688,7 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
             child: Text(
               'Undated',
               key: const Key('timeline-undated-header'),
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              style: palette.ui.copyWith(
                     color: palette.onSurfaceVariant,
                     fontWeight: FontWeight.w700,
                   ),
@@ -723,6 +725,10 @@ class _TimelinePalette {
     required this.outline,
     required this.selection,
     required this.focusRing,
+    required this.heading,
+    required this.ui,
+    required this.body,
+    required this.label,
   });
 
   final Color surface;
@@ -735,12 +741,32 @@ class _TimelinePalette {
   final Color selection;
   final Color focusRing;
 
+  /// Typography comes from the Theme Engine's roles rather than the Material
+  /// text theme, so the Studio's type scale is governed by the same tokens as
+  /// its colours.
+  final TextStyle heading;
+  final TextStyle ui;
+  final TextStyle body;
+  final TextStyle label;
+
   /// The chronological rail and its markers use the Studio accent.
   Color get railLine => primary;
 
   static _TimelinePalette of(BuildContext context) {
     final scope = StudioThemeScope.maybeOf(context);
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    TextStyle text(
+      ThemeTextRole role,
+      ThemeColorRef ref,
+      TextStyle? fallback,
+    ) =>
+        scope?.text(role, colorRef: ref) ??
+        (fallback ?? const TextStyle()).copyWith(
+          color: ref == ThemeColorRef.onSurfaceVariant
+              ? scheme.onSurfaceVariant
+              : scheme.onSurface,
+        );
     return _TimelinePalette(
       surface: scope?.color(ThemeColorRef.surface) ?? scheme.surface,
       surfaceContainer: scope?.color(ThemeColorRef.surfaceContainer) ??
@@ -755,6 +781,14 @@ class _TimelinePalette {
       selection: scope?.color(ThemeColorRef.selection) ??
           scheme.primaryContainer,
       focusRing: scope?.color(ThemeColorRef.focusRing) ?? scheme.primary,
+      heading: text(ThemeTextRole.heading, ThemeColorRef.onSurface,
+          theme.textTheme.headlineSmall),
+      ui: text(ThemeTextRole.ui, ThemeColorRef.onSurface,
+          theme.textTheme.titleSmall),
+      body: text(ThemeTextRole.body, ThemeColorRef.onSurfaceVariant,
+          theme.textTheme.bodyMedium),
+      label: text(ThemeTextRole.label, ThemeColorRef.onSurfaceVariant,
+          theme.textTheme.labelMedium),
     );
   }
 }
@@ -782,20 +816,14 @@ class _EmptyState extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Your story has no events yet.',
-            style: Theme.of(context)
-                .textTheme
-                .titleLarge
-                ?.copyWith(fontWeight: FontWeight.w700),
+            style: palette.heading.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(
             'Timeline events anchor eras, battles, births and turning points '
             'to the chronology of your world.',
             textAlign: TextAlign.center,
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: palette.onSurfaceVariant),
+            style: palette.body.copyWith(color: palette.onSurfaceVariant),
           ),
           const SizedBox(height: 20),
           Semantics(
@@ -843,19 +871,13 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             'The timeline could not be loaded.',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
+            style: palette.ui.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: palette.onSurfaceVariant),
+            style: palette.label.copyWith(color: palette.onSurfaceVariant),
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
@@ -908,7 +930,7 @@ class _TimelineRow extends StatelessWidget {
               child: Text(
                 entry.dateLabel,
                 textAlign: TextAlign.right,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                style: palette.label.copyWith(
                       color: palette.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
@@ -979,10 +1001,7 @@ class _TimelineRow extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   record.title,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleSmall
-                                      ?.copyWith(
+                                  style: palette.ui.copyWith(
                                         fontWeight: FontWeight.w700,
                                         decoration: archived
                                             ? TextDecoration.lineThrough
@@ -1032,10 +1051,7 @@ class _TimelineRow extends StatelessWidget {
                               summary,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: palette.onSurfaceVariant),
+                              style: palette.label.copyWith(color: palette.onSurfaceVariant),
                             ),
                           ],
                         ],
@@ -1075,7 +1091,7 @@ class _TimelineTag extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        style: palette.label.copyWith(
               color: emphasized ? palette.primary : palette.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
@@ -1135,10 +1151,7 @@ class _TimelineDetailPane extends StatelessWidget {
               Expanded(
                 child: Text(
                   record.title,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                  style: palette.heading.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
               IconButton(
@@ -1191,27 +1204,21 @@ class _TimelineDetailPane extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               description,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: palette.body,
             ),
           ],
           if (notes.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
               notes,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: palette.onSurfaceVariant),
+              style: palette.label.copyWith(color: palette.onSurfaceVariant),
             ),
           ],
           if (links.isNotEmpty) ...[
             const SizedBox(height: 14),
             Text(
               'Connections',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleSmall
-                  ?.copyWith(fontWeight: FontWeight.w700),
+              style: palette.ui.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
             for (final link in links)
@@ -1290,14 +1297,11 @@ class _DetailLine extends StatelessWidget {
             width: 76,
             child: Text(
               label,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelMedium
-                  ?.copyWith(color: palette.onSurfaceVariant),
+              style: palette.label.copyWith(color: palette.onSurfaceVariant),
             ),
           ),
           Expanded(
-            child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+            child: Text(value, style: palette.body),
           ),
         ],
       ),
@@ -1341,7 +1345,7 @@ class _ConnectionRow extends StatelessWidget {
             Expanded(
               child: Text(
                 '${link.typeId} · ${target.title}',
-                style: Theme.of(context).textTheme.bodySmall,
+                style: palette.label,
                 overflow: TextOverflow.ellipsis,
               ),
             ),

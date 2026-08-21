@@ -15,7 +15,8 @@ const AssetImage startupDoorway = AssetImage('assets/startup-doorway.png');
 /// the light/dark choice made in settings: the panels sit on a night-time
 /// illustration, and a light wash over it would be unreadable. The values are
 /// not invented here. They are read from the Theme Engine's registered dark
-/// theme, or from the enclosing [StudioThemeScope] once the shell installs one.
+/// theme, and deliberately not from the enclosing [StudioThemeScope] — see
+/// [StartupPalette.of].
 class StartupPalette {
   const StartupPalette({
     required this.background,
@@ -33,22 +34,21 @@ class StartupPalette {
   final Color outline;
   final Color focusRing;
 
-  factory StartupPalette.of(BuildContext context) {
-    final scope = StudioThemeScope.maybeOf(context);
-    if (scope != null) {
-      return StartupPalette(
-        background: scope.color(ThemeColorRef.background),
-        panel: scope.color(ThemeColorRef.surface),
-        gold: scope.color(ThemeColorRef.primary),
-        onSurface: scope.color(ThemeColorRef.onSurface),
-        outline: scope.color(ThemeColorRef.outlineVariant),
-        focusRing: scope.color(ThemeColorRef.focusRing),
-      );
-    }
-    return engineDark;
-  }
+  /// The palette for a startup surface.
+  ///
+  /// [context] is accepted for call-site symmetry with the rest of the app and
+  /// is deliberately not consulted. Startup must NOT follow the ambient
+  /// [StudioThemeScope]: the shell installs one carrying the author's workspace
+  /// theme, and a light workspace theme would both wash out the panels and —
+  /// because the scrim is drawn from [background] — bleach the night-time
+  /// artwork behind them. Startup is a distinct onboarding surface, so it is
+  /// pinned to the engine's registered dark palette in all three workspace
+  /// modes. The workspace itself is unaffected and still follows the author's
+  /// choice.
+  factory StartupPalette.of(BuildContext context) => engineDark;
 
-  /// The Theme Engine's dark palette, used until the shell installs a scope.
+  /// The Theme Engine's registered dark palette. The single source of startup
+  /// colour, read from the engine rather than invented here.
   static final StartupPalette engineDark = _readEngineDark();
 
   static StartupPalette _readEngineDark() {

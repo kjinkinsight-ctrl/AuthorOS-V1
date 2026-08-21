@@ -9,6 +9,7 @@ import 'package:author_studio_v1/release_destinations.dart';
 import 'package:author_studio_v1/theme/theme_definition.dart';
 import 'package:author_studio_v1/theme/theme_engine.dart';
 import 'package:author_studio_v1/theme/theme_persistence.dart';
+import 'package:author_studio_v1/theme/theme_registry.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +50,52 @@ void main() {
     expect(AppThemePreset.byId('slate').id, 'light');
     expect(AppThemePreset.byId('obsidian').id, 'dark');
     expect(AppThemePreset.byId('midnight').id, 'dark');
+  });
+
+  group('ThemeDefinition.defaultMode', () {
+    final registry = ThemeRegistry.standard();
+
+    AuthorOsThemeMode modeFor(String id) => registry.byId(id).defaultMode;
+
+    test('a single-brightness theme pins its own mode', () {
+      expect(modeFor('light'), AuthorOsThemeMode.light);
+      expect(modeFor('dark'), AuthorOsThemeMode.dark);
+    });
+
+    test('every legacy id keeps the mode it had before the engine', () {
+      // The same eight ids the registry aliases. These mappings are a
+      // compatibility contract: changing one silently re-themes an install.
+      expect(modeFor('paper'), AuthorOsThemeMode.light);
+      expect(modeFor('slate'), AuthorOsThemeMode.light);
+      expect(modeFor('obsidian'), AuthorOsThemeMode.dark);
+      expect(modeFor('midnight'), AuthorOsThemeMode.dark);
+      expect(modeFor('forest'), AuthorOsThemeMode.dark);
+      expect(modeFor('burgundy'), AuthorOsThemeMode.dark);
+      expect(modeFor('plum'), AuthorOsThemeMode.dark);
+      expect(modeFor('ocean'), AuthorOsThemeMode.dark);
+    });
+
+    test('agrees with the brightness the legacy preset reported', () {
+      // Settings previously derived its mode from AppThemePreset.brightness.
+      // The registry now answers instead, and must give the same answer.
+      for (final id in const [
+        'light',
+        'dark',
+        'paper',
+        'slate',
+        'obsidian',
+        'midnight',
+      ]) {
+        final expected = AppThemePreset.byId(id).brightness == Brightness.dark
+            ? AuthorOsThemeMode.dark
+            : AuthorOsThemeMode.light;
+        expect(modeFor(id), expected, reason: 'mode drifted for "$id"');
+      }
+    });
+
+    test('an unknown id falls back to the registry default', () {
+      expect(modeFor('not-a-theme'), AuthorOsThemeMode.light);
+    });
   });
 
   for (final themeId in ['light', 'dark']) {

@@ -10,7 +10,7 @@ import 'package:author_studio_v1/theme/theme_persistence.dart';
 import 'package:author_studio_v1/theme/theme_tokens.dart';
 import 'package:author_studio_v1/timeline_domain.dart';
 import 'package:author_studio_v1/timeline_service.dart';
-import 'package:author_studio_v1/timeline_studio.dart';
+import 'package:author_studio_v1/timeline_studio_view.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +18,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const projectId = 'project-timeline';
 final timestamp = DateTime.utc(2026, 8, 20, 10);
+
+/// The Studio takes the shell's project; every test passes an explicit service
+/// so reads and writes land in the in-memory fixture database.
+const testProject = StarterProject(
+  id: projectId,
+  title: 'A Crown of Ash',
+  genre: 'Fantasy',
+  projectType: 'Novel',
+  wordGoal: 90000,
+  acts: ['Act I'],
+  chapters: [StarterChapter(title: 'Chapter 1', prompt: 'Begin')],
+  characterSheets: [StarterCharacterSheet(name: 'Mara', role: 'Protagonist')],
+  beatChecklist: ['Opening Image'],
+  firstSceneTitle: 'The First Bell',
+);
 
 const crownCalendar = TimelineCalendar(
   id: 'calendar-crown',
@@ -241,8 +256,11 @@ void main() {
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: TimelineStudioView(
-            projectId: projectId,
-            repository: repositoryOverride ?? repository,
+            project: testProject,
+            service: TimelineService(
+              projectId: projectId,
+              repository: repositoryOverride ?? repository,
+            ),
             onNavigate: navigations?.add,
           ),
         ),
@@ -483,8 +501,11 @@ void main() {
           child: Scaffold(
             body: SingleChildScrollView(
               child: TimelineStudioView(
-                projectId: projectId,
-                repository: repository,
+                project: testProject,
+                service: TimelineService(
+                  projectId: projectId,
+                  repository: repository,
+                ),
               ),
             ),
           ),

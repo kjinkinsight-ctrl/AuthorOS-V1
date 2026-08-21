@@ -123,52 +123,90 @@ in two places in `main.dart` (`_AuthorStudioShellState.storySections` and
 `_SidebarNavigation.storySections`); both were updated, and the navigation test
 opens the Studio through the real sidebar rather than constructing it directly.
 
-## 7. Manuscript Studio research side panel — findings
+## 7. Manuscript Studio research side panel — migrated
 
-**Not touched, not migrated, not deleted.** The findings:
+**Status: migrated.** The findings below were the audit; the migration landed
+in the follow-up milestone and is described after them.
 
-1. **What it stores.** `ProjectResearchStore` in `main.dart` writes
+### The audit
+
+1. **What it stored.** `ProjectResearchStore` wrote
    `author_studio.research_panel.{projectId}` — a JSON map keyed by
    `ResearchTab` (`research` / `notes` / `timeline`), each holding a list of
    `ResearchReference` with three string fields: `title`, `detail`, `tag`.
    No URLs, ids, or record references.
-2. **Could user data exist there?** Yes. The panel ships in the Manuscript
-   Studio layout, writes on every add or remove, and nothing has ever cleared
-   the key. Any author who pinned a reference has data in it today.
-3. **Can Universal Records represent it?** Yes, completely.
-   `title → AuthorRecord.title`, `detail → summary`, and `tag` maps onto
-   `researchKind` or a record tag. The `timeline` tab is the only wrinkle: its
-   entries are free text about chronology, not timeline records, so they would
-   migrate as research entries rather than as `timeline-*` records.
-4. **Is a migration required?** **Yes, and it is not in this milestone.**
+2. **Could author data exist there?** Yes. The panel shipped in the Manuscript
+   Studio layout, wrote on every add or remove, and nothing ever cleared the
+   key.
+3. **Could Universal Records represent it?** Yes, completely.
+4. **Was a migration required?** Yes — and urgently, because the key was *not*
+   covered by the archive, sync, or backup subsystems. `BackupHealthStore`
+   tracks only its own four keys, and nothing in `lib/archive`, `lib/sync`, or
+   `lib/migrations` read `author_studio.research_panel.*`. That data existed
+   only in device preferences and was absent from every project archive.
 
-   This matters more than it looks: the panel's key is *not* covered by the
-   archive, sync, or backup subsystems — `BackupHealthStore` tracks only its
-   own four keys, and nothing in `lib/archive`, `lib/sync`, or
-   `lib/migrations` reads `author_studio.research_panel.*`. Until a migration
-   lands, that data exists only in device preferences and is absent from
-   project archives.
+### What the migration does
 
-   `docs/persisted-data-inventory.md` already lists the key with a 2.0
-   destination of "research records and links". Its owner name and field list
-   were stale (it named a `ResearchReferenceStore` and URL/location fields);
-   both are corrected in this change.
+`lib/migrations/research_panel_migration.dart` lifts each legacy reference
+into a canonical `research-entry`:
 
-   `test/research_architecture_test.dart` guards the panel: it fails if
-   `ProjectResearchStore` or its key disappears from `main.dart`, so the old
-   system cannot be dropped silently without a migration landing beside it.
-   It also fails if any Research Studio file reads that key.
+| Legacy | Becomes |
+|---|---|
+| `title` | `AuthorRecord.title` |
+| `detail` | `summary` |
+| tab `research` | kind `Reference` |
+| tab `notes` / `timeline` | kind `Note` |
+| `tag` naming a category (`World`, `Character`, …) | `researchCategory` |
+| `tag` naming anything else | a record tag, so the author's label survives |
+| slot (`store`, `projectId`, `tab`, `index`, `tag`) | `extensionData.migratedFrom` |
 
-**Recommended migration shape** (next milestone, not this one):
+Timeline-tab entries become notes rather than `timeline-*` records: they were
+free text about chronology, and inventing timeline records from prose would be
+a guess dressed as data.
 
-- Read `author_studio.research_panel.{projectId}` once per project.
-- Create one `research-entry` per `ResearchReference`, with
-  `researchKind` derived from the tab, `summary` from `detail`, and an
-  `extensionData` breadcrumb naming the source key and tab.
-- Mark the key migrated rather than deleting it, for one support window.
-- Replace the panel body with a read-only view over canonical research
-  records, keeping its place in the Manuscript layout.
-- Add legacy fixtures alongside the existing ones in `test/fixtures/`.
+Three properties carry the safety:
+
+- **Nothing is destroyed.** The legacy key is never deleted or rewritten. A
+  separate `…​.migrated` marker key records the run, so a migration bug cannot
+  corrupt the only copy of the data.
+- **It is idempotent.** Record ids derive from `projectId | tab | title` via a
+  written-out FNV-1a hash, so a second run — with or without the marker, and
+  regardless of list order — creates nothing twice.
+- **It degrades per item.** An untitled reference is skipped and reported, not
+  fatal; the rest of the migration still runs, and the skipped entry stays in
+  the legacy store.
+
+It runs from the manuscript research panel on open, once per project.
+
+### The panel is now read-only
+
+The panel no longer owns storage. It reads canonical research records through
+`ResearchService`, shows how many entries the migration just moved, and links
+across to Research Studio for creating and editing. This is the part that
+makes the duplication actually end: while the panel could still write, new
+unmigrated data would start accumulating the moment an author pinned a
+reference.
+
+### A data-loss bug found and fixed on the way
+
+The legacy loader assigned rather than accumulated:
+
+```dart
+result[tab] = items;   // was
+```
+
+Every unrecognised key folds onto `research` via the `orElse`, so a blob
+written by an older build — one carrying a tab this build no longer has —
+would silently lose whichever key decoded first. Now it accumulates.
+`test/fixtures/legacy-research-panel-malformed.json` pins the behaviour.
+
+### Fixtures
+
+Two fixtures sit alongside the existing legacy set and are validated by the
+existing fixture contract test: `legacy-research-panel.json` (the happy path
+across all three tabs, with category and non-category tags) and
+`legacy-research-panel-malformed.json` (unknown tab, missing title key,
+whitespace title, duplicate title).
 
 ## 8. Known limitations
 

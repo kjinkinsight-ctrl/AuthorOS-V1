@@ -234,15 +234,91 @@ void main() {
   });
 
   group('Manuscript research side panel', () {
-    test('the legacy SharedPreferences panel is left untouched and intact', () {
-      // This milestone deliberately does not migrate or delete the panel, so
-      // no author loses data. The guard fails if it disappears without a
-      // migration landing alongside it.
-      final main = File('lib/main.dart').readAsStringSync();
-      expect(main, contains('class ProjectResearchStore'));
-      expect(main, contains('author_studio.research_panel.'));
+    final panelStore =
+        File('lib/migrations/research_panel_store.dart').readAsStringSync();
+    final panelMigration =
+        File('lib/migrations/research_panel_migration.dart').readAsStringSync();
+    final main = File('lib/main.dart').readAsStringSync();
 
-      // Research Studio must not read or write that key.
+    test('the legacy store survives the migration, and stays readable', () {
+      // The panel's key was never covered by the archive, sync, or backup
+      // subsystems, so it is the only copy of whatever it holds. The
+      // migration reads it; nothing deletes it. This guard fails if the read
+      // path disappears, which would strand any author who had not yet
+      // opened the app since the migration shipped.
+      expect(panelStore, contains('class ProjectResearchStore'));
+      expect(panelStore, contains('author_studio.research_panel.'));
+      expect(panelStore, contains('Future<Map<ResearchTab, '
+          'List<ResearchReference>>> load()'));
+    });
+
+    test('the migration never deletes or rewrites the legacy blob', () {
+      // `remove` would drop the key; a `setString` onto the legacy key would
+      // overwrite the original. Only the separate marker key may be written.
+      expect(
+        RegExp(r'\.remove\(').hasMatch(panelStore),
+        isFalse,
+        reason: 'Nothing may delete the legacy research panel key.',
+      );
+      expect(
+        RegExp(r'\.remove\(').hasMatch(panelMigration),
+        isFalse,
+        reason: 'The migration must not delete the legacy key.',
+      );
+      // The migration writes through the marker API, never the blob API.
+      expect(panelMigration, contains('writeMarker('));
+      expect(
+        panelMigration.contains('store.save('),
+        isFalse,
+        reason: 'The migration must not write back over the legacy blob.',
+      );
+    });
+
+    test('the manuscript panel no longer writes research to preferences', () {
+      // The whole point of the migration: research has one home. If the panel
+      // could still write to the legacy store, unmigrated data would start
+      // accumulating again the moment an author pinned a reference.
+      final panel = main.substring(
+        main.indexOf('class _ResearchSidePanel'),
+        main.indexOf('class _ProjectRecord'),
+      );
+      expect(
+        panel.contains('ProjectResearchStore'),
+        isFalse,
+        reason: 'The panel must not reach for the legacy store directly.',
+      );
+      expect(
+        panel.contains('SharedPreferences'),
+        isFalse,
+        reason: 'The panel must not write research to SharedPreferences.',
+      );
+      expect(
+        RegExp(r'\.save\(').hasMatch(panel),
+        isFalse,
+        reason: 'The panel is read-only over canonical records.',
+      );
+      // It reads canonical research instead.
+      expect(panel, contains('ResearchService'));
+      expect(panel, contains('ResearchPanelMigrationService'));
+    });
+
+    test('the migration builds canonical records, not a parallel store', () {
+      expect(panelMigration, contains('ResearchService'));
+      expect(panelMigration, contains('ResearchDraft'));
+      for (final pattern in <RegExp>[
+        RegExp(r'extends\s+Table\b'),
+        RegExp(r'@DriftDatabase'),
+        RegExp(r'\bcustomStatement\('),
+      ]) {
+        expect(
+          pattern.hasMatch(panelMigration),
+          isFalse,
+          reason: 'The migration must not declare storage of its own.',
+        );
+      }
+    });
+
+    test('Research Studio itself stays clear of the legacy store', () {
       researchSources.forEach((path, source) {
         expect(
           source.contains('author_studio.research_panel'),

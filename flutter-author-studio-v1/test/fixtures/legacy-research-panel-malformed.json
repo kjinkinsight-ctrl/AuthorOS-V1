@@ -1,0 +1,51 @@
+{
+  "fixtureVersion": 1,
+  "name": "legacy-research-panel-malformed",
+  "description": "Research panel blob carrying the damage real preference stores accumulate: an unknown tab, entries missing fields, a blank title, and a duplicate title within one tab.",
+  "projectId": "fixture-research-panel-malformed",
+  "mode": "literal",
+  "preferences": {
+    "author_studio.research_panel.fixture-research-panel-malformed": {
+      "storageType": "json",
+      "value": {
+        "research": [
+          {
+            "title": "Salt roads",
+            "detail": "Trade routes north of the bay.",
+            "tag": "Geography"
+          },
+          {
+            "detail": "Missing its title entirely.",
+            "tag": "World"
+          },
+          {
+            "title": "   ",
+            "detail": "Whitespace-only title.",
+            "tag": "World"
+          },
+          {
+            "title": "Salt roads",
+            "detail": "A second entry sharing the first entry's title.",
+            "tag": "Geography"
+          }
+        ],
+        "notes": [
+          {
+            "title": "Rope knots"
+          }
+        ],
+        "chronicle": [
+          {
+            "title": "Entry filed under a tab this build does not know",
+            "detail": "Older builds wrote tabs that no longer exist.",
+            "tag": "History"
+          }
+        ]
+      }
+    }
+  },
+  "expectations": {
+    "mustRemainReadable": true,
+    "notes": "An entry with no title key falls back to 'Untitled reference'. A whitespace-only title is skipped and left in the legacy store. The duplicate title collapses onto one record. The unknown 'chronicle' tab folds into 'research'."
+  }
+}

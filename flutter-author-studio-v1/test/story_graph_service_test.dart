@@ -7,6 +7,7 @@ library;
 
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
+import 'package:author_studio_v1/core/connection_types.dart';
 import 'package:author_studio_v1/core/record_scope.dart';
 import 'package:author_studio_v1/core/record_service.dart';
 import 'package:author_studio_v1/core/story_graph.dart';
@@ -74,18 +75,28 @@ void main() {
         record(id, title, projectId, typeId: typeId, bookId: bookId),
       );
 
+  /// Connects through the validated engine, using the direction the type
+  /// declares. `friendOf` and its siblings are undirected and the engine
+  /// rejects a directed link of an undirected type, so the direction is read
+  /// from the registry rather than assumed.
   Future<RecordLink> connect(
     String projectId,
     String sourceId,
     String targetId,
     String typeId,
-  ) async =>
-      (await engineFor(projectId)).connect(
-        sourceId: sourceId,
-        targetId: targetId,
-        typeId: typeId,
-        timestamp: _timestamp,
-      );
+  ) async {
+    final registry = await recordsFor(projectId).connectionRegistry();
+    final definition = registry.resolve(typeId);
+    return (await engineFor(projectId)).connect(
+      sourceId: sourceId,
+      targetId: targetId,
+      typeId: typeId,
+      direction: definition.direction == ConnectionDirection.undirected
+          ? RecordLinkDirection.undirected
+          : RecordLinkDirection.directed,
+      timestamp: _timestamp,
+    );
+  }
 
   Future<void> putScene(String id, String title, String projectId) =>
       repository.putManuscriptNodes([

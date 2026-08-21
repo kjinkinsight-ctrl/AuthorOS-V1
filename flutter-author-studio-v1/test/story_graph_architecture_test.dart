@@ -162,13 +162,22 @@ void main() {
   });
 
   test('no second relationship model has appeared in lib/', () {
+    // This used to reject any path containing `story_graph`, back when the
+    // graph was design-only and any such file was by definition premature.
+    // The read model now exists, so the check returns to what it was actually
+    // protecting: a *store*. That the read model owns no storage is proved
+    // directly by 'the Story Graph read model owns no storage' below.
     final graphish = _libSources
         .map((file) => file.path.replaceAll(r'\', '/'))
         .where(
           (path) =>
-              path.contains('story_graph') ||
               path.endsWith('/graph_store.dart') ||
               path.endsWith('/graph_repository.dart') ||
+              path.endsWith('/graph_database.dart') ||
+              path.endsWith('/graph_cache.dart') ||
+              path.endsWith('/graph_index.dart') ||
+              path.endsWith('/story_graph_store.dart') ||
+              path.endsWith('/story_graph_repository.dart') ||
               path.endsWith('/edge_store.dart') ||
               path.endsWith('/relationship_store.dart'),
         )

@@ -225,7 +225,7 @@ class AnalyticsService {
   /// The manuscript is read separately because it does not live in the record
   /// repository.
   Future<AnalyticsSummary> getSummary() async {
-    final manuscript = await _loadManuscript();
+    final manuscript = await loadManuscript();
 
     final characterRecords = await _activeCharacters();
     final timelineRecords = _active(await timeline.query.all());
@@ -295,9 +295,13 @@ class AnalyticsService {
   }
 
   /// Reads the manuscript through the Manuscript Studio's own store, seeded
-  /// exactly the way the Statistics Studio and World Board seed it, so every
-  /// screen reports the same word count for the same project.
-  Future<ManuscriptProjectSummary> _loadManuscript() async {
+  /// exactly the way the Statistics Studio seeds it, so every screen reports
+  /// the same word count for the same project.
+  ///
+  /// Public because the World Board needs the same manuscript to name its
+  /// chapters, and a second seeding routine over there would be a second way
+  /// for a project to have chapters. It reads; it never writes.
+  Future<ManuscriptProjectSummary> loadManuscript() async {
     final migrated = await manuscriptStore.loadLegacyChapterSeeds(project.id);
     final seeds = migrated.isNotEmpty
         ? migrated

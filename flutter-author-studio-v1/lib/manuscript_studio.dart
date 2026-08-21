@@ -7,6 +7,7 @@ import 'manuscript_export.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'reading_rhythm.dart';
+import 'writing_session_recorder.dart';
 
 class ManuscriptStudioView extends StatefulWidget {
   const ManuscriptStudioView({
@@ -15,12 +16,21 @@ class ManuscriptStudioView extends StatefulWidget {
     required this.startSprint,
     this.minimalMode = false,
     this.store = const ManuscriptStore(),
+    this.sessionRecorder,
   });
 
   final StarterProject project;
   final bool startSprint;
   final bool minimalMode;
   final ManuscriptStore store;
+
+  /// Records writing sessions for the Analytics Studio's history.
+  ///
+  /// This Studio is the one place in AuthorOS where an author actually
+  /// writes, which makes it the only honest place to observe a session.
+  /// Injectable so tests can pin a clock; production leaves it null and the
+  /// state creates one against the app's canonical repository.
+  final WritingSessionRecorder? sessionRecorder;
 
   @override
   State<ManuscriptStudioView> createState() => _ManuscriptStudioViewState();
@@ -84,16 +94,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   Timer? _sprintTimer;
   int _sprintSeconds = 15 * 60;
   ReadingRhythmPreset _readingRhythm = ReadingRhythmPreset.standard;
+  late final WritingSessionRecorder _sessionRecorder;
 
   @override
   void initState() {
     super.initState();
+    _sessionRecorder = widget.sessionRecorder ??
+        WritingSessionRecorder(projectId: widget.project.id);
     WidgetsBinding.instance.addObserver(this);
     _editorController.addListener(_onEditorChanged);
     if (widget.startSprint) {
       _sprintTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (!mounted || _sprintSeconds <= 0) {
           timer.cancel();
+          // A finished sprint is an explicit end to the writing session.
+          unawaited(_sessionRecorder.finalizeSession());
           return;
         }
         setState(() => _sprintSeconds--);
@@ -108,6 +123,10 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _flushSave();
+      // Finalizing is idempotent, so a lifecycle event that fires repeatedly
+      // — or fires again after disposal already finalized — records nothing
+      // twice.
+      unawaited(_sessionRecorder.finalizeSession());
     }
   }
 
@@ -121,6 +140,9 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       // Save without setState to avoid lifecycle assertions during disposal.
       widget.store.saveStudio(snapshot);
     }
+    // Leaving the editor ends the session. Not awaited, for the same reason
+    // the save above is not: disposal cannot be asynchronous.
+    unawaited(_sessionRecorder.finalizeSession());
     _editorController.removeListener(_onEditorChanged);
     _editorController.dispose();
     _searchController.dispose();
@@ -159,6 +181,9 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     final initialSelection = _resolveInitialSelection(data);
     _selection = initialSelection;
     _manuscript = data;
+    // Opening the manuscript is a baseline, never activity: no session starts
+    // because a Studio was navigated to, rebuilt, or reopened.
+    _sessionRecorder.noteBaseline(data.wordCount);
     _syncEditorWithSelection();
 
     setState(() {
@@ -219,6 +244,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
 
     _setScene(chapter.id, sceneIndex, updatedScene);
     _scheduleSave();
+
+    // Scene text the author changed is the one signal that counts as writing.
+    // The count handed over is the Manuscript Studio's own canonical total,
+    // so the session history and every other word count agree by
+    // construction.
+    final current = _manuscript;
+    if (current != null) {
+      unawaited(
+        _sessionRecorder.noteActivity(
+          wordCount: current.wordCount,
+          chapterId: chapter.id,
+          sceneId: updatedScene.id,
+        ),
+      );
+    }
   }
 
   void _setScene(
@@ -1121,7 +1161,13 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Exported PDF to $path')),
+      SnackBar(
+        // The browser owns the save dialog and reports no destination back, so
+        // there is no path to name there — the file lands in downloads.
+        content: Text(
+          path.isEmpty ? 'Exported PDF to your downloads.' : 'Exported PDF to $path',
+        ),
+      ),
     );
   }
 

@@ -28,10 +28,10 @@ jobs:
       # Pinned to the revision the project records in .metadata (6b182d2c75),
       # so CI analyses and tests on the same SDK the app is developed against.
       #
-      # The action itself is pinned by commit SHA rather than the v2 tag, which
-      # the publisher can repoint at any time: this workflow runs with write
-      # access to the repository token, so the code behind that reference is
-      # worth holding still. Matches how dart-lang/setup-dart was pinned here.
+      # The action is pinned by commit SHA rather than the v2 tag, which its
+      # publisher can repoint at any time. This job runs with a repository
+      # token, so the code behind that reference is worth holding still —
+      # dart-lang/setup-dart was pinned this way before it was replaced.
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: '3.44.9'
@@ -50,8 +50,15 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      # The app ships to the web, so a release build is part of "does main
-      # work". It also catches web-only compile failures that `flutter test`
-      # on the host VM never sees.
+      # Drift runs SQLite as WebAssembly in the browser and loads it from the
+      # site root, so the web build needs these two files present. They are
+      # copied out of the resolved drift package, not committed.
+      - name: Provision drift web assets
+        run: bash ../scripts/provision-drift-web-assets.sh
+
+      # AuthorOS ships as a web application, so a release web build is part of
+      # the gate. Nothing exercised this path before, which is how browser-only
+      # breakage reached main unnoticed. --no-web-resources-cdn matches the
+      # deploy: CanvasKit is served from our own origin, not gstatic.com.
       - name: Build web release
-        run: flutter build web --release
+        run: flutter build web --release --no-web-resources-cdn

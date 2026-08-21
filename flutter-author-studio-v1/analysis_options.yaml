@@ -12,6 +12,12 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - tool/storage_benchmark.g.dart
+    # Orphaned: this benchmark imports package:isar_community, which was
+    # dropped from pubspec.yaml when the app moved to drift. It does not
+    # compile, so analysing it only reports 21 errors about a dependency that
+    # is deliberately gone. Delete the file when someone confirms the
+    # benchmark is no longer wanted.
+    - tool/storage_benchmark.dart
 
 linter:
   # The lint rules applied to this project can be customized in the

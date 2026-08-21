@@ -18,6 +18,15 @@ import 'record_scope.dart';
 /// Which table a node came from.
 enum StoryGraphNodeKind { record, manuscriptNode }
 
+/// Record types that describe the graph rather than take part in it.
+///
+/// The graph boundary test is **participation, not proximity**. A Knowledge
+/// Canvas references graph entities by id and is read alongside them, but it is
+/// an arrangement *of* the story, not a thing the story is made of — so it is
+/// never a node, exactly as writing sessions are never nodes (invariant I-16).
+/// Without this a canvas would appear inside the very graph it describes.
+const Set<String> kNonGraphRecordTypeIds = {'knowledge-canvas'};
+
 /// The groups the Connection Explorer presents neighbours in.
 ///
 /// Buckets are derived from `RecordTypeDefinition.categoryId` rather than from

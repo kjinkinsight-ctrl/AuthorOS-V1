@@ -512,6 +512,9 @@ class StoryGraphService {
   }
 
   bool _allows(StoryGraphNode node, StoryGraphFilter filter) {
+    // Workspace artefacts are outside the graph by definition, not by filter,
+    // so no filter setting can reveal them.
+    if (kNonGraphRecordTypeIds.contains(node.typeId)) return false;
     if (!filter.allowsStatus(node.lifecycleStatus)) return false;
     if (!filter.allowsCategory(node.categoryId)) return false;
     if (!filter.allowsCanon(node.canonStatus)) return false;

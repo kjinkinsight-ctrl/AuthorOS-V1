@@ -212,6 +212,9 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
 
     for (final record in records) {
       if (record.status != AuthorRecordStatus.active) continue;
+      // A canvas is an arrangement of the graph, not a part of it, so it must
+      // never be offered as something to centre the graph on.
+      if (kNonGraphRecordTypeIds.contains(record.typeId)) continue;
       if (record.typeId == 'book') books.add((record.id, record.title));
       active.add(record.id);
     }

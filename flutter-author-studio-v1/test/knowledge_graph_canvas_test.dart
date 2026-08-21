@@ -6,6 +6,7 @@ import 'package:author_studio_v1/core/knowledge_graph_record_types.dart';
 import 'package:author_studio_v1/core/record_scope.dart';
 import 'package:author_studio_v1/core/record_service.dart';
 import 'package:author_studio_v1/core/story_graph.dart';
+import 'package:author_studio_v1/core/story_graph_service.dart';
 import 'package:author_studio_v1/knowledge_graph/canvas_service.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/native.dart';
@@ -150,6 +151,39 @@ void main() {
 
   test('an unsaved mode loads as null, meaning "lay it out for me"', () async {
     expect(await canvasesFor('project-a').load('plot'), isNull);
+  });
+
+  test('a canvas never appears inside the graph it describes', () async {
+    await createCharacter('kali', 'Kali Vale', 'project-a');
+    await canvasesFor('project-a').save(
+      'character',
+      positions: {'kali': Offset.zero},
+      timestamp: _timestamp,
+    );
+
+    final graph = StoryGraphService(
+      projectId: 'project-a',
+      repository: repository,
+    );
+
+    // The boundary test is participation, not proximity: a canvas references
+    // graph entities but is not one, so no filter setting reveals it.
+    final project = await graph.getProjectGraph(
+      filter: const StoryGraphFilter(
+        includeArchived: true,
+        includeDeleted: true,
+        includeRelatedTo: true,
+        includeWildcardEdges: true,
+      ),
+    );
+
+    expect(project.nodes.map((node) => node.id), ['kali']);
+    expect(
+      project.nodeById(
+        KnowledgeGraphRecordTypes.canvasId('project-a', 'character'),
+      ),
+      isNull,
+    );
   });
 
   test('canvases do not cross projects', () async {

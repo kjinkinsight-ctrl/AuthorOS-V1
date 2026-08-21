@@ -253,10 +253,12 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Login / Profile Selection'), findsOneWidget);
-    expect(find.text('Create new profile'), findsOneWidget);
+    expect(find.text('Author OS'), findsOneWidget);
+    // With no profiles the primary action is creating the first one.
+    expect(find.text('Welcome to'), findsOneWidget);
+    expect(find.text('Create Your Profile'), findsOneWidget);
     expect(find.text('Reset app state'), findsOneWidget);
-    expect(find.text('Continue with selected profile'), findsNothing);
+    expect(find.text('No profiles on this device yet.'), findsOneWidget);
     expect(find.text('Start your writing workspace'), findsNothing);
   });
 
@@ -276,15 +278,15 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Continue with selected profile'), findsOneWidget);
+    expect(find.text('Continue'), findsOneWidget);
     expect(find.text('Old Name'), findsOneWidget);
-    expect(find.text('Create new profile'), findsOneWidget);
+    expect(find.text('Add New User'), findsOneWidget);
     expect(find.text('Start your writing workspace'), findsNothing);
 
-    await tester.tap(find.text('Continue with selected profile'));
+    await tester.tap(find.byKey(const Key('startup-continue')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Login / Profile Selection'), findsNothing);
+    expect(find.text('Author OS'), findsNothing);
     expect(find.byKey(const Key('focus-mode-toggle')), findsOneWidget);
   });
 
@@ -303,7 +305,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Create new profile'));
+    await tester.tap(find.byKey(const Key('startup-add-user')));
     await tester.pumpAndSettle();
 
     await tester.enterText(
@@ -314,7 +316,9 @@ void main() {
       find.byKey(const Key('profile-email-field')),
       'writer@example.com',
     );
-    await tester.tap(find.text('Continue to workspace setup'));
+    await tester.ensureVisible(find.byKey(const Key('start-your-adventure')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('start-your-adventure')));
     await tester.pumpAndSettle();
 
     expect(find.text('Start your writing workspace'), findsOneWidget);
@@ -535,13 +539,19 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Create new profile'));
+    await tester.tap(find.byKey(const Key('startup-add-user')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('profile-name-field')),
       'Signal Fire',
     );
-    await tester.tap(find.text('Continue to workspace setup'));
+    await tester.enterText(
+      find.byKey(const Key('profile-email-field')),
+      'writer@example.com',
+    );
+    await tester.ensureVisible(find.byKey(const Key('start-your-adventure')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('start-your-adventure')));
     await tester.pumpAndSettle();
 
     await tester.enterText(
@@ -581,13 +591,19 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Create new profile'));
+    await tester.tap(find.byKey(const Key('startup-add-user')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('profile-name-field')),
       'Northstar',
     );
-    await tester.tap(find.text('Continue to workspace setup'));
+    await tester.enterText(
+      find.byKey(const Key('profile-email-field')),
+      'writer@example.com',
+    );
+    await tester.ensureVisible(find.byKey(const Key('start-your-adventure')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('start-your-adventure')));
     await tester.pumpAndSettle();
 
     await tester.enterText(

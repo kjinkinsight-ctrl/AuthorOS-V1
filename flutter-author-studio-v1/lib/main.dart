@@ -5,13 +5,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'author_profile_store.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
 import 'continuity.dart';
 import 'continuity_actions.dart';
 import 'core/search_models.dart' show SearchDestination;
+import 'create_profile_page.dart';
 import 'impact_trace.dart';
-import 'liquid_aurora_background.dart';
+import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
@@ -22,6 +24,12 @@ import 'timeline.dart';
 import 'visual_planning.dart';
 import 'welcome_page.dart';
 import 'world_workspace.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/resolved_theme.dart';
+import 'theme/theme_definition.dart';
+import 'theme/theme_engine.dart';
+import 'theme/theme_persistence.dart';
+import 'theme/theme_tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -186,189 +194,151 @@ class AuthorStudioApp extends StatefulWidget {
   State<AuthorStudioApp> createState() => _AuthorStudioAppState();
 }
 
-class _AuthorStudioAppState extends State<AuthorStudioApp> {
+class _AuthorStudioAppState extends State<AuthorStudioApp>
+    with WidgetsBindingObserver {
   bool _loadingTheme = true;
-  String _themeId = 'light';
-  String _accentId = 'default';
+  ThemeEngine? _themeEngine;
+  ThemeSelection? _themeSelection;
+  ResolvedTheme? _resolvedTheme;
 
-  static const _themePreferenceKey = 'author_studio.theme_id';
-  static const _accentPreferenceKey = 'author_studio.accent_id';
+  ThemeBrightness get _hostBrightness =>
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+              Brightness.dark
+          ? ThemeBrightness.dark
+          : ThemeBrightness.light;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadThemeSelection();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (_loadingTheme || _themeEngine == null || _themeSelection == null) {
+      return;
+    }
+    if (_themeSelection!.mode != AuthorOsThemeMode.system) {
+      return;
+    }
+    _resolveCurrentTheme();
+  }
+
   Future<void> _loadThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedThemeId = prefs.getString(_themePreferenceKey);
-    final normalizedThemeId = AppThemePreset.normalizeId(savedThemeId);
+    final engine = ThemeEngine.standard(
+      store: await SharedPreferencesThemeStore.load(),
+    );
+    final selection = await engine.load();
+    final resolved = await engine.resolve(hostBrightness: _hostBrightness);
     if (!mounted) {
       return;
     }
     setState(() {
-      _themeId = normalizedThemeId;
-      _accentId = 'default';
+      _themeEngine = engine;
+      _themeSelection = selection;
+      _resolvedTheme = resolved;
       _loadingTheme = false;
     });
-    if (savedThemeId != null && savedThemeId != normalizedThemeId) {
-      await prefs.setString(_themePreferenceKey, normalizedThemeId);
-    }
-    if (prefs.getString(_accentPreferenceKey) != 'default') {
-      await prefs.setString(_accentPreferenceKey, 'default');
-    }
   }
 
-  Future<void> _saveThemeSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themePreferenceKey, _themeId);
-    await prefs.setString(_accentPreferenceKey, _accentId);
-  }
-
-  void _updateThemeSelection(AppThemeSelection selection) {
+  Future<void> _resolveCurrentTheme() async {
+    final engine = _themeEngine;
+    if (engine == null) {
+      return;
+    }
+    final resolved = await engine.resolve(hostBrightness: _hostBrightness);
+    if (!mounted) {
+      return;
+    }
     setState(() {
-      _themeId = AppThemePreset.byId(selection.themeId).id;
-      _accentId = 'default';
+      _resolvedTheme = resolved;
+      _themeSelection = engine.selection ?? _themeSelection;
     });
-    _saveThemeSelection();
   }
 
-  void _handleThemeChanged(String themeId, String accentId) {
-    _updateThemeSelection(
-      AppThemeSelection(themeId: themeId, accentId: accentId),
+  Future<void> _applySelection(ThemeSelection selection) async {
+    final engine = _themeEngine;
+    if (engine == null) {
+      return;
+    }
+    final resolved = await engine.select(
+      selection: selection,
+      hostBrightness: _hostBrightness,
     );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _themeSelection = engine.selection ?? selection;
+      _resolvedTheme = resolved;
+    });
+  }
+
+  Future<void> _handleLegacyThemeChanged(
+    String themeId,
+    String accentId,
+  ) async {
+    final selection = ThemeSelection(
+      themeId: AppThemePreset.byId(themeId).id,
+      mode: AppThemePreset.byId(themeId).brightness == Brightness.dark
+          ? AuthorOsThemeMode.dark
+          : AuthorOsThemeMode.light,
+      accentId: accentId,
+    );
+    await _applySelection(selection);
   }
 
   ThemeData _buildThemeData() {
-    final preset = AppThemePreset.byId(_themeId);
-    final isDark = preset.brightness == Brightness.dark;
-    final accent = AppThemeSelection(themeId: _themeId, accentId: _accentId)
-        .resolvedAccentColor;
-    final foregroundColor =
-        isDark ? const Color(0xFFFFFFFF) : const Color(0xFF17283A);
-    final outlineColor =
-        isDark ? const Color(0xFF8A8A8A) : const Color(0xFF718399);
-    final outlineVariantColor =
-        isDark ? const Color(0xFF363636) : const Color(0xFFD4E0EB);
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: preset.brightness,
-      surface: preset.surfaceColor,
-    ).copyWith(
-      onSurface: foregroundColor,
-      onSurfaceVariant: foregroundColor,
-      outline: outlineColor,
-      outlineVariant: outlineVariantColor,
-    );
-
-    final surfaceContainerColor =
-        isDark ? const Color(0xFF202020) : const Color(0xFFE7F0F8);
-    final textTheme = ThemeData(brightness: preset.brightness).textTheme.apply(
-          fontFamily: 'Merriweather',
-          bodyColor: foregroundColor,
-          displayColor: foregroundColor,
-        );
-
-    return ThemeData(
-      useMaterial3: true,
-      brightness: preset.brightness,
-      fontFamily: 'Merriweather',
-      colorScheme: colorScheme,
-      textTheme: textTheme,
-      scaffoldBackgroundColor: preset.backgroundColor,
-      appBarTheme: AppBarTheme(
-        centerTitle: false,
-        backgroundColor: Colors.transparent,
-        foregroundColor: foregroundColor,
-        elevation: 0,
-      ),
-      cardTheme: CardThemeData(
-        color: preset.surfaceColor,
-        surfaceTintColor: colorScheme.surfaceTint,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        elevation: 0,
-      ),
-      dividerTheme: DividerThemeData(
-        color: colorScheme.outlineVariant,
-        thickness: 1,
-      ),
-      chipTheme: ChipThemeData(
-        backgroundColor: surfaceContainerColor,
-        selectedColor: colorScheme.primaryContainer,
-        side: BorderSide(color: colorScheme.outlineVariant),
-        labelStyle: TextStyle(
-          color: colorScheme.onSurface,
-          fontWeight: FontWeight.w600,
-        ),
-        secondaryLabelStyle: TextStyle(
-          color: colorScheme.onPrimaryContainer,
-          fontWeight: FontWeight.w700,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: surfaceContainerColor,
-        labelStyle: TextStyle(color: foregroundColor),
-        hintStyle: TextStyle(color: foregroundColor),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
-        ),
-      ),
-    );
+    final resolved = _resolvedTheme;
+    if (resolved == null) {
+      return ThemeData(useMaterial3: true);
+    }
+    return AuthorOsTheme.toThemeData(resolved);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loadingTheme) {
+    final themeData = _buildThemeData();
+
+    if (_loadingTheme || _resolvedTheme == null || _themeSelection == null) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Indie Author OS',
-        theme: _buildThemeData(),
+        theme: themeData,
         home: const Scaffold(
           body: Center(child: CircularProgressIndicator()),
         ),
       );
     }
 
-    final themeData = _buildThemeData();
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Indie Author OS',
       theme: themeData,
-      home: _OnboardingBootstrap(
-        store: widget.store,
-        manuscriptStore: widget.manuscriptStore,
-        themeId: _themeId,
-        accentId: _accentId,
-        onThemeChanged: _handleThemeChanged,
-        showWelcome: widget.showWelcome,
+      home: StudioThemeScope(
+        theme: _resolvedTheme!,
+        studio: StudioId.shell,
+        child: _OnboardingBootstrap(
+          store: widget.store,
+          manuscriptStore: widget.manuscriptStore,
+          themeSelection: _themeSelection!,
+          onThemeSelectionChanged: (selection) {
+            unawaited(_applySelection(selection));
+          },
+          themeId: _themeSelection!.themeId,
+          accentId: _themeSelection!.accentId,
+          onThemeChanged: (themeId, accentId) {
+            unawaited(_handleLegacyThemeChanged(themeId, accentId));
+          },
+          showWelcome: widget.showWelcome,
+        ),
       ),
     );
   }
@@ -378,6 +348,8 @@ class _OnboardingBootstrap extends StatefulWidget {
   const _OnboardingBootstrap({
     required this.store,
     required this.manuscriptStore,
+    required this.themeSelection,
+    required this.onThemeSelectionChanged,
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
@@ -386,6 +358,8 @@ class _OnboardingBootstrap extends StatefulWidget {
 
   final OnboardingStore store;
   final ManuscriptStore manuscriptStore;
+  final ThemeSelection themeSelection;
+  final ValueChanged<ThemeSelection> onThemeSelectionChanged;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -395,551 +369,12 @@ class _OnboardingBootstrap extends StatefulWidget {
   State<_OnboardingBootstrap> createState() => _OnboardingBootstrapState();
 }
 
-class ProfileSetupScreen extends StatefulWidget {
-  const ProfileSetupScreen({
-    super.key,
-    required this.onLogin,
-    required this.onCreateProfile,
-    required this.onReset,
-    this.existingProfileName,
-    this.existingProfileEmail,
-  });
-
-  final Future<void> Function() onLogin;
-  final void Function(String name, String email) onCreateProfile;
-  final Future<void> Function() onReset;
-  final String? existingProfileName;
-  final String? existingProfileEmail;
-
-  @override
-  State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
-}
-
-class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
-  final TextEditingController nameController = TextEditingController();
-  final TextEditingController emailController = TextEditingController();
-  bool showCreateProfile = false;
-
-  bool get hasExistingProfile =>
-      (widget.existingProfileName?.trim().isNotEmpty ?? false);
-
-  @override
-  void dispose() {
-    nameController.dispose();
-    emailController.dispose();
-    super.dispose();
-  }
-
-  void _submitProfile() {
-    final name = nameController.text.trim();
-    final email = emailController.text.trim();
-    widget.onCreateProfile(
-      name.isEmpty ? 'Writer' : name,
-      email.isEmpty ? 'writer@authorstudio.app' : email,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          const Positioned.fill(child: LiquidAuroraBackground()),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.42),
-                    Colors.black.withValues(alpha: 0.12),
-                    Colors.black.withValues(alpha: 0.48),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 880),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(
-                        width: 360,
-                        child: _BrandPanel(
-                          title: 'Indie Author OS',
-                          valueProp:
-                              'Ink & insight for your writing practice: draft, structure, and sharpen your story.',
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-                      SizedBox(
-                        width: 360,
-                        child: Card(
-                          elevation: 0,
-                          color: Colors.black.withValues(alpha: 0.3),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(28),
-                            side: const BorderSide(
-                              color: Colors.white24,
-                              width: 1,
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: SingleChildScrollView(
-                              child: showCreateProfile
-                                  ? Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 48,
-                                              height: 48,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white12,
-                                                borderRadius:
-                                                    BorderRadius.circular(14),
-                                              ),
-                                              child: const Icon(
-                                                Icons.person_add_alt_1_rounded,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 14),
-                                            const Expanded(
-                                              child: Text(
-                                                'Create new profile',
-                                                style: TextStyle(
-                                                  fontSize: 22,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-                                        const Text(
-                                          'Set up your writing identity before you start the workspace.',
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            color: Colors.white70,
-                                            height: 1.5,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 24),
-                                        TextField(
-                                          key: const Key('profile-name-field'),
-                                          controller: nameController,
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                          decoration: InputDecoration(
-                                            labelText: 'Display name',
-                                            hintText: 'Ari Rowan',
-                                            labelStyle: const TextStyle(
-                                                color: Colors.white70),
-                                            hintStyle: const TextStyle(
-                                                color: Colors.white38),
-                                            enabledBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white24),
-                                            ),
-                                            focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white),
-                                            ),
-                                            fillColor: Colors.white
-                                                .withValues(alpha: 0.04),
-                                            filled: true,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 16),
-                                        TextField(
-                                          key: const Key('profile-email-field'),
-                                          controller: emailController,
-                                          keyboardType:
-                                              TextInputType.emailAddress,
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                          decoration: InputDecoration(
-                                            labelText: 'Email',
-                                            hintText: 'you@example.com',
-                                            labelStyle: const TextStyle(
-                                                color: Colors.white70),
-                                            hintStyle: const TextStyle(
-                                                color: Colors.white38),
-                                            enabledBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white24),
-                                            ),
-                                            focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white),
-                                            ),
-                                            fillColor: Colors.white
-                                                .withValues(alpha: 0.04),
-                                            filled: true,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 24),
-                                        Wrap(
-                                          alignment: WrapAlignment.spaceBetween,
-                                          crossAxisAlignment:
-                                              WrapCrossAlignment.center,
-                                          runSpacing: 12,
-                                          spacing: 12,
-                                          children: [
-                                            TextButton(
-                                              onPressed: () => setState(() =>
-                                                  showCreateProfile = false),
-                                              child: const Text(
-                                                'Back',
-                                                style: TextStyle(
-                                                    color: Colors.white),
-                                              ),
-                                            ),
-                                            FilledButton(
-                                              onPressed: _submitProfile,
-                                              style: FilledButton.styleFrom(
-                                                minimumSize:
-                                                    const Size(220, 48),
-                                                backgroundColor: Colors.white,
-                                                foregroundColor: Colors.black,
-                                              ),
-                                              child: const Text(
-                                                  'Continue to workspace setup'),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    )
-                                  : Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 52,
-                                              height: 52,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white12,
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                              ),
-                                              child: const Icon(
-                                                Icons.auto_stories_rounded,
-                                                size: 28,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            const Expanded(
-                                              child: Text(
-                                                'Login / Profile Selection',
-                                                style: TextStyle(
-                                                  fontSize: 20,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 18),
-                                        const Text(
-                                          'Choose how you want to enter AuthorOS.',
-                                          style: TextStyle(
-                                            fontSize: 29,
-                                            fontWeight: FontWeight.w800,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Text(
-                                          hasExistingProfile
-                                              ? 'Select a profile, then continue to your workspace.'
-                                              : 'No profile is selected yet. Create a profile to begin.',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            color: Colors.white70,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 24),
-                                        if (hasExistingProfile) ...[
-                                          Container(
-                                            width: double.infinity,
-                                            padding: const EdgeInsets.all(14),
-                                            decoration: BoxDecoration(
-                                              color: Colors.white10,
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              border: Border.all(
-                                                color: Colors.white24,
-                                              ),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                const CircleAvatar(
-                                                  radius: 20,
-                                                  backgroundColor:
-                                                      Colors.white24,
-                                                  child: Icon(
-                                                    Icons.person_outline,
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 12),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Text(
-                                                        widget
-                                                            .existingProfileName!,
-                                                        style: const TextStyle(
-                                                          color: Colors.white,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                        ),
-                                                      ),
-                                                      if (widget.existingProfileEmail !=
-                                                              null &&
-                                                          widget
-                                                              .existingProfileEmail!
-                                                              .trim()
-                                                              .isNotEmpty)
-                                                        Text(
-                                                          widget
-                                                              .existingProfileEmail!,
-                                                          style:
-                                                              const TextStyle(
-                                                            color:
-                                                                Colors.white70,
-                                                          ),
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          FilledButton.icon(
-                                            onPressed: () async =>
-                                                widget.onLogin(),
-                                            style: FilledButton.styleFrom(
-                                              minimumSize:
-                                                  const Size.fromHeight(54),
-                                              backgroundColor: Colors.white,
-                                              foregroundColor: Colors.black,
-                                            ),
-                                            icon:
-                                                const Icon(Icons.login_rounded),
-                                            label: const Text(
-                                                'Continue with selected profile'),
-                                          ),
-                                          const SizedBox(height: 12),
-                                        ],
-                                        OutlinedButton.icon(
-                                          onPressed: () => setState(
-                                              () => showCreateProfile = true),
-                                          style: OutlinedButton.styleFrom(
-                                            minimumSize:
-                                                const Size.fromHeight(54),
-                                            side: const BorderSide(
-                                              color: Colors.white70,
-                                              width: 1.2,
-                                            ),
-                                            foregroundColor: Colors.white,
-                                          ),
-                                          icon: const Icon(
-                                              Icons.person_add_alt_1_rounded),
-                                          label:
-                                              const Text('Create new profile'),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        TextButton(
-                                          onPressed: () async =>
-                                              widget.onReset(),
-                                          style: TextButton.styleFrom(
-                                            minimumSize:
-                                                const Size.fromHeight(32),
-                                          ),
-                                          child: const Text(
-                                            'Reset app state',
-                                            style: TextStyle(
-                                              color: Colors.white70,
-                                              decoration:
-                                                  TextDecoration.underline,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BrandPanel extends StatelessWidget {
-  const _BrandPanel({required this.title, required this.valueProp});
-
-  final String title;
-  final String valueProp;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 220),
-                child: Image.asset(
-                  'assets/author-studio-logo.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      color: Colors.white24,
-                    ),
-                    child: const Icon(
-                      Icons.auto_stories_rounded,
-                      size: 32,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              title,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              valueProp,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: Colors.white70,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _FeatureChip(
-                    icon: Icons.timeline_rounded, label: 'Plan the arc'),
-                _FeatureChip(
-                    icon: Icons.menu_book_rounded, label: 'Draft scenes'),
-                _FeatureChip(
-                    icon: Icons.analytics_outlined, label: 'Track continuity'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FeatureChip extends StatelessWidget {
-  const _FeatureChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    const brandPink = Color(0xFFE8B6C4);
-    const brandPurple = Color(0xFFC8A7E0);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            brandPink.withValues(alpha: 0.2),
-            brandPurple.withValues(alpha: 0.18),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: colorScheme.primary),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   static const _profileCompleteKey = 'author_studio.profile_setup_complete';
   static const _profileNameKey = 'author_studio.profile.name';
   static const _profileEmailKey = 'author_studio.profile.email';
+
+  static const _profileStore = AuthorProfileStore();
 
   StarterProject? project;
   bool loading = true;
@@ -948,6 +383,12 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   bool startSprint = false;
   String? existingProfileName;
   String? existingProfileEmail;
+
+  /// Local profiles offered on the login screen, most recently active first.
+  List<AuthorProfile> profiles = const [];
+
+  /// True while the author is on Create Your Profile rather than login.
+  bool creatingProfile = false;
 
   @override
   void initState() {
@@ -958,6 +399,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   Future<void> _loadStartupState() async {
     final prefs = await SharedPreferences.getInstance();
     final savedProject = await widget.store.loadProject();
+    final roster = await _profileStore.loadProfiles();
     final storedName = (prefs.getString(_profileNameKey) ?? '').trim();
     final storedEmail = (prefs.getString(_profileEmailKey) ?? '').trim();
     if (!mounted) {
@@ -965,40 +407,56 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     }
     setState(() {
       project = savedProject;
+      profiles = roster;
       existingProfileName = storedName.isEmpty ? null : storedName;
       existingProfileEmail = storedEmail.isEmpty ? null : storedEmail;
       profileComplete = false;
+      creatingProfile = false;
       openFirstDraft = false;
       startSprint = false;
       loading = false;
     });
   }
 
-  Future<void> _completeProfile(String name, String email) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_profileCompleteKey, true);
-    await prefs.setString(_profileNameKey, name);
-    await prefs.setString(_profileEmailKey, email);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      profileComplete = true;
-      existingProfileName = name;
-      existingProfileEmail = email;
-    });
-  }
-
-  Future<void> _login() async {
+  /// Enters the workspace as an existing local profile.
+  Future<void> _continueAsProfile(AuthorProfile profile) async {
+    await _profileStore.markActive(profile);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_profileCompleteKey, true);
     final savedProject = await widget.store.loadProject();
+    final roster = await _profileStore.loadProfiles();
     if (!mounted) {
       return;
     }
     setState(() {
       profileComplete = true;
+      creatingProfile = false;
       project = savedProject;
+      profiles = roster;
+      existingProfileName = profile.displayName;
+      existingProfileEmail = profile.email;
+      openFirstDraft = false;
+      startSprint = false;
+    });
+  }
+
+  /// Saves a newly created profile and enters the workspace as that author.
+  Future<void> _createProfile(AuthorProfile profile) async {
+    final created = await _profileStore.createProfile(profile);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_profileCompleteKey, true);
+    final savedProject = await widget.store.loadProject();
+    final roster = await _profileStore.loadProfiles();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      profileComplete = true;
+      creatingProfile = false;
+      project = savedProject;
+      profiles = roster;
+      existingProfileName = created.displayName;
+      existingProfileEmail = created.email;
       openFirstDraft = false;
       startSprint = false;
     });
@@ -1021,13 +479,16 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     await prefs.remove(_profileCompleteKey);
     await prefs.remove(_profileNameKey);
     await prefs.remove(_profileEmailKey);
+    await prefs.remove(AuthorProfileStore.profilesKey);
     await OnboardingStore.clearProjectState();
     if (!mounted) {
       return;
     }
     setState(() {
       project = null;
+      profiles = const [];
       profileComplete = false;
+      creatingProfile = false;
       openFirstDraft = false;
       startSprint = false;
       existingProfileName = null;
@@ -1039,6 +500,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_profileCompleteKey);
     await AppSupabase.signOut();
+    final roster = await _profileStore.loadProfiles();
     final storedName = (prefs.getString(_profileNameKey) ?? '').trim();
     final storedEmail = (prefs.getString(_profileEmailKey) ?? '').trim();
     if (!mounted) {
@@ -1046,9 +508,13 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     }
     setState(() {
       project = null;
+      profiles = roster;
       profileComplete = false;
+      creatingProfile = false;
       openFirstDraft = false;
       startSprint = false;
+      // Signing back in passes through the opening page again.
+      welcomeDismissed = false;
       existingProfileName = storedName.isEmpty ? null : storedName;
       existingProfileEmail = storedEmail.isEmpty ? null : storedEmail;
     });
@@ -1094,24 +560,31 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       );
     }
 
-    // The welcome page is the title screen: it greets the author before
-    // profile selection, then falls through to whichever step is still
-    // outstanding -- profile setup, the first project, or the studio itself.
+    // Startup asks who is entering before anything else is shown. Only once a
+    // profile is chosen or created does the welcome page greet that author.
+    if (!profileComplete) {
+      if (creatingProfile) {
+        return CreateProfilePage(
+          onStartAdventure: _createProfile,
+          onBack: () => setState(() => creatingProfile = false),
+        );
+      }
+      return LoginSelectUserPage(
+        profiles: profiles,
+        onContinue: _continueAsProfile,
+        onAddNewUser: () => setState(() => creatingProfile = true),
+        onReset: _resetStartupState,
+      );
+    }
+
+    // The welcome page is now the authenticated landing page: it greets the
+    // author who just signed in, then falls through to whichever step is still
+    // outstanding -- the first project, or the studio itself.
     if (widget.showWelcome && !welcomeDismissed) {
       return WelcomePage(
         onAction: _openFromWelcome,
         authorName: existingProfileName,
         heroImage: const AssetImage('assets/welcome-hero.png'),
-      );
-    }
-
-    if (!profileComplete) {
-      return ProfileSetupScreen(
-        onLogin: _login,
-        onCreateProfile: _completeProfile,
-        onReset: _resetStartupState,
-        existingProfileName: existingProfileName,
-        existingProfileEmail: existingProfileEmail,
       );
     }
 
@@ -1125,6 +598,8 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       manuscriptStore: widget.manuscriptStore,
       openFirstDraft: openFirstDraft,
       startSprint: startSprint,
+      themeSelection: widget.themeSelection,
+      onThemeSelectionChanged: widget.onThemeSelectionChanged,
       themeId: widget.themeId,
       accentId: widget.accentId,
       onThemeChanged: widget.onThemeChanged,
@@ -1198,6 +673,8 @@ class AuthorStudioShell extends StatefulWidget {
     required this.project,
     this.openFirstDraft = false,
     this.startSprint = false,
+    this.themeSelection,
+    this.onThemeSelectionChanged,
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
@@ -1212,6 +689,8 @@ class AuthorStudioShell extends StatefulWidget {
 
   /// Section to open on first build; defaults to the manuscript.
   final StudioSection? initialSection;
+  final ThemeSelection? themeSelection;
+  final ValueChanged<ThemeSelection>? onThemeSelectionChanged;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -1287,6 +766,8 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
             project: widget.project,
             startSprint: widget.openFirstDraft && widget.startSprint,
             onNavigate: _selectSection,
+            themeSelection: widget.themeSelection,
+            onThemeSelectionChanged: widget.onThemeSelectionChanged,
             themeId: widget.themeId,
             accentId: widget.accentId,
             onThemeChanged: widget.onThemeChanged,
@@ -1940,6 +1421,8 @@ class _SectionView extends StatelessWidget {
     required this.project,
     required this.startSprint,
     required this.onNavigate,
+    this.themeSelection,
+    this.onThemeSelectionChanged,
     required this.themeId,
     required this.accentId,
     required this.onThemeChanged,
@@ -1952,6 +1435,8 @@ class _SectionView extends StatelessWidget {
   final StarterProject project;
   final bool startSprint;
   final ValueChanged<StudioSection> onNavigate;
+  final ThemeSelection? themeSelection;
+  final ValueChanged<ThemeSelection>? onThemeSelectionChanged;
   final String themeId;
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
@@ -2075,6 +1560,8 @@ class _SectionView extends StatelessWidget {
         StudioSection.timeline => _TimelineStudioView(project: project),
         StudioSection.notes => const _NotesStudioView(),
         StudioSection.settings => SettingsStudioView(
+            selection: themeSelection,
+            onSelectionChanged: onThemeSelectionChanged,
             themeId: themeId,
             accentId: accentId,
             onThemeChanged: onThemeChanged,

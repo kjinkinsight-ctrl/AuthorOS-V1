@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:author_studio_v1/liquid_aurora_background.dart';
 import 'package:author_studio_v1/main.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/release_destinations.dart';
+import 'package:author_studio_v1/theme/theme_definition.dart';
+import 'package:author_studio_v1/theme/theme_engine.dart';
+import 'package:author_studio_v1/theme/theme_persistence.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -195,6 +200,60 @@ void main() {
           .resolvedAccentColor,
       AppThemePreset.byId('light').accentColor,
     );
+  });
+
+  testWidgets('engine-backed appearance exposes system, light, dark, and accessibility',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+
+    final store = MemoryThemeSettingsStore();
+    final engine = ThemeEngine.standard(store: store);
+    await engine.load();
+    ThemeSelection? reportedSelection;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsStudioView(
+          selection: const ThemeSelection(
+            themeId: 'light',
+            mode: AuthorOsThemeMode.light,
+          ),
+          onSelectionChanged: (selection) {
+            reportedSelection = selection;
+            unawaited(
+              engine.select(
+                selection: selection,
+                hostBrightness: ThemeBrightness.light,
+              ),
+            );
+          },
+          themeId: 'light',
+          accentId: 'default',
+          onThemeChanged: (_, __) {},
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Appearance'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('System'), findsOneWidget);
+    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('Dark'), findsOneWidget);
+    expect(find.text('High contrast'), findsOneWidget);
+    expect(find.text('Reduce intensity'), findsOneWidget);
+
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+
+    expect(reportedSelection, isNotNull);
+    expect(reportedSelection!.mode, AuthorOsThemeMode.dark);
+    expect(reportedSelection!.themeId, 'dark');
+
+    final reloaded = ThemeEngine.standard(store: store);
+    final selection = await reloaded.load();
+    expect(selection.mode, AuthorOsThemeMode.dark);
+    expect(selection.themeId, 'dark');
   });
 
   testWidgets('account security controls are inside a collapsible section',

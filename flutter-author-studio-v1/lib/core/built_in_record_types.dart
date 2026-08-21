@@ -1,6 +1,7 @@
 import 'character_record_types.dart';
 import 'plot_record_types.dart';
 import 'record_types.dart';
+import 'research_record_types.dart';
 import 'timeline_record_types.dart';
 import 'world_record_types.dart';
 
@@ -13,6 +14,7 @@ class BuiltInRecordTypes {
     ...CharacterRecordTypes.templates,
     ...PlotRecordTypes.definitions,
     ...TimelineRecordTypes.definitions,
+    ...ResearchRecordTypes.definitions,
     ...WorldRecordTypes.definitions,
     _faction,
     _culture,
@@ -80,7 +82,6 @@ class BuiltInRecordTypes {
       'magic-rule': ('Magic Rule', 'magic'),
       'magic-limitation': ('Magic Limitation', 'magic'),
       'world-rule': ('World Rule', 'world'),
-      'research-entry': ('Research Entry', 'research'),
       'reference': ('Reference', 'reference'),
       'glossary-term': ('Glossary Term', 'reference'),
       'author-note': ('Author Note', 'reference'),
@@ -96,7 +97,6 @@ class BuiltInRecordTypes {
     _legacyAlias('object', 'Object', 'item', 'items'),
     _legacyAlias('lore', 'Lore', 'general-lore', 'lore'),
     _selectableAlias('general', 'General', 'general-lore', 'lore'),
-    _selectableAlias('research', 'Research', 'research-entry', 'research'),
     _selectableAlias('glossary', 'Glossary', 'glossary-term', 'reference'),
     _selectableAlias('custom', 'Custom', 'custom-entry', 'custom'),
   ];

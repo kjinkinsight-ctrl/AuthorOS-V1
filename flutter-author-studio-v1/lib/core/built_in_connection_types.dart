@@ -1,6 +1,7 @@
 import 'connection_types.dart';
 import 'plot_record_types.dart';
 import 'record_types.dart';
+import 'research_record_types.dart';
 import 'timeline_record_types.dart';
 import 'world_record_types.dart';
 
@@ -307,7 +308,11 @@ class BuiltInConnectionTypes {
     ConnectionTypeDefinition(
       id: 'documents',
       displayName: 'Documents',
-      sourceTypeIds: ['codex-entry', 'research-entry', 'reference'],
+      sourceTypeIds: [
+        'codex-entry',
+        'reference',
+        ...ResearchRecordTypes.recordTypeIds,
+      ],
       targetTypeIds: ['*'],
       inverseLabel: 'Documented by',
       builtIn: true,

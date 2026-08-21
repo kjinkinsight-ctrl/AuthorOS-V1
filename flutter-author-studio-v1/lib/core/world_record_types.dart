@@ -585,12 +585,13 @@ const _mapMarker = RecordTypeDefinition(
         type: RecordFieldType.recordReference,
         order: 100,
         required: true),
+    // Optional on purpose: a Map Studio marker may stand alone before it is
+    // pointed at a character, location, plot thread or timeline event.
     RecordFieldDefinition(
         id: 'recordId',
         label: 'Record',
         type: RecordFieldType.recordReference,
-        order: 101,
-        required: true),
+        order: 101),
     RecordFieldDefinition(
         id: 'x',
         label: 'X',

@@ -331,6 +331,37 @@ class PlotService {
     await repository.putRecordTypeDefinition(definition);
   }
 
+  /// Concrete Plot types a writer can create, resolved so a derived type such
+  /// as `subplot` carries the fields it inherits from `plotline` instead of
+  /// looking empty in the editor.
+  ///
+  /// The abstract `plot-record` base is never offered. Project custom types
+  /// registered through [registerCustomType] appear here too, so no UI list of
+  /// Plot types is hard-coded.
+  Future<List<RecordTypeDefinition>> plotTemplates() async {
+    final registry = await records.registry();
+    final resolved = <RecordTypeDefinition>[];
+    for (final definition in registry.definitions) {
+      if (definition.id == PlotRecordTypes.baseTypeId) continue;
+      if (definition.extensionData['selectableForNewRecords'] == false) {
+        continue;
+      }
+      if (definition.extensionData['archived'] == true) continue;
+      try {
+        if (!registry.isTemplateCompatible(
+          definition.id,
+          PlotRecordTypes.baseTypeId,
+        )) {
+          continue;
+        }
+        resolved.add(registry.resolve(definition.id));
+      } on StateError {
+        continue;
+      }
+    }
+    return resolved..sort((left, right) => left.name.compareTo(right.name));
+  }
+
   Future<List<PlotValidationIssue>> validatePlot() async {
     final issues = <PlotValidationIssue>[];
     final plotRecords = await query.all();

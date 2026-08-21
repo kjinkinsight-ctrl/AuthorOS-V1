@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_updater.dart';
+import 'main.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';

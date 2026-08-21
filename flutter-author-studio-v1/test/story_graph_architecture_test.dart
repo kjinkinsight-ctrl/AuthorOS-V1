@@ -13,6 +13,8 @@ library;
 import 'dart:io';
 
 import 'package:author_studio_v1/analytics_service.dart';
+import 'package:author_studio_v1/core/built_in_connection_types.dart';
+import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
@@ -38,6 +40,10 @@ const _auditedTables = {
   'branch_link_overlay_rows',
   'record_version_rows',
   'audit_event_rows',
+  // Writing session history. Present since the writing-session milestone
+  // merged into main. It is deliberately in this list and deliberately NOT
+  // graph truth — see the invariant I-12 test below.
+  'writing_session_rows',
 };
 
 final _timestamp = DateTime.utc(2026, 8, 21, 9);
@@ -360,20 +366,48 @@ void main() {
     }
   });
 
-  test('writing-session history remains absent from lib/', () {
-    final matches = _libSources
-        .where((file) => file.readAsStringSync().contains('WritingSession'))
-        .map((file) => file.path)
-        .toList();
+  test('writing sessions stay history data and never become graph truth',
+      () async {
+    // Invariant I-12. The audit recorded WritingSession as NOT PRESENT; the
+    // writing-session milestone has since landed on main, so the question the
+    // guardrail existed to force is now live: is a session graph data or
+    // history? It is history, and this test holds it there.
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
 
+    // A session is not a node: no foreign key into the graph's identity table.
+    final foreignKeys = await database
+        .customSelect('PRAGMA foreign_key_list(writing_session_rows)')
+        .get();
     expect(
-      matches,
+      foreignKeys,
       isEmpty,
-      reason: 'The Story Graph audit recorded WritingSession as NOT PRESENT. '
-          'If a writing-session system is being added, decide explicitly that '
-          'it is analytics-history data and not a graph node type, and update '
-          'docs/universal-story-graph-architecture.md.',
+      reason: 'writing_session_rows gained a foreign key. A session that '
+          'points into connected_entities is a graph node, not history.',
     );
+
+    // A session is not a record type either.
+    expect(
+      BuiltInRecordTypes.definitions.map((definition) => definition.id),
+      isNot(anyOf(
+        contains('writing-session'),
+        contains('writingSession'),
+        contains('session'),
+      )),
+      reason: 'A writing session became a registered record type. Sessions '
+          'are analytics history; promoting one to a node makes Analytics a '
+          'source of graph truth.',
+    );
+
+    // And no connection type may take one as an endpoint.
+    final sessionEdges = BuiltInConnectionTypes.definitions
+        .where((definition) =>
+            definition.sourceTypeIds.contains('writing-session') ||
+            definition.targetTypeIds.contains('writing-session'))
+        .map((definition) => definition.id)
+        .toList();
+    expect(sessionEdges, isEmpty);
   });
 
   test('the Research migration remains deferred', () {

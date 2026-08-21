@@ -4,9 +4,71 @@ Architecture Audit & Master Design
 
 Status: Design and audit only — no Story Graph implementation exists or is authorised by this document
 Audited: August 21, 2026
-Decisions taken: **D-1** — scenes and chapters become `AuthorRecord`s; **D-2** — manuscript version churn is handled by coalescing (§1, §20 Phase 0)
-Audit basis: `flutter-author-studio-v1` at branch `claude/authoros-architecture-audit-sib66m` (merge commit `864f99d`)
+Decision in force: **D-3** — scenes and chapters remain manuscript-domain nodes (§0)
+Audit basis: `flutter-author-studio-v1` at merge commit `864f99d`, **re-based on `main` at `5c6bf05`** — see §0
+Superseded decisions: **D-1 and D-2 are REVERSED** — see §0
 Verification baseline: 595 tests passing, 55 analyzer issues (0 errors), clean working tree
+
+---
+
+## 0. Amendments since the audit
+
+This audit was written against `864f99d`. `main` has since advanced to `5c6bf05`,
+absorbing five parallel milestones. Two audit findings and two decisions are superseded.
+Everything else in this document was re-verified against the merged tree and still holds.
+
+### Findings corrected
+
+| § | Said | Now |
+|---|---|---|
+| §3.2, §5, §8, §14, I-12 | `WritingSession` is **NOT PRESENT** | **Present.** `lib/core/writing_session.dart`, `lib/writing_session_recorder.dart`, and a 12th table, `writing_session_rows`. **Invariant I-12 holds**: the table has no foreign key into `connected_entities`, no registered record type, and no connection type takes a session as an endpoint. `chapterId`/`sceneId` are nullable soft pointers, not edges. Sessions are history, and a guardrail test now pins them there |
+| §2.2 | 11 tables | **12** — `writing_session_rows` added |
+| §11.3, §14 | Research lives in records vs `ProjectResearchStore` | Still true, and a **Research Studio** now exists (`lib/research_service.dart`, `lib/research_studio_view.dart`) building on `research-entry` records. **The `ProjectResearchStore` panel migration is still deferred** — R-4 stands unchanged, and its guardrail still passes |
+
+### Decisions reversed
+
+**D-1 (scenes become `AuthorRecord`s) and D-2 (version coalescing) are withdrawn.**
+
+D-2 existed only to absorb the version churn that D-1 would have created by putting prose
+into `AuthorRecord.fields`. **With D-1 withdrawn, D-2 has no problem left to solve** and is
+withdrawn with it. Coalescing may still be worth having on its own merits one day; it is
+not needed now, and nothing should be built for it.
+
+### Decision D-3 — scenes and chapters remain manuscript-domain nodes
+
+Taken August 21, 2026, superseding D-1.
+
+Scenes and chapters stay `ManuscriptNodeReference`s. The Story Graph's job is to provide a
+**unified read model over heterogeneous domains**, not to force every entity into one
+persistence abstraction.
+
+The trade-off, stated honestly:
+
+- **Gains.** No migration. Manuscript Studio keeps its architecture. Five parallel builds
+  stay unblocked. Far smaller blast radius.
+- **Costs.** Two node kinds persist, so every graph read path must handle both — invariant
+  I-14 becomes permanent rather than transitional. R-1 (ghost nodes) and R-2 (prose outside
+  the archive) are no longer fixed structurally by a migration; each needs its own targeted
+  fix. R-5 (`scene`/`chapter` record types shadowing nodes) stays open, and those registered
+  types remain unused.
+
+R-1 and R-2 keep their CRITICAL rank. Under D-3 they are addressed by the integrity
+milestone below rather than by a migration.
+
+### Phase plan superseded
+
+§20's Phase 0 was written for D-1 and no longer applies. The live plan is:
+
+```
+Phase 0  Manuscript graph integrity and node lifecycle   <- directive issued
+Phase 1  Universal Story Graph read API
+Phase 2  Graph traversal and relationship queries
+Phase 3  Story Graph Studio / visualisation
+Phase 4  Cross-Studio intelligence and advanced features
+```
+
+The Phase 0 directive supersedes `docs/story-graph-phase-0-directive.md`, which was written
+for D-1. Read §20 below as historical rationale, not as the plan.
 
 ---
 
@@ -65,7 +127,7 @@ The recommended shape is a **read-only `StoryGraphService`** that delegates to t
 existing repository and `ConnectionEngine`, owns no storage, and treats derived edges as
 a separately-typed, never-persisted overlay. Phases are proposed in §20.
 
-### Decision D-1 — scenes and chapters become `AuthorRecord`s
+### Decision D-1 — scenes and chapters become `AuthorRecord`s *(WITHDRAWN — see §0)*
 
 Taken August 21, 2026, resolving what this audit raised as its largest open question.
 
@@ -92,7 +154,7 @@ migration untouched.**
 
 Full design, costs and sequencing: §20 Phase 0. New questions it opens: §19.
 
-### Decision D-2 — manuscript version churn is handled by coalescing
+### Decision D-2 — manuscript version churn is handled by coalescing *(WITHDRAWN with D-1 — see §0)*
 
 Taken August 21, 2026, resolving what D-1 opened as Q-1 and unblocking Phase 0.
 
@@ -947,9 +1009,9 @@ Each rule is marked with whether the architecture already enforces it.
 | I-9 | **Derived relationships must never masquerade as persisted links.** | **HOLDS TODAY** by construction (§7). **Future requirement:** enforce structurally — derived edges returned by a different method, in a different type, with no `id` |
 | I-10 | **Analytics must not become an independent source of graph truth.** | **HOLDS** for records, links, versions and audit events — pinned by test. **PARTIAL** for nodes: reading Analytics can seed manuscript nodes (R-21). **Future requirement:** seeding moves out of the read path |
 | I-11 | **Map coordinates remain map-owned data.** | **HOLDS TODAY** — `x`/`y` are `map-marker` record fields written only by `WorldService.createMapMarker`. **Future requirement:** the graph reads them, never writes them |
-| I-12 | **Writing sessions remain analytics-history data.** | **VACUOUS** — no writing-session system exists (§3.2). Restated as: *if* one is added, it must not become a node type |
+| I-12 | **Writing sessions remain analytics-history data.** | **LIVE and HOLDING** — the system now exists (§0). `writing_session_rows` has no FK into `connected_entities`, no record type, and no connection type takes a session as an endpoint. Pinned by test |
 | I-13 | **One edge table.** No second relationship model, ever | **HOLDS** — `record_link_rows` is the only edge table. **At risk**: `ImpactTraceAnalyzer`'s `TraceLink` and `ManuscriptScene.relationships` are both parallel edge shapes already in the tree (§18) |
-| I-14 | **Manuscript-node edges must tolerate a non-record endpoint.** | **Transitional** — required until decision D-1 lands, then retired. `entityTypeId` already falls back to `nodeType`, but `RecordService.getRecord` returns `null` and `ConnectionEngine.linkedRecords` silently drops manuscript nodes. Phase 0 removes the need |
+| I-14 | **Manuscript-node edges must tolerate a non-record endpoint.** | **Permanent under D-3** (was transitional under the withdrawn D-1). `entityTypeId` already falls back to `nodeType`, but `RecordService.getRecord` returns `null` and `ConnectionEngine.linkedRecords` silently drops manuscript nodes. Phase 0 removes the need |
 | I-15 | **The graph owns no storage.** | **Future requirement** — the defining constraint of the whole design |
 
 ---
@@ -1026,7 +1088,7 @@ Nothing in this table is fixed by this milestone.
 
 Design only. No phase is authorised by this document.
 
-### Phase 0 — Migrate scenes and chapters to `AuthorRecord` *(decision D-1)*
+### Phase 0 — Migrate scenes and chapters to `AuthorRecord` *(SUPERSEDED — written for the withdrawn D-1; see §0)*
 
 Not a Story Graph phase; the prerequisite that makes the rest coherent. Building a graph
 read model over an entity kind that cannot be deleted would bake ghost nodes into the

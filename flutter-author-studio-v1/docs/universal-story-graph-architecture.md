@@ -4,7 +4,7 @@ Architecture Audit & Master Design
 
 Status: Design and audit only — no Story Graph implementation exists or is authorised by this document
 Audited: August 21, 2026
-Decisions taken: **D-1** — scenes and chapters become `AuthorRecord`s (§1, §20 Phase 0)
+Decisions taken: **D-1** — scenes and chapters become `AuthorRecord`s; **D-2** — manuscript version churn is handled by coalescing (§1, §20 Phase 0)
 Audit basis: `flutter-author-studio-v1` at branch `claude/authoros-architecture-audit-sib66m` (merge commit `864f99d`)
 Verification baseline: 595 tests passing, 55 analyzer issues (0 errors), clean working tree
 
@@ -91,6 +91,37 @@ under one id space, so **preserving ids means every existing `RecordLink` surviv
 migration untouched.**
 
 Full design, costs and sequencing: §20 Phase 0. New questions it opens: §19.
+
+### Decision D-2 — manuscript version churn is handled by coalescing
+
+Taken August 21, 2026, resolving what D-1 opened as Q-1 and unblocking Phase 0.
+
+Prose in `fields` means `RecordService.updateRecord` snapshots the whole scene on every
+autosave. Rather than exclude prose from the snapshot or add a second write path,
+**consecutive versions of the same entity are collapsed inside a time window**, so a
+writing session yields a handful of snapshots instead of hundreds. "Restore this scene to
+yesterday" keeps working, there is one write path, and no schema change is needed.
+
+The rule that makes it safe: **only `AuditChangeType.updated` coalesces.** Every other
+change type — `created`, `renamed`, `archived`, `restored`, `deleted`, `duplicated`,
+`statusChanged`, `templateChanged`, `scopeChanged`, `branchChanged`, and all four
+`connection*` types — always appends. `_classifyChange` already routes a title edit to
+`renamed` and a status edit to `statusChanged`, so the only thing that collapses is a run
+of pure field-content edits. That is precisely the autosave case and nothing else.
+
+Consequences to hold in view, because coalescing changes behaviour for **every** record
+type, not just scenes:
+
+- `getRecordVersionCount`, `HistoryInspection.versionCount` and the version count
+  `SafeDeleteService` reports all become "snapshots retained", not "edits made". Anything
+  presenting them as an edit tally needs its wording revisited.
+- `_insertVersion` currently uses `.insert()`. Coalescing needs a replace path that keeps
+  the existing version id — which keeps the `previousVersionId` chain intact — and
+  replaces its paired audit event, whose id is derived as `audit-<versionId>`.
+- The `sequence` counter in version metadata must not double-increment on a coalesced
+  write.
+
+Full specification and sequencing: §20 Phase 0, step 1.
 
 ---
 
@@ -960,12 +991,11 @@ Nothing in this table is fixed by this milestone.
 > D-1 in §1 and Phase 0 in §20. *"Should `chapterId` become a real edge?"* — yes, as part
 > of the same migration. Both questions are closed; the questions below replace them.
 
-1. **Q-1 — How is manuscript version churn handled?** *(blocking Phase 0)* Prose in
-   `fields` means `RecordService.updateRecord` snapshots the whole scene on every
-   autosave. Coalescing inside a time window, excluding prose from the snapshot, or a
-   separate content write path — §20 Phase 0 sets out the trade-offs and recommends
-   coalescing. This must be settled before the migration is written.
-2. **Q-2 — Does scene ordering stay a field, or become graph structure?** `order` as an
+> **Also resolved.** *"How is manuscript version churn handled?"* — answered August 21,
+> 2026: **coalescing inside a time window, for `updated` changes only.** See decision D-2
+> in §1 and Phase 0 step 1 in §20. Phase 0 is no longer blocked.
+
+1. **Q-2 — Does scene ordering stay a field, or become graph structure?** `order` as an
    integer field is simple and matches today's model. Ordering by edge is more graph-native
    but makes an insert an O(n) rewrite. Recommendation: keep the field; ordering is
    sequence data, not a relationship.
@@ -1023,29 +1053,29 @@ children with seven inherited fields. From `ManuscriptScene` and `ManuscriptChap
 which is the entire point (§4.3). Registering a typed `partOf` for `scene → chapter` and
 `chapter → book` gives the manuscript a real spine and retires two wildcard dependencies.
 
-**The cost that needs deciding first — version churn.** `RecordService.updateRecord`
-writes a full JSON snapshot plus an audit event on *every* update. Manuscript editing is
-autosave-frequency. Putting prose in `fields` without addressing this means a 120k-word
-novel accumulates a complete copy per keystroke-batch, in a table that never prunes.
-Three viable answers, in preference order:
+**Version churn — resolved by D-2, and it lands first.** `RecordService.updateRecord`
+writes a full JSON snapshot plus an audit event on *every* update, and manuscript editing
+is autosave-frequency. Coalescing collapses consecutive `updated` versions of the same
+entity inside a time window; every other change type always appends. Specification:
 
-1. **Coalesce** — collapse versions for the same record inside a time window, so a writing
-   session yields a handful of snapshots rather than hundreds. Preserves the audit trail's
-   meaning and needs no schema change.
-2. **Exclude prose from the snapshot** — version scene *metadata*, store `content`
-   outside `versionJson`. Cheap, but breaks "restore this scene to yesterday", which is
-   most of why authors want scene versioning.
-3. **Separate the write path** — a metadata update goes through `RecordService`; a content
-   update goes through a narrower path that skips versioning. Fastest, and the most likely
-   to grow into a second write path nobody validates. Least preferred.
+| Aspect | Rule |
+|---|---|
+| Eligible change type | `AuditChangeType.updated` **only** |
+| Coalesce when | Same `entityId`, same `branchId`, same `source`, previous version is `updated`, and the new timestamp is within the window of the previous version's `createdAt` |
+| Window | Configurable on `VersionAuditService`; default 5 minutes |
+| On coalesce | Keep the existing version id and its `previousVersionId`; replace `snapshot`, `createdAt` and `summary`; increment a `coalescedCount` in metadata; leave `sequence` unchanged |
+| Paired audit event | Replaced in lockstep — its id is derived as `audit-<versionId>`, so it follows the version id |
+| Never coalesce | `created`, `renamed`, `archived`, `restored`, `deleted`, `duplicated`, `statusChanged`, `templateChanged`, `scopeChanged`, `branchChanged`, and all four `connection*` types |
 
-This is open question **Q-1** in §19 and should be settled before the migration is written,
-not after.
+`_insertVersion` uses `.insert()` today, so this needs a replace path on the repository —
+not an upsert on a new id, which would break the chain.
 
 **Sequencing within the phase.**
 
-1. Define the `scene` / `chapter` fields and register typed `partOf`.
-2. Decide Q-1 (version churn) and implement whichever answer wins.
+1. Implement D-2 coalescing, standalone and fully tested, **before anything else**. It
+   changes version behaviour for every record type, so it should land and be verified on
+   its own rather than tangled into the migration.
+2. Define the `scene` / `chapter` fields and register typed `partOf`.
 3. Move `ManuscriptStore`'s source of truth from the `SharedPreferences` blob to records.
    Leave the blob as a read-only migration input, then retire it. **Do not dual-write** —
    dual-writing recreates exactly the duplication this decision removes.

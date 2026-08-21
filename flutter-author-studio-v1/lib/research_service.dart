@@ -1,10 +1,13 @@
+import 'core/built_in_connection_types.dart';
 import 'core/connected_domain.dart';
 import 'core/connection_engine.dart';
+import 'core/connection_types.dart';
 import 'core/record_inspection.dart';
 import 'core/record_inspector.dart';
 import 'core/record_service.dart';
 import 'core/record_types.dart';
 import 'core/research_record_types.dart';
+import 'core/story_codex_domain.dart';
 import 'core/universal_search.dart';
 import 'core/version_audit.dart';
 import 'core/version_audit_service.dart';
@@ -23,7 +26,15 @@ enum ResearchSort {
 ///
 /// Each one is a read-derived view of the canonical records — none of them
 /// owns storage, an index, or a record of its own.
-enum ResearchShelf { all, sources, notes, references, important, recent }
+enum ResearchShelf {
+  all,
+  sources,
+  notes,
+  references,
+  important,
+  unresolved,
+  recent,
+}
 
 /// Everything the author supplies when creating or editing a research entry.
 ///
@@ -346,6 +357,268 @@ class ResearchService {
     return record;
   }
 
+  // --- Sources -----------------------------------------------------------
+  //
+  // `general-lore` already declares `sourceReferences`, and the Codex already
+  // has a structured shape for it. Research reuses both rather than inventing
+  // a source model: `sourceUrl` and `citation` stay the entry's own primary
+  // source, and this list carries the further ones a real bibliography needs.
+
+  /// Every structured source on [record], newest position last.
+  static List<CodexSourceReference> sourcesOf(AuthorRecord record) =>
+      CodexSourceReference.listFrom(record.fields[CodexFields.sources]);
+
+  /// Replaces the structured source list on [id].
+  Future<AuthorRecord> setSources(
+    String id,
+    List<CodexSourceReference> sources, {
+    DateTime? timestamp,
+  }) async {
+    final record = await _requireResearch(id);
+    return records.updateRecord(
+      record.copyWith(
+        fields: {
+          ...record.fields,
+          CodexFields.sources: [
+            for (final source in sources) source.toJson(),
+          ],
+        },
+        updatedAt: (timestamp ?? DateTime.now()).toUtc(),
+      ),
+    );
+  }
+
+  Future<AuthorRecord> addSource(
+    String id,
+    CodexSourceReference source, {
+    DateTime? timestamp,
+  }) async {
+    final record = await _requireResearch(id);
+    return setSources(
+      id,
+      [...sourcesOf(record), source],
+      timestamp: timestamp,
+    );
+  }
+
+  /// Removes the source whose [CodexSourceReference.stableId] matches.
+  Future<AuthorRecord> removeSource(
+    String id,
+    String stableId, {
+    DateTime? timestamp,
+  }) async {
+    final record = await _requireResearch(id);
+    return setSources(
+      id,
+      sourcesOf(record)
+          .where((source) => source.stableId != stableId)
+          .toList(),
+      timestamp: timestamp,
+    );
+  }
+
+  // --- Connections -------------------------------------------------------
+
+  /// The connection types the shared registry accepts between two records.
+  ///
+  /// The registry is the authority on what may link to what; the Studio only
+  /// offers what it already allows.
+  Future<List<ConnectionTypeDefinition>> connectionTypesBetween({
+    required String sourceTypeId,
+    required String targetTypeId,
+  }) async {
+    final registry = BuiltInConnectionTypes.registry(
+      additionalDefinitions:
+          await repository.connectionTypeDefinitionsByScope(projectId),
+    );
+    return registry.definitions.where((definition) {
+      try {
+        registry.validateConnection(
+          typeId: definition.id,
+          sourceTypeId: sourceTypeId,
+          targetTypeId: targetTypeId,
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+  }
+
+  /// Every record in the project a research entry may be connected to.
+  ///
+  /// Research reaches World, Character, Plot, Timeline, Codex and Note records
+  /// because they are all Universal Records in the same project — no
+  /// per-Studio allow-list is invented here.
+  Future<List<AuthorRecord>> connectableRecords({String? excludeId}) async {
+    final all = await repository.recordsByScope(projectId);
+    final result = all
+        .where((record) => record.id != excludeId)
+        .where((record) => record.status != AuthorRecordStatus.deleted)
+        .where(
+          (record) =>
+              !CodexInfrastructureTypes.all.contains(record.typeId),
+        )
+        .toList();
+    result.sort(_byTitle);
+    return result;
+  }
+
+  Future<void> disconnect(String linkId, {DateTime? timestamp}) =>
+      connections.disconnect(linkId, timestamp: timestamp);
+
+  // --- Saved views -------------------------------------------------------
+  //
+  // A saved view is a stored filter, and the Codex already persists exactly
+  // that as a `codexCollection` record of kind `savedView`. Research writes
+  // the same record type with its own `studioId`, so no new type, table, or
+  // store appears, and `StoryCodexService.getSavedViews` skips anything
+  // stamped for another Studio.
+
+  static const savedViewStudioId = 'research';
+
+  Future<List<ResearchSavedView>> savedViews() async {
+    final all = await repository.recordsByScope(projectId);
+    final views = <ResearchSavedView>[];
+    for (final record in all) {
+      if (record.typeId != CodexInfrastructureTypes.collection) continue;
+      if (record.status == AuthorRecordStatus.deleted) continue;
+      if (record.fields['studioId'] != savedViewStudioId) continue;
+      views.add(ResearchSavedView.readFrom(record));
+    }
+    views.sort(
+      (left, right) =>
+          left.name.toLowerCase().compareTo(right.name.toLowerCase()),
+    );
+    return views;
+  }
+
+  Future<ResearchSavedView> saveView({
+    required String id,
+    required String name,
+    required ResearchViewFilter filter,
+    DateTime? timestamp,
+  }) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty) {
+      throw ArgumentError('A view name is required.');
+    }
+    final now = (timestamp ?? DateTime.now()).toUtc();
+    final existing = await repository.recordById(id);
+    final record = AuthorRecord(
+      id: id,
+      typeId: CodexInfrastructureTypes.collection,
+      scopeType: RecordScopeType.project,
+      scopeId: projectId,
+      projectId: projectId,
+      title: normalized,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      revision: existing == null ? 1 : existing.revision + 1,
+      fields: {
+        'name': normalized,
+        'kind': CodexCollectionKind.savedView.name,
+        'studioId': savedViewStudioId,
+        ..._savedViewFields(filter),
+      },
+    );
+    await repository.putRecord(record);
+    return ResearchSavedView.readFrom(record);
+  }
+
+  Future<void> deleteSavedView(String id) async {
+    final record = await repository.recordById(id);
+    if (record == null) return;
+    if (record.fields['studioId'] != savedViewStudioId) {
+      throw StateError('$id is not a Research saved view.');
+    }
+    await repository.putRecord(
+      record.copyWith(
+        status: AuthorRecordStatus.deleted,
+        updatedAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  // --- Dashboard ---------------------------------------------------------
+
+  /// Aggregates the project's research into the dashboard read-model.
+  ///
+  /// Every number is computed from the records on each call. Nothing here is
+  /// stored, cached, or written back, so the dashboard can never disagree
+  /// with the library it summarises.
+  Future<ResearchDashboard> dashboard() async {
+    final active = await query.all();
+    final archived = active
+        .where((record) => record.status == AuthorRecordStatus.archived)
+        .length;
+    final categories = <String>{};
+    final tags = <String>{};
+    var sources = 0;
+    var notes = 0;
+    var references = 0;
+    var important = 0;
+    var sourceEntries = 0;
+    final unresolved = <AuthorRecord>[];
+    for (final record in active) {
+      categories.add(categoryOf(record));
+      tags.addAll(record.tags.where((tag) => tag.trim().isNotEmpty));
+      switch (kindOf(record)) {
+        case 'Source':
+          sources += 1;
+        case 'Reference':
+          references += 1;
+        default:
+          notes += 1;
+      }
+      if (isImportant(record)) important += 1;
+      sourceEntries += sourcesOf(record).length;
+      if (isUnresolved(record)) unresolved.add(record);
+    }
+    return ResearchDashboard(
+      total: active.length,
+      sources: sources,
+      notes: notes,
+      references: references,
+      important: important,
+      archived: archived,
+      categories: categories.toList()..sort(),
+      tags: tags.toList()
+        ..sort(
+          (left, right) => left.toLowerCase().compareTo(right.toLowerCase()),
+        ),
+      sourceReferences: sourceEntries,
+      recent: ResearchQueryService.sorted(
+        active,
+        ResearchSort.recentlyUpdated,
+      ).take(5).toList(),
+      unresolved: unresolved,
+    );
+  }
+
+  /// Whether [record] still needs the author's attention.
+  ///
+  /// Derived, never stored: research is unresolved while its status is not yet
+  /// Reviewed or Verified, or while an entry claiming to be a Source carries
+  /// no source at all. Archived research is settled by definition.
+  static bool isUnresolved(AuthorRecord record) {
+    if (record.status == AuthorRecordStatus.archived) return false;
+    final status = storedStatusOf(record);
+    if (status == 'New' || status == 'In Progress') return true;
+    return kindOf(record) == 'Source' && !hasAnySource(record);
+  }
+
+  /// Whether [record] cites anything at all — a link, a citation, or a
+  /// structured source reference.
+  static bool hasAnySource(AuthorRecord record) =>
+      _text(record.fields[ResearchRecordTypes.sourceUrlFieldId])
+          .trim()
+          .isNotEmpty ||
+      _text(record.fields[ResearchRecordTypes.citationFieldId])
+          .trim()
+          .isNotEmpty ||
+      sourcesOf(record).isNotEmpty;
+
   // --- Read-derived accessors -------------------------------------------
   //
   // These read the canonical record. Nothing here caches or stores.
@@ -535,6 +808,8 @@ class ResearchQueryService {
             .toList(),
         ResearchShelf.important =>
           records.where(ResearchService.isImportant).toList(),
+        ResearchShelf.unresolved =>
+          records.where(ResearchService.isUnresolved).toList(),
         ResearchShelf.recent =>
           sorted(records, ResearchSort.recentlyUpdated).take(10).toList(),
       };
@@ -559,6 +834,134 @@ String _choice(Object? value, List<String> options, String fallback) {
   if (options.contains(text)) return text;
   for (final option in options) {
     if (option.toLowerCase() == text.toLowerCase()) return option;
+  }
+  return fallback;
+}
+
+/// A stored Research library filter.
+///
+/// Serialisable on purpose: it round-trips through the same
+/// `codexCollection` record the Codex already uses for its saved views.
+class ResearchViewFilter {
+  const ResearchViewFilter({
+    this.query = '',
+    this.shelf = ResearchShelf.all,
+    this.category = '',
+    this.status = '',
+    this.tag = '',
+    this.sort = ResearchSort.recentlyUpdated,
+  });
+
+  final String query;
+  final ResearchShelf shelf;
+  final String category;
+  final String status;
+  final String tag;
+  final ResearchSort sort;
+
+}
+
+/// The record fields a saved view stores its filter in.
+///
+/// A filter is written as ordinary record fields rather than an encoded blob,
+/// so the stored view stays readable by the same record tooling as everything
+/// else and no research type gains a serialisation format of its own.
+Map<String, Object?> _savedViewFields(ResearchViewFilter filter) => {
+      'viewQuery': filter.query,
+      'viewShelf': filter.shelf.name,
+      'viewCategory': filter.category,
+      'viewStatus': filter.status,
+      'viewTag': filter.tag,
+      'viewSort': filter.sort.name,
+    };
+
+/// Reads a filter back off a saved-view record.
+///
+/// Anything missing or unrecognised — a view written by a future release, or
+/// one whose shelf has since been renamed — falls back to the default rather
+/// than dropping the view from the list.
+ResearchViewFilter _savedViewFilter(AuthorRecord record) => ResearchViewFilter(
+      query: _text(record.fields['viewQuery']),
+      shelf: _enumByName(
+        ResearchShelf.values,
+        record.fields['viewShelf'],
+        ResearchShelf.all,
+      ),
+      category: _text(record.fields['viewCategory']),
+      status: _text(record.fields['viewStatus']),
+      tag: _text(record.fields['viewTag']),
+      sort: _enumByName(
+        ResearchSort.values,
+        record.fields['viewSort'],
+        ResearchSort.recentlyUpdated,
+      ),
+    );
+
+/// A named [ResearchViewFilter], persisted as a `codexCollection` record.
+class ResearchSavedView {
+  const ResearchSavedView({
+    required this.id,
+    required this.name,
+    required this.filter,
+  });
+
+  final String id;
+  final String name;
+  final ResearchViewFilter filter;
+
+  /// Reads a stored saved-view record.
+  ///
+  /// Named for what it does rather than as a `fromJson`: the record is the
+  /// stored shape, so there is no separate serialisation format to parse.
+  static ResearchSavedView readFrom(AuthorRecord record) => ResearchSavedView(
+        id: record.id,
+        name: record.title,
+        filter: _savedViewFilter(record),
+      );
+}
+
+/// The aggregated read-model behind the Research dashboard.
+///
+/// Every field is derived on read. None of it is persisted.
+class ResearchDashboard {
+  const ResearchDashboard({
+    required this.total,
+    required this.sources,
+    required this.notes,
+    required this.references,
+    required this.important,
+    required this.archived,
+    required this.categories,
+    required this.tags,
+    required this.sourceReferences,
+    required this.recent,
+    required this.unresolved,
+  });
+
+  final int total;
+  final int sources;
+  final int notes;
+  final int references;
+  final int important;
+  final int archived;
+  final List<String> categories;
+  final List<String> tags;
+
+  /// How many structured source references exist across the library.
+  final int sourceReferences;
+
+  /// The most recently updated entries, newest first.
+  final List<AuthorRecord> recent;
+
+  /// Entries still needing attention, by [ResearchService.isUnresolved].
+  final List<AuthorRecord> unresolved;
+
+  bool get isEmpty => total == 0;
+}
+
+T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
+  for (final value in values) {
+    if (value.name == raw) return value;
   }
   return fallback;
 }

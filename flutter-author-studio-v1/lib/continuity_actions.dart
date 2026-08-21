@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'character_service.dart';
 import 'continuity.dart';
 import 'core/connected_domain.dart';
+import 'core/connection_engine.dart';
 import 'persistence/authoros_database.dart';
 import 'timeline_service.dart';
 import 'world_service.dart';
@@ -47,6 +48,12 @@ class ContinuityActionService {
       WorldService(projectId: projectId, repository: repository);
   TimelineService get timeline =>
       TimelineService(projectId: projectId, repository: repository);
+
+  /// The shared connection engine, used so a `link` recommendation can join
+  /// any two entities in the project - including manuscript chapter and scene
+  /// nodes, which are entities but not [AuthorRecord]s.
+  ConnectionEngine get connections =>
+      ConnectionEngine(scopeId: projectId, repository: repository);
 
   Future<ContinuityActionResult> createForRecommendation(
     ContinuityIntegrityIssue issue, {
@@ -177,7 +184,7 @@ class ContinuityActionService {
       final now = (timestamp ?? DateTime.now()).toUtc();
       String linkId;
       if (activeBranchId == null) {
-        final link = await timeline.connect(
+        final link = await connections.connect(
           sourceId: sourceId,
           targetId: targetId,
           typeId: typeId,

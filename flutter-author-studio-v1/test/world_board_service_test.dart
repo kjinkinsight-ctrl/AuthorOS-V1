@@ -299,21 +299,24 @@ void main() {
       );
     });
 
-    test('progress is clamped to the goal', () {
-      const overshot = WorldBoardProjectContext(
+    test('a percentage is the analytics progress, rounded for the label', () {
+      const context = WorldBoardProjectContext(
         projectId: 'p',
         title: 'T',
         genre: 'G',
         projectType: 'Novel',
-        wordCount: 120000,
+        wordCount: 40000,
         wordGoal: 80000,
         chapterCount: 4,
         sceneCount: 9,
+        // Handed in by the service from AnalyticsSummary; the context clamps
+        // nothing itself, so overshoot is proven against the summary in
+        // world_board_analytics_integration_test.dart instead.
+        progress: 0.5,
+        wordsRemaining: 40000,
       );
 
-      expect(overshot.progress, 1.0);
-      expect(overshot.progressPercent, 100);
-      expect(overshot.wordsRemaining, 0);
+      expect(context.progressPercent, 50);
     });
   });
 

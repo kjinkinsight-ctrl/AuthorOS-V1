@@ -1,0 +1,47 @@
+{
+  "fixtureVersion": 1,
+  "name": "legacy-research-panel",
+  "description": "Manuscript research side panel with references across all three tabs, including a tag that names a canonical research category and one that does not.",
+  "projectId": "fixture-research-panel",
+  "mode": "literal",
+  "preferences": {
+    "author_studio.research_panel.fixture-research-panel": {
+      "storageType": "json",
+      "value": {
+        "research": [
+          {
+            "title": "Bridge district lore",
+            "detail": "Lanterns and rain on slate roads.",
+            "tag": "World"
+          },
+          {
+            "title": "Harbour customs ledger",
+            "detail": "Tariffs recorded by the salt guild.",
+            "tag": "research"
+          }
+        ],
+        "notes": [
+          {
+            "title": "Mara timeline",
+            "detail": "She returns to the river before every lie.",
+            "tag": "Character"
+          }
+        ],
+        "timeline": [
+          {
+            "title": "The long winter",
+            "detail": "Three seasons of frost before the siege.",
+            "tag": "timeline"
+          }
+        ]
+      }
+    }
+  },
+  "expectations": {
+    "mustRemainReadable": true,
+    "referenceCount": 4,
+    "tabsPresent": ["research", "notes", "timeline"],
+    "categoryTags": ["World", "Character"],
+    "nonCategoryTags": ["research", "timeline"]
+  }
+}

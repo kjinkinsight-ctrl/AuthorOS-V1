@@ -5,6 +5,7 @@ import 'package:author_studio_v1/continuity.dart';
 import 'package:author_studio_v1/liquid_aurora_background.dart';
 import 'package:author_studio_v1/main.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
+import 'package:author_studio_v1/migrations/research_panel_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/release_destinations.dart';
@@ -188,14 +189,32 @@ void main() {
   });
 
   testWidgets(
-      'focus mode includes a research side panel with notes and timeline tabs',
+      'the manuscript research rail reads canonical records, not preferences',
       (tester) async {
+    // The panel used to own a SharedPreferences store and a tabbed
+    // pinned-reference UI. It is now a read-only window onto the same
+    // research records Research Studio shows, and anything left in the legacy
+    // store is migrated on open.
     final project = NovelStarterKit.create(
       title: 'Northstar',
       genre: 'Fantasy',
       projectType: 'Novel',
       wordGoal: 90000,
     );
+    // The starter kit mints the project id, so the legacy blob has to be
+    // staged against that id rather than a literal.
+    final legacyKey = 'author_studio.research_panel.${project.id}';
+    SharedPreferences.setMockInitialValues({
+      legacyKey: jsonEncode({
+        'research': [
+          {
+            'title': 'Bridge district lore',
+            'detail': 'Lanterns and rain on slate roads.',
+            'tag': 'World',
+          },
+        ],
+      }),
+    });
 
     await tester.pumpWidget(MaterialApp(
       home: AuthorStudioShell(
@@ -208,10 +227,29 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Research'), findsWidgets);
-    expect(find.text('Notes'), findsWidgets);
-    expect(find.text('Timeline'), findsWidgets);
-    expect(find.text('Pinned references'), findsOneWidget);
+    expect(find.byKey(const ValueKey('manuscript-research-panel')),
+        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('manuscript-research-open-studio')),
+      findsOneWidget,
+      reason: 'Creating research happens in Research Studio now.',
+    );
+
+    // The legacy pinned-reference UI is gone.
+    expect(find.text('Pinned references'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Pin reference'), findsNothing);
+
+    // The legacy entry migrated and shows as a canonical record, and the
+    // author is told it moved rather than left to wonder where it went.
+    expect(find.text('Bridge district lore'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('manuscript-research-migrated-notice')),
+      findsOneWidget,
+    );
+
+    // The original preference value is still on disk.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(legacyKey), isNotNull);
   });
 
   testWidgets(
@@ -419,7 +457,7 @@ void main() {
     expect(otherProject, isEmpty);
   });
 
-  test('project research panel stores pinned references per project', () async {
+  test('the legacy research panel store still reads per project', () async {
     SharedPreferences.setMockInitialValues({});
 
     const store = ProjectResearchStore(projectId: 'northstar');

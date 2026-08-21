@@ -17,12 +17,45 @@ This audit was written against `864f99d`. `main` has since advanced to `5c6bf05`
 absorbing five parallel milestones. Two audit findings and two decisions are superseded.
 Everything else in this document was re-verified against the merged tree and still holds.
 
+### Re-verification against `5c6bf05`
+
+Every quantitative claim in this document was re-derived from the merged tree on
+August 21, 2026, not carried forward. Results:
+
+| Claim | At `864f99d` | At `5c6bf05` | Verdict |
+|---|---|---|---|
+| Tables | 11 | **12** (`writing_session_rows`) | Corrected |
+| Schema version | 8 | **9** | Corrected |
+| Record types | 222 | **224** — `project` (manuscript), `event` (timeline) | Corrected |
+| Categories | 21 | 21 | Holds |
+| Connection types | 127 | **130** — `childOf`, `locatedAt`, `references` | Corrected |
+| Wildcard `*` → `*` edges | 70 | **73** — all three new edges are wildcards | Corrected; **R-3 worsens** |
+| Fully typed edges | 54 | 54 | Holds |
+| Cardinality | all `manyToMany`, never enforced | unchanged | **R-12 holds** |
+| Archive entries | 10 | 10 | Holds — see R-22 |
+| `putManuscriptNodes` upsert-only | yes | yes | **R-1 holds** |
+| `ManuscriptNodeReference` has no `status` | yes | yes | **R-1 holds** |
+| Raw bypasses in production | `world_studio.dart:270`, `story_codex_service.dart:88` | unchanged | **R-8 holds** |
+| Analytics writes no graph truth | yes | yes | Holds — pinned by test |
+| `ProjectResearchStore` migration deferred | yes | yes | **R-4 holds** |
+| FK + `PRAGMA foreign_keys = ON` | yes | yes | **I-1 holds** |
+
+Two milestones were checked specifically for a second graph system:
+
+- **Map Studio Phase 2** (`map_domain.dart`, `map_service.dart`, `map_studio_view.dart`,
+  ~4,100 lines) is built entirely on `RecordService`, `ConnectionEngine`,
+  `UniversalSearchService`, `SafeDeleteService` and `VersionAuditService`. Its own header
+  states that "every map, place, region and marker is an ordinary Universal Record".
+  **Invariant I-13 holds** — no second persistence, no second edge model.
+- **Writing Session History** adds a table but no node — see the findings below.
+
 ### Findings corrected
 
 | § | Said | Now |
 |---|---|---|
 | §3.2, §5, §8, §14, I-12 | `WritingSession` is **NOT PRESENT** | **Present.** `lib/core/writing_session.dart`, `lib/writing_session_recorder.dart`, and a 12th table, `writing_session_rows`. **Invariant I-12 holds**: the table has no foreign key into `connected_entities`, no registered record type, and no connection type takes a session as an endpoint. `chapterId`/`sceneId` are nullable soft pointers, not edges. Sessions are history, and a guardrail test now pins them there |
 | §2.2 | 11 tables | **12** — `writing_session_rows` added |
+| §3.2, §5, §13 | **Map Region is NOT PRESENT** — no type, no area geometry | **Wrong on both counts since Map Studio Phase 2.** Regions are ordinary records of the **existing `region` location type** (`MapTypes.region`), deliberately excluded from Map Studio's place types so it stays a Map concept of its own. Area geometry now exists as a record field — `MapFields.geometry`, stored as `{kind, points}` and clamped to the map extent. The §6 verdict for `Location → Map Region` changes from **NOT CURRENTLY SUPPORTED** to **SUPPORTED NOW** |
 | §11.3, §14 | Research lives in records vs `ProjectResearchStore` | Still true, and a **Research Studio** now exists (`lib/research_service.dart`, `lib/research_studio_view.dart`) building on `research-entry` records. **The `ProjectResearchStore` panel migration is still deferred** — R-4 stands unchanged, and its guardrail still passes |
 
 ### Decisions reversed
@@ -1072,6 +1105,7 @@ Each rule is marked with whether the architecture already enforces it.
 | R-17 | **`SafeDeleteService` blocks on any edge** | **LOW** | Any incoming *or* outgoing connection sets `blocked`. Correct and conservative, but it means physical deletion is effectively unreachable in a connected project — worth knowing before designing a graph delete flow | `safe_delete_service.dart:105-113` |
 | R-18 | **Dead type definitions** | **LOW** | `_world` and `_location` in `built_in_record_types.dart` are unreachable; adding them to the list would throw on duplicate ids | `built_in_record_types.dart:196,243` |
 | R-19 | **Route endpoints stored twice** | **LOW** | `routeFrom`/`routeTo` links *and* `fields.startId`/`endId`. Nothing keeps them in sync | `world_service.dart:555-580` |
+| R-22 | **Writing sessions are not in the archive** | **MEDIUM** | `writing_session_rows` is the twelfth table, but `AuthorOsArchiveService` still writes the same ten entries. A project exported and re-imported loses its entire writing history — every daily total, streak and longitudinal metric. Correctly *outside* the graph per I-16, but backup is a separate concern from graph membership, and this is a real data-loss path | `authoros_archive.dart` entry list vs `@DriftDatabase` tables |
 | R-21 | **Reading Analytics or World Board writes graph nodes** | **MEDIUM** | `getSummary()` / `load()` → `ManuscriptStore.loadStudio()` seeds and saves a starter manuscript when none exists, and `saveStudio` projects chapter and scene nodes into `connected_entities` and `manuscript_node_rows`. A dashboard read thus creates graph nodes. Idempotent after the first read and confined to manuscript nodes — but it means "open the dashboard" and "create nodes" are the same action, and combined with R-1 those nodes can never be removed. **Decision D-1 raises this to a Phase 0 blocker**: once scenes are records, the same read would write a version and an audit event per seeded node, manufacturing history for content the author never typed | `analytics_service.dart` `_loadManuscript`; `world_board_service.dart` `_loadManuscript`; `manuscript_store.dart:622-647` |
 | R-20 | **Derived character-in-manuscript match is naive** | **LOW** | Case-insensitive substring of the character title against scene text. "Will" matches the auxiliary verb. Correctly not persisted, but must not be reused as-is by a derived-relationship engine | `analytics_service.dart` `_countCharactersReferenced` |
 

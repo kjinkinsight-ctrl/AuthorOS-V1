@@ -5,7 +5,7 @@ Architecture Audit & Master Design
 Status: Design and audit only — no Story Graph implementation exists or is authorised by this document
 Audited: August 21, 2026
 Decision in force: **D-3** — scenes and chapters remain manuscript-domain nodes (§0)
-Audit basis: `flutter-author-studio-v1` at merge commit `864f99d`, **re-based on `main` at `5c6bf05`** — see §0
+Audit basis: `flutter-author-studio-v1` at merge commit `864f99d`, **re-verified against `main` at `4f83201`** — see §0
 Superseded decisions: **D-1 and D-2 are REVERSED** — see §0
 Verification baseline: 595 tests passing, 55 analyzer issues (0 errors), clean working tree
 
@@ -17,10 +17,12 @@ This audit was written against `864f99d`. `main` has since advanced to `5c6bf05`
 absorbing five parallel milestones. Two audit findings and two decisions are superseded.
 Everything else in this document was re-verified against the merged tree and still holds.
 
-### Re-verification against `5c6bf05`
+### Re-verification against `4f83201`
 
 Every quantitative claim in this document was re-derived from the merged tree on
-August 21, 2026, not carried forward. Results:
+August 21, 2026, not carried forward. `main` moved twice during the pass — five
+milestones at `5c6bf05`, then Manuscript Studio Phase 2 and the research-panel migration
+at `4f83201`. Results are against the later tree.
 
 | Claim | At `864f99d` | At `5c6bf05` | Verdict |
 |---|---|---|---|
@@ -37,7 +39,7 @@ August 21, 2026, not carried forward. Results:
 | `ManuscriptNodeReference` has no `status` | yes | yes | **R-1 holds** |
 | Raw bypasses in production | `world_studio.dart:270`, `story_codex_service.dart:88` | unchanged | **R-8 holds** |
 | Analytics writes no graph truth | yes | yes | Holds — pinned by test |
-| `ProjectResearchStore` migration deferred | yes | yes | **R-4 holds** |
+| `ProjectResearchStore` migration deferred | yes | **no — it landed** | **R-4 CLOSED**, see below |
 | FK + `PRAGMA foreign_keys = ON` | yes | yes | **I-1 holds** |
 
 Two milestones were checked specifically for a second graph system:
@@ -56,7 +58,7 @@ Two milestones were checked specifically for a second graph system:
 | §3.2, §5, §8, §14, I-12 | `WritingSession` is **NOT PRESENT** | **Present.** `lib/core/writing_session.dart`, `lib/writing_session_recorder.dart`, and a 12th table, `writing_session_rows`. **Invariant I-12 holds**: the table has no foreign key into `connected_entities`, no registered record type, and no connection type takes a session as an endpoint. `chapterId`/`sceneId` are nullable soft pointers, not edges. Sessions are history, and a guardrail test now pins them there |
 | §2.2 | 11 tables | **12** — `writing_session_rows` added |
 | §3.2, §5, §13 | **Map Region is NOT PRESENT** — no type, no area geometry | **Wrong on both counts since Map Studio Phase 2.** Regions are ordinary records of the **existing `region` location type** (`MapTypes.region`), deliberately excluded from Map Studio's place types so it stays a Map concept of its own. Area geometry now exists as a record field — `MapFields.geometry`, stored as `{kind, points}` and clamped to the map extent. The §6 verdict for `Location → Map Region` changes from **NOT CURRENTLY SUPPORTED** to **SUPPORTED NOW** |
-| §11.3, §14 | Research lives in records vs `ProjectResearchStore` | Still true, and a **Research Studio** now exists (`lib/research_service.dart`, `lib/research_studio_view.dart`) building on `research-entry` records. **The `ProjectResearchStore` panel migration is still deferred** — R-4 stands unchanged, and its guardrail still passes |
+| §8, §11.3, §14, R-4 | Research is split between records and `ProjectResearchStore`, and the migration is deferred | **The migration has landed.** A Research Studio (`lib/research_service.dart`, `lib/research_studio_view.dart`) builds on `research-entry` records, and `lib/migrations/research_panel_migration.dart` converts legacy panel references into them. `ProjectResearchStore` moved to `lib/migrations/research_panel_store.dart` as a **read-only legacy input** — the blob is never rewritten, and a separate `.migrated` marker key records completion, so a migration bug cannot corrupt the only copy of the author's data. Unmigratable references (empty title, creation failure) are reported as typed skips rather than silently dropped. **R-4 is closed.** Its guardrail is rewritten to assert the invariant that replaced it |
 
 ### Decisions reversed
 
@@ -1089,7 +1091,7 @@ Each rule is marked with whether the architecture already enforces it.
 | R-1 | **Manuscript nodes are never deleted** *(closed by D-1, Phase 0)* | **CRITICAL** | `putManuscriptNodes` is upsert-only with no reconciliation. Deleting a scene in Manuscript Studio leaves the `manuscript_node_rows` row, its `connected_entities` row, every link pointing at it, and its FTS entry — permanently. `ManuscriptNodeReference` has no `status` field, so it cannot even be soft-deleted. A Story Graph would render ghost scenes with no way to remove them | `authoros_database.dart:445-456`; `manuscript_store.dart:666-694`; `connected_domain.dart:167-191` |
 | R-2 | **Manuscript prose is outside the canonical graph and outside the archive** *(closed by D-1, Phase 0)* | **CRITICAL** | Scene `content` lives only in `SharedPreferences`. The archive preserves scene *identity* and never the writing. A restore from archive returns a fully-connected graph of empty scenes | `manuscript_store.dart:552-694`; `authoros_archive.dart` entry list |
 | R-3 | **Type compatibility is largely nominal** | **HIGH** | 70 of 127 connection types are `*` → `*`. Of 27 relationship pairs tested, 12 have **no** typed edge — including every Research relationship, both manuscript containment edges, and scene→plot. Validation runs and always passes, giving false confidence | Registry dump, §4.2/§4.3 |
-| R-4 | **Research data is duplicated across two incompatible systems** | **HIGH** | `ProjectResearchStore` (SharedPreferences, no ids) vs `research-entry` records (graph, archived, searchable). `AnalyticsService.researchItemCount` counts only the latter, so the dashboard and the panel routinely disagree | `main.dart:1659`; `analytics_service.dart` `researchTypeIds` |
+| R-4 | **Research data is duplicated across two incompatible systems** *(CLOSED — migrated on `main`, see §0)* | ~~HIGH~~ | `ProjectResearchStore` (SharedPreferences, no ids) vs `research-entry` records (graph, archived, searchable). `AnalyticsService.researchItemCount` counts only the latter, so the dashboard and the panel routinely disagree | `main.dart:1659`; `analytics_service.dart` `researchTypeIds` |
 | R-5 | **`scene`/`chapter` record types shadow manuscript nodes** *(closed by D-1, Phase 0)* | **HIGH** | Both are registered types *and* manuscript node kinds. `PlotService` queries `recordsByTypeAndScope(typeId: 'scene')` and will always find zero, silently disabling its `orphaned-scene` validation. A graph that treats "scene" as one thing will be wrong half the time | `plot_service.dart:416`; `manuscript_store.dart:685` |
 | R-6 | **A second graph traversal model already exists in the tree** | **MEDIUM** | `ImpactTraceAnalyzer` implements depth-limited BFS and shared-scene inference over its own `TraceEntity`/`TraceLink` types, unrelated to `AuthorRecord`/`RecordLink`. It has **no production callers** — only `test/impact_trace_test.dart`. Left unaddressed, it is the most likely seed of a duplicate relationship system | `lib/impact_trace.dart`; caller search |
 | R-7 | **`ManuscriptScene.relationships` is a third relationship shape** *(closed by D-1, Phase 0 step 7)* | **MEDIUM** | `SceneRelationship {id, type, targetId, label, metadata}` persists scene-local edges in SharedPreferences. `LegacyConnectionSliceAdapter` can convert them to `RecordLink`s, but that path is behind `AUTHOROS_CONNECTED_DOMAIN`, **off by default** — so these edges exist and are invisible to the graph | `manuscript_store.dart:85-133`; `legacy_connection_slice.dart:6-10` |
@@ -1301,9 +1303,11 @@ so a future change that violates one fails loudly rather than silently. It asser
 7. **`WritingSession` remains absent** — nothing named `WritingSession` exists in `lib/`;
    if it is added, this test forces the "history data, not graph data" decision (I-12) to
    be made consciously.
-8. **The Research migration remains deferred** — `ProjectResearchStore` still writes to
-   `author_studio.research_panel.<projectId>`, and no `research-entry` record is created
-   from it.
+8. **Research lives in records, and the legacy panel blob is never rewritten** — the
+   deferred-migration assertion was replaced when the migration landed. It now pins the
+   invariant that survived it: research is reachable as graph nodes, `documents` can still
+   attach a research entry to anything, and the legacy store stays a read-only migration
+   input in `lib/migrations/`.
 9. **No Story Graph UI has been implemented** — no `StoryGraphService`, `StoryGraphView`,
    or equivalent exists in `lib/`.
 10. **The edge table refuses a dangling link** — `PRAGMA foreign_keys` is on, and a raw

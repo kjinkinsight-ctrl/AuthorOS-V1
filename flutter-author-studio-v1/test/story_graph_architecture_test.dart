@@ -410,30 +410,47 @@ void main() {
     expect(sessionEdges, isEmpty);
   });
 
-  test('the Research migration remains deferred', () {
-    final mainSource = File('lib/main.dart').readAsStringSync();
+  test('research lives in records and the legacy panel blob is never rewritten',
+      () {
+    // The audit recorded the research-panel migration as deferred (R-4). It
+    // has since landed on main, so this guardrail flips from "still deferred"
+    // to the invariant that replaced it: research is graph data, and the
+    // legacy blob is a read-only migration input — the only remaining copy of
+    // anything that has not migrated yet.
+    expect(
+      File('lib/migrations/research_panel_store.dart').existsSync(),
+      isTrue,
+      reason: 'The legacy research store moved or was deleted. It is still the '
+          'only copy of any reference that has not migrated; deleting it '
+          'before every project has migrated loses author data.',
+    );
 
+    final mainSource = File('lib/main.dart').readAsStringSync();
     expect(
       mainSource,
-      contains('class ProjectResearchStore'),
-      reason: 'ProjectResearchStore moved or was renamed. The audit records '
-          'its migration to research-entry records as deferred; a move needs '
-          'the master document updated with it.',
+      isNot(contains('class ProjectResearchStore')),
+      reason: 'ProjectResearchStore reappeared in main.dart. It belongs in '
+          'lib/migrations/ as a legacy input, not in the app shell as a live '
+          'store.',
     );
+
+    // Research must be reachable as graph nodes, which is what the migration
+    // was for.
+    final researchTypes = BuiltInRecordTypes.definitions
+        .where((definition) => definition.categoryId == 'research')
+        .map((definition) => definition.id)
+        .toSet();
+    expect(researchTypes, containsAll(<String>{'research-entry', 'research'}));
+
+    // And something must be able to document an arbitrary record, or research
+    // is a node with no way to attach to the story.
     expect(
-      mainSource,
-      contains("'author_studio.research_panel.\$projectId'"),
-      reason: 'The Research panel still persists to SharedPreferences. If it '
-          'now writes records, the deferred migration has happened and risk '
-          'R-4 needs closing out in the master document.',
-    );
-    expect(
-      mainSource.contains('ProjectResearchStore') &&
-          mainSource.contains('research-entry'),
-      isFalse,
-      reason: 'ProjectResearchStore appears to create research-entry records. '
-          'That migration is deliberately out of scope for the audit '
-          'milestone.',
+      BuiltInConnectionTypes.definitions.any((definition) =>
+          definition.id == 'documents' &&
+          definition.sourceTypeIds.contains('research-entry')),
+      isTrue,
+      reason: 'The documents edge lost research-entry as a source. Research '
+          'nodes would no longer be able to attach to anything.',
     );
   });
 

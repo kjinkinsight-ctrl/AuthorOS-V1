@@ -1,5 +1,10 @@
 import 'dart:io';
 
+import 'package:author_studio_v1/core/record_scope.dart';
+import 'package:author_studio_v1/core/record_types.dart';
+import 'package:author_studio_v1/liquid_aurora_background.dart';
+import 'package:author_studio_v1/main.dart';
+import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/plot_service.dart';
 import 'package:author_studio_v1/plot_studio_view.dart';
@@ -13,6 +18,9 @@ import 'package:author_studio_v1/theme/theme_tokens.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'fixtures/plot_phase_1_fixture.dart';
 
 Future<ResolvedTheme> _resolvedTheme() async {
   final engine = ThemeEngine.standard(store: MemoryThemeSettingsStore());
@@ -209,5 +217,140 @@ void main() {
     expect(source, contains('PlotService'));
     expect(source, isNot(contains('SharedPreferences')));
     expect(source, isNot(contains('authoros_database')));
+  });
+
+  testWidgets('project custom Plot types reach the editor', (tester) async {
+    final project = _project('Custom Types', 'plot-custom');
+    final service = PlotService(projectId: project.id, repository: repository);
+    await service.registerCustomType(RecordTypeDefinition(
+      id: 'heist-turn',
+      name: 'Heist Turn',
+      categoryId: 'plot',
+      baseTypeId: 'plot-record',
+      fields: const [],
+      sections: const [],
+      scopeType: RecordScopeType.project,
+      scopeId: project.id,
+      sourcePackId: 'project:${project.id}',
+    ));
+
+    // The catalogue is resolved from the registry, not the built-in list, so a
+    // project type registered at runtime is offered without a code change.
+    expect(
+      (await service.plotTemplates()).map((definition) => definition.id),
+      contains('heist-turn'),
+    );
+
+    await _pumpView(tester, project: project, service: service);
+    await tester.tap(find.byKey(const ValueKey('plot-create-button')));
+    await tester.pumpAndSettle();
+
+    // Opening the menu is the only way to read the offered items: the form
+    // field exposes no public `items` getter.
+    await tester.tap(find.byKey(const ValueKey('plot-record-type-field')));
+    await tester.pumpAndSettle();
+    expect(find.text('Heist Turn'), findsWidgets);
+  });
+
+  testWidgets('the Phase 1 fixture renders without being rewritten',
+      (tester) async {
+    // The fixture is the closest thing to real pre-existing Plot data: a whole
+    // connected story graph written straight through PlotService.
+    final project = _project('Fixture', PlotPhase1Fixture.projectId);
+    final service = PlotService(projectId: project.id, repository: repository);
+    await PlotPhase1Fixture.seed(service);
+    final seeded = await service.query.all();
+    expect(seeded, isNotEmpty);
+
+    await _pumpView(tester, project: project, service: service);
+
+    expect(find.text(seeded.first.title), findsWidgets);
+
+    // Nothing was migrated or rewritten to make it renderable.
+    final after = await service.query.all();
+    expect(after.map((record) => record.id), seeded.map((record) => record.id));
+    expect(after.every((record) => record.revision == 1), isTrue);
+  });
+
+  group('application navigation', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      // The shell backdrop loops forever, which would stall pumpAndSettle.
+      debugDisableAuroraAnimation = true;
+    });
+
+    tearDown(() => debugDisableAuroraAnimation = false);
+
+    /// The real shell, at a width that uses the desktop navigation rail.
+    ///
+    /// Wrapped in a [StudioThemeScope] because `AuthorStudioApp` installs one
+    /// above the shell in production and `PlotStudioView` resolves its tokens
+    /// through `StudioThemeScope.of`, which throws when none is present.
+    Future<void> pumpShell(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1600, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final shellDatabase = AuthorOsDatabase(NativeDatabase.memory());
+      addTearDown(shellDatabase.close);
+      final theme = await _resolvedTheme();
+      await tester.pumpWidget(MaterialApp(
+        home: StudioThemeScope(
+          theme: theme,
+          studio: StudioId.shell,
+          child: AuthorStudioShell(
+            project: NovelStarterKit.create(
+              title: 'Northstar',
+              genre: 'Fantasy',
+              projectType: 'Novel',
+              wordGoal: 90000,
+            ),
+            manuscriptStore: ManuscriptStore(
+              repository: DriftConnectedDomainRepository(shellDatabase),
+            ),
+            themeId: 'paper',
+            accentId: 'default',
+            onThemeChanged: (_, __) {},
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    /// Taps a navigation destination and lets the shell's switcher finish.
+    ///
+    /// Not `pumpAndSettle`: inside the shell the view reads the shared
+    /// application database, which a widget test cannot open, so its loading
+    /// indicator spins forever. Reaching the view is what this asserts.
+    Future<void> navigateTo(WidgetTester tester, String label) async {
+      await tester.tap(find.text(label).last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    testWidgets('the Plot section reaches PlotStudioView', (tester) async {
+      await pumpShell(tester);
+
+      expect(find.byType(PlotStudioView), findsNothing);
+
+      await navigateTo(tester, 'Plot');
+
+      // The shell's Plot destination is this view, not a parallel board.
+      expect(find.byType(PlotStudioView), findsOneWidget);
+    });
+
+    testWidgets('navigating away from and back to Plot works', (tester) async {
+      await pumpShell(tester);
+
+      await navigateTo(tester, 'Plot');
+      expect(find.byType(PlotStudioView), findsOneWidget);
+
+      await navigateTo(tester, 'Chapters');
+      expect(find.byType(PlotStudioView), findsNothing);
+
+      await navigateTo(tester, 'Plot');
+      expect(find.byType(PlotStudioView), findsOneWidget);
+    });
   });
 }

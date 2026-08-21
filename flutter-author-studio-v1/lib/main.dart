@@ -19,6 +19,8 @@ import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
+import 'research_service.dart';
+import 'research_studio_view.dart';
 import 'release_destinations.dart';
 import 'supabase_service.dart';
 import 'timeline.dart';
@@ -626,6 +628,7 @@ enum StudioSection {
   plot,
   timeline,
   notes,
+  research,
   settings,
 }
 
@@ -645,6 +648,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.plot => 'Plot',
         StudioSection.timeline => 'Timeline',
         StudioSection.notes => 'Notes',
+        StudioSection.research => 'Research',
         StudioSection.settings => 'Settings',
       };
 
@@ -663,6 +667,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.plot => Icons.route_outlined,
         StudioSection.timeline => Icons.timeline_outlined,
         StudioSection.notes => Icons.sticky_note_2_outlined,
+        StudioSection.research => Icons.travel_explore_outlined,
         StudioSection.settings => Icons.settings_outlined,
       };
 }
@@ -681,6 +686,7 @@ class AuthorStudioShell extends StatefulWidget {
     required this.accentId,
     required this.onThemeChanged,
     this.manuscriptStore = const ManuscriptStore(),
+    this.researchService,
     this.onLogout = _defaultLogout,
     this.initialSection,
   });
@@ -697,6 +703,11 @@ class AuthorStudioShell extends StatefulWidget {
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
   final ManuscriptStore manuscriptStore;
+
+  /// Research Studio's service. Left null, the Studio builds its own over the
+  /// shared AuthorOS database, matching how Plot and Timeline are wired.
+  final ResearchService? researchService;
+
   final Future<void> Function() onLogout;
 
   @override
@@ -725,6 +736,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.plot,
     StudioSection.timeline,
     StudioSection.notes,
+    StudioSection.research,
   ];
 
   static const sections = <StudioSection>[
@@ -774,6 +786,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
             accentId: widget.accentId,
             onThemeChanged: widget.onThemeChanged,
             manuscriptStore: widget.manuscriptStore,
+            researchService: widget.researchService,
             onLogout: widget.onLogout,
             minimalFocusMode:
                 focusModeEnabled && currentSection == StudioSection.manuscript,
@@ -1171,6 +1184,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.plot,
     StudioSection.timeline,
     StudioSection.notes,
+    StudioSection.research,
   ];
 
   @override
@@ -1429,6 +1443,7 @@ class _SectionView extends StatelessWidget {
     required this.accentId,
     required this.onThemeChanged,
     required this.manuscriptStore,
+    this.researchService,
     this.onLogout,
     this.minimalFocusMode = false,
   });
@@ -1443,6 +1458,7 @@ class _SectionView extends StatelessWidget {
   final String accentId;
   final void Function(String themeId, String accentId) onThemeChanged;
   final ManuscriptStore manuscriptStore;
+  final ResearchService? researchService;
   final Future<void> Function()? onLogout;
   final bool minimalFocusMode;
 
@@ -1567,6 +1583,22 @@ class _SectionView extends StatelessWidget {
         ),
         StudioSection.timeline => TimelineStudioView(project: project),
         StudioSection.notes => const _NotesStudioView(),
+        StudioSection.research => ResearchStudioView(
+            project: project,
+            service: researchService,
+            onNavigate: (request) => onNavigate(
+              switch (request.destination) {
+                SearchDestination.characterStudio => StudioSection.characters,
+                SearchDestination.worldStudio => StudioSection.world,
+                SearchDestination.timelineStudio => StudioSection.timeline,
+                SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.manuscriptStudio => StudioSection.manuscript,
+                SearchDestination.seriesStudio => StudioSection.projects,
+                SearchDestination.storyCodex => StudioSection.codex,
+                SearchDestination.record => StudioSection.research,
+              },
+            ),
+          ),
         StudioSection.settings => SettingsStudioView(
             selection: themeSelection,
             onSelectionChanged: onThemeSelectionChanged,
@@ -4651,6 +4683,14 @@ class _DashboardView extends StatelessWidget {
         title: 'Ideas',
         body: '12 total · 5 draft · 4 developing · 3 ready',
         target: StudioSection.ideas,
+      ),
+      _DashboardInfoTile(
+        icon: '❋',
+        title: 'Research Studio',
+        body:
+            'Sources, references, and unresolved questions kept with the story.',
+        actionLabel: 'Open Research',
+        target: StudioSection.research,
       ),
       _DashboardInfoTile(
         icon: '⌕',

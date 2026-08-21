@@ -60,6 +60,16 @@ class _MapStudioViewState extends State<MapStudioView> {
   /// The item whose inline editor is open, if any.
   MapSelection? inlineEditing;
 
+  /// Phase 3 editor state. All presentation: none of it is a graph entity.
+  MapTerrainBrush brush = const MapTerrainBrush(kind: MapTerrainKind.grass);
+  String assetDefinitionId = MapAssetDefinition.library.first.id;
+  MapAssetCategory assetCategory = MapAssetCategory.vegetation;
+
+  /// Scenery is selected separately from story items on purpose: an asset is
+  /// not a location, a region or a marker, so it never enters [selections] and
+  /// never appears in a marquee.
+  String? selectedAssetId;
+
   @override
   void initState() {
     super.initState();
@@ -505,6 +515,110 @@ class _MapStudioViewState extends State<MapStudioView> {
     return canvas?.regionById(current.id);
   }
 
+  // -------------------------------------------------- terrain and scenery ---
+
+  Future<void> _paintStroke(List<MapPosition> positions) async {
+    final map = selectedMap;
+    if (map == null || positions.isEmpty) return;
+    await _runBusy(() async {
+      await service.paintTerrainStroke(map.id, brush, positions);
+      await _load();
+    });
+  }
+
+  Future<void> _fillTerrain(MapTerrainKind kind) async {
+    final map = selectedMap;
+    if (map == null) return;
+    await _runBusy(() async {
+      await service.fillTerrain(map.id, kind);
+      await _load();
+    });
+  }
+
+  Future<void> _clearTerrain() async {
+    final map = selectedMap;
+    if (map == null) return;
+    await _runBusy(() async {
+      await service.clearTerrain(map.id);
+      await _load();
+    });
+  }
+
+  Future<void> _setStyle(MapVisualStyle style) async {
+    final map = selectedMap;
+    if (map == null) return;
+    await _runBusy(() async {
+      await service.setVisualStyle(map.id, style);
+      await _load();
+    });
+  }
+
+  Future<void> _placeAsset(MapPosition position) async {
+    final map = selectedMap;
+    if (map == null) return;
+    final id = _id('asset');
+    await _runBusy(() async {
+      await service.addAsset(
+        map.id,
+        MapAssetInstance(
+          id: id,
+          definitionId: assetDefinitionId,
+          position: position,
+          scale: MapAssetDefinition.byId(assetDefinitionId)?.defaultScale ?? 1,
+          layer: map.assets.length,
+        ),
+      );
+      await _load();
+      if (mounted) setState(() => selectedAssetId = id);
+    });
+  }
+
+  Future<void> _moveAsset(String assetId, MapPosition position) async {
+    final map = selectedMap;
+    if (map == null) return;
+    await _runBusy(() async {
+      await service.moveAsset(map.id, assetId, position);
+      await _load();
+    });
+  }
+
+  Future<void> _transformAsset({
+    double? rotation,
+    double? scale,
+    int? layer,
+  }) async {
+    final map = selectedMap;
+    final assetId = selectedAssetId;
+    if (map == null || assetId == null) return;
+    await _runBusy(() async {
+      await service.transformAsset(
+        map.id,
+        assetId,
+        rotation: rotation,
+        scale: scale,
+        layer: layer,
+      );
+      await _load();
+    });
+  }
+
+  Future<void> _removeAsset() async {
+    final map = selectedMap;
+    final assetId = selectedAssetId;
+    if (map == null || assetId == null) return;
+    await _runBusy(() async {
+      await service.removeAsset(map.id, assetId);
+      if (mounted) selectedAssetId = null;
+      await _load();
+    });
+  }
+
+  MapAssetInstance? get _selectedAsset {
+    final id = selectedAssetId;
+    if (id == null) return null;
+    return selectedMap?.assets.where((asset) => asset.id == id).firstOrNull;
+  }
+
   // ------------------------------------------------------- inline editing ---
 
   void _openInlineEditor(MapSelection value) => setState(() {
@@ -683,6 +797,14 @@ class _MapStudioViewState extends State<MapStudioView> {
           const SizedBox(height: 8),
           _buildRegionTools(palette),
         ],
+        if (tool == MapEditorTool.terrain) ...[
+          const SizedBox(height: 8),
+          _buildTerrainTools(palette),
+        ],
+        if (tool == MapEditorTool.asset) ...[
+          const SizedBox(height: 8),
+          _buildAssetTools(palette),
+        ],
         const SizedBox(height: 12),
         _MapCanvas(
           data: data,
@@ -705,7 +827,21 @@ class _MapStudioViewState extends State<MapStudioView> {
           onInlineEditRequested: _openInlineEditor,
           onInlineEditSubmitted: _submitInlineEdit,
           onInlineEditCancelled: _closeInlineEditor,
+          onPaintStroke: _paintStroke,
+          onPlaceAsset: _placeAsset,
+          onMoveAsset: _moveAsset,
+          onAssetSelected: (id) => setState(() => selectedAssetId = id),
+          brush: brush,
+          selectedAssetId: selectedAssetId,
         ),
+        if (data.map.visualStyle.showLegend && data.map.legend.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _MapLegend(
+            palette: palette,
+            entries: data.map.legend,
+            style: data.map.visualStyle,
+          ),
+        ],
         const SizedBox(height: 12),
         _SelectionDetail(
           palette: palette,
@@ -880,7 +1016,257 @@ class _MapStudioViewState extends State<MapStudioView> {
         MapEditorTool.move => Icons.open_with_outlined,
         MapEditorTool.region => Icons.pentagon_outlined,
         MapEditorTool.pan => Icons.pan_tool_outlined,
+        MapEditorTool.terrain => Icons.brush_outlined,
+        MapEditorTool.asset => Icons.forest_outlined,
       };
+
+  /// Terrain painting controls, shown while the terrain brush is held.
+  Widget _buildTerrainTools(_MapPalette palette) {
+    final style = selectedMap?.visualStyle ?? MapVisualStyle.standard;
+    return Container(
+      key: const Key('map-terrain-tools'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: palette.surfaceContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final kind in MapTerrainKind.values)
+                _SwatchChip(
+                  key: Key('map-terrain-kind-${kind.name}'),
+                  palette: palette,
+                  label: kind.label,
+                  color: palette.terrainColor(kind, style),
+                  selected: brush.kind == kind && !brush.erases,
+                  onPressed: busy
+                      ? null
+                      : () => setState(
+                          () => brush = brush.withKind(kind).withErases(false)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text('Brush', style: palette.label),
+              IconButton(
+                key: const Key('map-brush-smaller'),
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Smaller brush',
+                color: palette.onSurfaceVariant,
+                onPressed: busy
+                    ? null
+                    : () => setState(
+                        () => brush = brush.withRadius(brush.radius / 1.5)),
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+              Text(
+                '${brush.radius.round()}',
+                key: const Key('map-brush-size'),
+                style: palette.label,
+              ),
+              IconButton(
+                key: const Key('map-brush-larger'),
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Larger brush',
+                color: palette.onSurfaceVariant,
+                onPressed: busy
+                    ? null
+                    : () => setState(
+                        () => brush = brush.withRadius(brush.radius * 1.5)),
+                icon: const Icon(Icons.add_circle_outline),
+              ),
+              _ToolButton(
+                key: const Key('map-terrain-erase'),
+                palette: palette,
+                icon: Icons.cleaning_services_outlined,
+                label: 'Erase',
+                selected: brush.erases,
+                onPressed: busy
+                    ? null
+                    : () =>
+                        setState(() => brush = brush.withErases(!brush.erases)),
+              ),
+              _ToolbarDivider(palette: palette),
+              OutlinedButton(
+                key: const Key('map-terrain-fill'),
+                onPressed: busy ? null : () => _fillTerrain(brush.kind),
+                child: const Text('Fill map'),
+              ),
+              OutlinedButton(
+                key: const Key('map-terrain-clear'),
+                onPressed: busy ? null : _clearTerrain,
+                child: const Text('Clear terrain'),
+              ),
+              _ToolbarDivider(palette: palette),
+              for (final treatment in MapBackgroundTreatment.values)
+                _ToolButton(
+                  key: Key('map-style-treatment-${treatment.name}'),
+                  palette: palette,
+                  icon: Icons.texture_outlined,
+                  label: treatment.label,
+                  selected: style.treatment == treatment,
+                  onPressed: busy
+                      ? null
+                      : () => _setStyle(style.copyWith(treatment: treatment)),
+                ),
+              _ToolButton(
+                key: const Key('map-style-legend-toggle'),
+                palette: palette,
+                icon: Icons.list_alt_outlined,
+                label: 'Legend',
+                selected: style.showLegend,
+                onPressed: busy
+                    ? null
+                    : () => _setStyle(
+                        style.copyWith(showLegend: !style.showLegend)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Biomes: ${(selectedMap?.biomes ?? MapBiome.builtIn).map((biome) => biome.name).join(', ')}',
+            key: const Key('map-biome-summary'),
+            style: palette.label,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Scenery controls, shown while the scenery tool is held.
+  Widget _buildAssetTools(_MapPalette palette) {
+    final selected = _selectedAsset;
+    return Container(
+      key: const Key('map-asset-tools'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: palette.surfaceContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final category in MapAssetCategory.values)
+                _ToolButton(
+                  key: Key('map-asset-category-${category.name}'),
+                  palette: palette,
+                  icon: Icons.category_outlined,
+                  label: category.label,
+                  selected: assetCategory == category,
+                  onPressed: busy
+                      ? null
+                      : () => setState(() {
+                            assetCategory = category;
+                            assetDefinitionId =
+                                MapAssetDefinition.inCategory(category)
+                                    .first
+                                    .id;
+                          }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final definition
+                  in MapAssetDefinition.inCategory(assetCategory))
+                _ToolButton(
+                  key: Key('map-asset-def-${definition.id}'),
+                  palette: palette,
+                  icon: _assetIcon(definition.id),
+                  label: definition.label,
+                  selected: assetDefinitionId == definition.id,
+                  onPressed: busy
+                      ? null
+                      : () => setState(
+                          () => assetDefinitionId = definition.id),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                selected == null
+                    ? 'Tap the map to place. Select scenery to shape it.'
+                    : 'Editing ${selected.definition?.label ?? selected.definitionId} '
+                        '— ${selected.rotation.round()}°, '
+                        '${selected.scale.toStringAsFixed(2)}x, layer ${selected.layer}',
+                key: const Key('map-asset-status'),
+                style: palette.label,
+              ),
+              OutlinedButton(
+                key: const Key('map-asset-rotate'),
+                onPressed: busy || selected == null
+                    ? null
+                    : () => _transformAsset(rotation: selected.rotation + 45),
+                child: const Text('Rotate 45°'),
+              ),
+              OutlinedButton(
+                key: const Key('map-asset-scale-up'),
+                onPressed: busy || selected == null
+                    ? null
+                    : () => _transformAsset(scale: selected.scale * 1.25),
+                child: const Text('Larger'),
+              ),
+              OutlinedButton(
+                key: const Key('map-asset-scale-down'),
+                onPressed: busy || selected == null
+                    ? null
+                    : () => _transformAsset(scale: selected.scale / 1.25),
+                child: const Text('Smaller'),
+              ),
+              OutlinedButton(
+                key: const Key('map-asset-forward'),
+                onPressed: busy || selected == null
+                    ? null
+                    : () => _transformAsset(layer: selected.layer + 1),
+                child: const Text('Bring forward'),
+              ),
+              OutlinedButton(
+                key: const Key('map-asset-back'),
+                onPressed: busy || selected == null
+                    ? null
+                    : () => _transformAsset(layer: selected.layer - 1),
+                child: const Text('Send back'),
+              ),
+              OutlinedButton(
+                key: const Key('map-asset-remove'),
+                onPressed: busy || selected == null ? null : _removeAsset,
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   /// The region geometry controls, shown while the region tool is held.
   Widget _buildRegionTools(_MapPalette palette) {
@@ -938,7 +1324,7 @@ class _MapStudioViewState extends State<MapStudioView> {
 }
 
 /// What a drag on the canvas currently means.
-enum _DragMode { none, marquee, pan, item, point, region, place }
+enum _DragMode { none, marquee, pan, item, point, region, place, terrain }
 
 /// The map surface, and the Phase 2 editor's pointer surface.
 ///
@@ -968,6 +1354,12 @@ class _MapCanvas extends StatefulWidget {
     required this.onInlineEditRequested,
     required this.onInlineEditSubmitted,
     required this.onInlineEditCancelled,
+    required this.onPaintStroke,
+    required this.onPlaceAsset,
+    required this.onMoveAsset,
+    required this.onAssetSelected,
+    required this.brush,
+    required this.selectedAssetId,
   });
 
   final MapCanvasData data;
@@ -994,6 +1386,13 @@ class _MapCanvas extends StatefulWidget {
       onInlineEditSubmitted;
   final VoidCallback onInlineEditCancelled;
 
+  final ValueChanged<List<MapPosition>> onPaintStroke;
+  final ValueChanged<MapPosition> onPlaceAsset;
+  final void Function(String assetId, MapPosition position) onMoveAsset;
+  final ValueChanged<String?> onAssetSelected;
+  final MapTerrainBrush brush;
+  final String? selectedAssetId;
+
   @override
   State<_MapCanvas> createState() => _MapCanvasState();
 }
@@ -1007,6 +1406,14 @@ class _MapCanvasState extends State<_MapCanvas> {
   MapPosition grabOffset = MapPosition.origin;
   MapPosition? previewPosition;
   MapPosition? previewPoint;
+
+  /// Map-space dabs collected while a terrain stroke is in progress. Drawn as
+  /// a preview and sent as one write on release.
+  List<MapPosition> strokePoints = const [];
+
+  /// The scenery item being dragged, if any. Kept apart from [dragItem]
+  /// because an asset is not a [MapSelection].
+  String? dragAssetId;
 
   /// The projection built by the last layout, so pointer signals outside the
   /// layout callback still have one to convert through.
@@ -1037,7 +1444,17 @@ class _MapCanvasState extends State<_MapCanvas> {
         MapEditorTool.place => _DragMode.place,
         MapEditorTool.pan => _DragMode.pan,
         MapEditorTool.move => _DragMode.pan,
+        MapEditorTool.terrain => _DragMode.terrain,
+        MapEditorTool.asset => _DragMode.place,
       };
+      if (mode == _DragMode.terrain) {
+        final current = projection;
+        strokePoints = current == null
+            ? <MapPosition>[]
+            : <MapPosition>[
+                current.toMap(details.localPosition.dx, details.localPosition.dy),
+              ];
+      }
     });
   }
 
@@ -1049,6 +1466,19 @@ class _MapCanvasState extends State<_MapCanvas> {
       widget.onCameraChanged(
         current.pannedBy(details.delta.dx, details.delta.dy),
       );
+      return;
+    }
+    if (mode == _DragMode.terrain) {
+      final current = projection;
+      if (current == null) return;
+      final point = current.toMap(
+        details.localPosition.dx,
+        details.localPosition.dy,
+      );
+      setState(() {
+        currentLocal = details.localPosition;
+        strokePoints = [...strokePoints, point];
+      });
       return;
     }
     setState(() => currentLocal = details.localPosition);
@@ -1077,10 +1507,18 @@ class _MapCanvasState extends State<_MapCanvas> {
             .clampTo(widget.data.extent);
         if (rect.width > 0 && rect.height > 0) widget.onRegionDrawn(rect);
       case _DragMode.place:
-        widget.onPlace(
-          _clamp(current.toMap(to.dx, to.dy)),
-          widget.placementKind,
-        );
+        if (widget.tool == MapEditorTool.asset) {
+          widget.onPlaceAsset(_clamp(current.toMap(to.dx, to.dy)));
+        } else {
+          widget.onPlace(
+            _clamp(current.toMap(to.dx, to.dy)),
+            widget.placementKind,
+          );
+        }
+      case _DragMode.terrain:
+        final stroke = strokePoints;
+        setState(() => strokePoints = const []);
+        if (stroke.isNotEmpty) widget.onPaintStroke(stroke);
       case _DragMode.none:
       case _DragMode.pan:
       case _DragMode.item:
@@ -1093,13 +1531,22 @@ class _MapCanvasState extends State<_MapCanvas> {
     if (!canEdit) return;
     final current = projection;
     if (current == null) return;
+    final at = _clamp(
+      current.toMap(details.localPosition.dx, details.localPosition.dy),
+    );
     if (widget.tool == MapEditorTool.place) {
-      widget.onPlace(
-        _clamp(current.toMap(details.localPosition.dx, details.localPosition.dy)),
-        widget.placementKind,
-      );
+      widget.onPlace(at, widget.placementKind);
       return;
     }
+    if (widget.tool == MapEditorTool.terrain) {
+      widget.onPaintStroke([at]);
+      return;
+    }
+    if (widget.tool == MapEditorTool.asset) {
+      widget.onPlaceAsset(at);
+      return;
+    }
+    widget.onAssetSelected(null);
     widget.onSelectionCleared();
   }
 
@@ -1267,6 +1714,8 @@ class _MapCanvasState extends State<_MapCanvas> {
   List<Widget> _layer(MapLayer layer, MapProjection projection) =>
       switch (layer) {
         MapLayer.base => _baseLayer(projection),
+        MapLayer.terrain => _terrainLayer(projection),
+        MapLayer.assets => _assetLayer(projection),
         MapLayer.regions => [
             for (final region in widget.data.regions)
               _buildRegion(region, projection),
@@ -1306,11 +1755,19 @@ class _MapCanvasState extends State<_MapCanvas> {
   List<Widget> _baseLayer(MapProjection projection) {
     final palette = widget.palette;
     return [
-      Positioned.fill(
-        child: CustomPaint(
-          painter: _MapGridPainter(color: palette.outline, divisions: 8),
+      if (widget.data.map.visualStyle.treatment !=
+          MapBackgroundTreatment.plain)
+        Positioned.fill(
+          child: CustomPaint(
+            key: const Key('map-background'),
+            painter: _MapGridPainter(
+              color: palette.outline,
+              divisions: 8,
+              treatment: widget.data.map.visualStyle.treatment,
+              wash: palette.regionFill,
+            ),
+          ),
         ),
-      ),
       if (widget.data.isEmpty)
         Center(
           child: Padding(
@@ -1341,6 +1798,126 @@ class _MapCanvasState extends State<_MapCanvas> {
         ),
       ),
     ];
+  }
+
+  /// Painted ground.
+  ///
+  /// One painter for the whole grid rather than a widget per cell: a 48x48 map
+  /// is 2,304 cells, and 2,304 widgets would cost more to lay out than the map
+  /// costs to store.
+  List<Widget> _terrainLayer(MapProjection projection) {
+    final terrain = widget.data.map.terrain;
+    final style = widget.data.map.visualStyle;
+    // The stroke in progress is previewed locally so the ground follows the
+    // brush; the write happens once, on release.
+    var preview = terrain;
+    if (mode == _DragMode.terrain && strokePoints.isNotEmpty) {
+      if (preview.cellCount == 0) preview = MapTerrainGrid.empty();
+      for (final point in strokePoints) {
+        preview = preview.painted(widget.brush, point, widget.data.extent);
+      }
+    }
+    if (preview.cellCount == 0) return const [];
+    return [
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            key: const Key('map-terrain'),
+            painter: _TerrainPainter(
+              terrain: preview,
+              extent: widget.data.extent,
+              projection: projection,
+              palette: widget.palette,
+              style: style,
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Placed scenery, in its stored draw order.
+  List<Widget> _assetLayer(MapProjection projection) {
+    final palette = widget.palette;
+    final assets = widget.data.map.assetsInDrawOrder;
+    final canDrag = widget.interactive &&
+        (widget.tool == MapEditorTool.asset ||
+            widget.tool == MapEditorTool.move);
+    return [
+      for (final asset in assets)
+        () {
+          final point = projection.toCanvas(
+            (mode == _DragMode.item &&
+                    dragAssetId == asset.id &&
+                    previewPosition != null)
+                ? previewPosition!
+                : asset.position,
+          );
+          final selected = widget.selectedAssetId == asset.id;
+          final size = 22.0 * asset.scale;
+          return Positioned(
+            left: point.x - size,
+            top: point.y - size,
+            width: size * 2,
+            height: size * 2,
+            child: GestureDetector(
+              key: Key('map-asset-${asset.id}'),
+              behavior: HitTestBehavior.opaque,
+              dragStartBehavior: DragStartBehavior.down,
+              onTap: widget.interactive
+                  ? () => widget.onAssetSelected(selected ? null : asset.id)
+                  : null,
+              onPanStart: canDrag
+                  ? (details) {
+                      dragAssetId = asset.id;
+                      _onAssetPanStart(
+                        asset.position,
+                        _toCanvasLocal(details.globalPosition),
+                      );
+                    }
+                  : null,
+              onPanUpdate: canDrag
+                  ? (details) => _onItemPanUpdate(
+                      _toCanvasLocal(details.globalPosition))
+                  : null,
+              onPanEnd: canDrag ? (details) => _onAssetPanEnd() : null,
+              child: Center(
+                child: Transform.rotate(
+                  angle: asset.rotation * 3.1415926535897932 / 180,
+                  child: Icon(
+                    _assetIcon(asset.definitionId),
+                    size: size,
+                    color: selected ? palette.primary : palette.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }(),
+    ];
+  }
+
+  void _onAssetPanStart(MapPosition anchor, Offset local) {
+    final current = projection;
+    if (current == null) return;
+    final pointer = current.toMap(local.dx, local.dy);
+    setState(() {
+      mode = _DragMode.item;
+      grabOffset = MapPosition(anchor.x - pointer.x, anchor.y - pointer.y);
+      previewPosition = anchor;
+    });
+  }
+
+  void _onAssetPanEnd() {
+    final assetId = dragAssetId;
+    final position = previewPosition;
+    setState(() {
+      mode = _DragMode.none;
+      dragAssetId = null;
+      previewPosition = null;
+    });
+    if (assetId == null || position == null) return;
+    widget.onMoveAsset(assetId, position);
   }
 
   List<Widget> _selectionLayer(MapProjection projection) {
@@ -1703,14 +2280,126 @@ class _RegionShapePainter extends CustomPainter {
       oldDelegate.strokeWidth != strokeWidth;
 }
 
-class _MapGridPainter extends CustomPainter {
-  const _MapGridPainter({required this.color, required this.divisions});
+/// Draws the painted ground.
+///
+/// Cells are converted through [MapProjection] like everything else, so terrain
+/// zooms and pans with the map and no pixel ever reaches a record.
+class _TerrainPainter extends CustomPainter {
+  const _TerrainPainter({
+    required this.terrain,
+    required this.extent,
+    required this.projection,
+    required this.palette,
+    required this.style,
+  });
 
-  final Color color;
-  final int divisions;
+  final MapTerrainGrid terrain;
+  final MapExtent extent;
+  final MapProjection projection;
+  final _MapPalette palette;
+  final MapVisualStyle style;
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (terrain.cellCount == 0) return;
+    final cached = <MapTerrainKind, Paint>{};
+    for (var row = 0; row < terrain.rows; row++) {
+      for (var column = 0; column < terrain.columns; column++) {
+        final kind = terrain.kindAt(column, row);
+        if (kind == null) continue;
+        final rect = terrain.rectFor(column, row, extent);
+        final topLeft = projection.toCanvas(rect.topLeft);
+        final bottomRight = projection.toCanvas(rect.bottomRight);
+        // A half-pixel bleed stops hairline seams between neighbouring cells.
+        final drawn = Rect.fromLTRB(
+          topLeft.x - 0.5,
+          topLeft.y - 0.5,
+          bottomRight.x + 0.5,
+          bottomRight.y + 0.5,
+        );
+        if (drawn.right < 0 ||
+            drawn.bottom < 0 ||
+            drawn.left > size.width ||
+            drawn.top > size.height) {
+          continue;
+        }
+        final paint = cached.putIfAbsent(
+          kind,
+          () => Paint()..color = palette.terrainColor(kind, style),
+        );
+        canvas.drawRect(drawn, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_TerrainPainter oldDelegate) =>
+      oldDelegate.terrain != terrain ||
+      oldDelegate.extent != extent ||
+      oldDelegate.style != style ||
+      oldDelegate.projection.camera != projection.camera ||
+      oldDelegate.projection.canvasWidth != projection.canvasWidth ||
+      oldDelegate.projection.canvasHeight != projection.canvasHeight;
+}
+
+/// Resolves an asset definition's [MapAssetDefinition.iconId] to a glyph.
+///
+/// The mapping lives here rather than in the domain so the domain stays free of
+/// Flutter, and so a later asset library can supply real artwork for the same
+/// ids without the map architecture changing.
+IconData _assetIcon(String definitionId) =>
+    switch (MapAssetDefinition.byId(definitionId)?.iconId) {
+      'park' => Icons.park_outlined,
+      'forest' => Icons.forest_outlined,
+      'grass' => Icons.grass_outlined,
+      'terrain' => Icons.terrain_outlined,
+      'landscape' => Icons.landscape_outlined,
+      'volcano' => Icons.volcano_outlined,
+      'cottage' => Icons.cottage_outlined,
+      'holiday_village' => Icons.holiday_village_outlined,
+      'location_city' => Icons.location_city_outlined,
+      'castle' => Icons.castle_outlined,
+      'tower' => Icons.account_balance_outlined,
+      'bridge' => Icons.commit_outlined,
+      'temple_buddhist' => Icons.temple_buddhist_outlined,
+      'monument' => Icons.hardware_outlined,
+      'anchor' => Icons.anchor_outlined,
+      _ => Icons.circle_outlined,
+    };
+
+class _MapGridPainter extends CustomPainter {
+  const _MapGridPainter({
+    required this.color,
+    required this.divisions,
+    this.treatment = MapBackgroundTreatment.graticule,
+    this.wash,
+  });
+
+  final Color color;
+  final int divisions;
+  final MapBackgroundTreatment treatment;
+
+  /// A theme-derived wash for the parchment treatment. Never a literal colour.
+  final Color? wash;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (treatment == MapBackgroundTreatment.parchment) {
+      // Concentric washes from the engine's own colour give the ground a worn
+      // centre without a texture asset and without a literal colour.
+      final tint = wash;
+      if (tint != null) {
+        final centre = Offset(size.width / 2, size.height / 2);
+        for (var ring = 4; ring >= 1; ring--) {
+          canvas.drawCircle(
+            centre,
+            size.longestSide * ring / 6,
+            Paint()..color = tint.withValues(alpha: 0.05 * ring),
+          );
+        }
+      }
+      return;
+    }
     final paint = Paint()
       ..color = color
       ..strokeWidth = 0.5;
@@ -1724,7 +2413,10 @@ class _MapGridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MapGridPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.divisions != divisions;
+      oldDelegate.color != color ||
+      oldDelegate.divisions != divisions ||
+      oldDelegate.treatment != treatment ||
+      oldDelegate.wash != wash;
 }
 
 /// A toolbar tool. Selected state comes from the engine's selection token.
@@ -1779,6 +2471,123 @@ class _ToolButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A terrain kind chip, showing the colour the engine derives for it.
+class _SwatchChip extends StatelessWidget {
+  const _SwatchChip({
+    super.key,
+    required this.palette,
+    required this.label,
+    required this.color,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final _MapPalette palette;
+  final String label;
+  final Color color;
+  final bool selected;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onPressed,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: selected ? palette.selection : palette.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected ? palette.primary : palette.outline,
+                width: selected ? 2 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: palette.outline),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(label, style: palette.label),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The map's terrain legend: what the ground is made of, most of it first.
+class _MapLegend extends StatelessWidget {
+  const _MapLegend({
+    required this.palette,
+    required this.entries,
+    required this.style,
+  });
+
+  final _MapPalette palette;
+  final List<MapLegendEntry> entries;
+  final MapVisualStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      key: const Key('map-legend'),
+      palette: palette,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Terrain',
+              style: palette.ui.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              for (final entry in entries)
+                Row(
+                  key: Key('map-legend-entry-${entry.kind.name}'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 14,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: palette.terrainColor(entry.kind, style),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: palette.outline),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${entry.label} ${(entry.coverage * 100).round()}%',
+                      style: palette.label,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -2324,6 +3133,31 @@ class _MapPalette {
   final Color canvasSurface;
   final Color regionFill;
   final Color marquee;
+
+  /// Terrain colour is *derived*, never declared.
+  ///
+  /// The Theme Engine publishes no "forest green", and Map Studio may not
+  /// hard-code colour. So each terrain kind rotates the engine's own primary
+  /// and adjusts its saturation and lightness. The ground tells itself apart at
+  /// a glance, the map restyles itself with the theme, and no literal colour is
+  /// written down anywhere.
+  Color terrainColor(MapTerrainKind kind, MapVisualStyle style) {
+    final base = HSLColor.fromColor(primary);
+    final saturation =
+        (base.saturation * kind.saturationFactor * style.saturation)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    final target = (base.lightness * kind.lightnessFactor).clamp(0.05, 0.95);
+    final lightness = (0.5 + (target - 0.5) * style.contrast)
+        .clamp(0.05, 0.95)
+        .toDouble();
+    return base
+        .withHue(kind.hueShift % 360)
+        .withSaturation(saturation)
+        .withLightness(lightness)
+        .toColor()
+        .withValues(alpha: style.terrainOpacity);
+  }
   final Color primary;
   final Color onSurface;
   final Color onSurfaceVariant;

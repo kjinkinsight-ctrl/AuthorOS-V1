@@ -20,6 +20,9 @@ void main() {
     'lib/map_domain.dart',
     'lib/map_service.dart',
     'lib/map_studio_view.dart',
+    // Phase 3 terrain, biomes, scenery and styling. In this list from the day
+    // it was written: every guardrail below applies to it too.
+    'lib/map_terrain.dart',
   ];
 
   group('one persistence system', () {
@@ -424,9 +427,14 @@ void main() {
     });
 
     test('the draw order is one declared order', () {
+      // Phase 3 inserted two layers. Terrain sits directly above the ground
+      // because it is what the world is made of; scenery sits above regions so
+      // a forest reads over its territory, and below the pins that name places.
       expect(MapLayer.values.map((layer) => layer.name), [
         'base',
+        'terrain',
         'regions',
+        'assets',
         'locations',
         'markers',
         'selection',
@@ -474,13 +482,126 @@ void main() {
     });
   });
 
+  group('Phase 3 — terrain, scenery and styling', () {
+    test('the visual domain stays plain Dart and store-free', () {
+      final domain = read('lib/map_terrain.dart');
+      expect(domain, isNot(contains('package:flutter/')),
+          reason: 'the visual domain must resolve without a Flutter binding');
+      for (final banned in const [
+        'SharedPreferences',
+        'dart:io',
+        'jsonEncode',
+        'class MapAssetRepository',
+        'class MapTerrainStore',
+        'class MapAssetDatabase',
+        'package:drift',
+      ]) {
+        expect(domain, isNot(contains(banned)),
+            reason: 'map_terrain.dart introduces $banned');
+      }
+    });
+
+    test('Phase 3 stores everything under the one reserved namespace', () {
+      for (final field in const [
+        MapVisualFields.terrain,
+        MapVisualFields.biomes,
+        MapVisualFields.assets,
+        MapVisualFields.style,
+      ]) {
+        expect(field, startsWith(MapFields.prefix));
+      }
+      // And invents no record type to hold any of it.
+      expect(read('lib/map_terrain.dart'),
+          isNot(contains('RecordTypeDefinition(')));
+    });
+
+    test('the service writes terrain and scenery through the record layer', () {
+      final service = read('lib/map_service.dart');
+      for (final api in const [
+        'paintTerrainStroke',
+        'fillTerrain',
+        'clearTerrain',
+        'setVisualStyle',
+        'setBiomes',
+        'addAsset',
+        'moveAsset',
+        'transformAsset',
+        'removeAsset',
+      ]) {
+        expect(service, contains(api), reason: 'MapService lacks $api');
+      }
+      // Still the one persistence path Phase 1 established.
+      expect(service, contains('RecordService'));
+      expect(service, isNot(contains('repository.putRecord')));
+      expect(service, isNot(contains('SharedPreferences')));
+    });
+
+    test('terrain colour is derived from the engine, never declared', () {
+      final view = read('lib/map_studio_view.dart');
+      final domain = read('lib/map_terrain.dart');
+      // The domain carries no colour at all -- only the factors the view
+      // rotates the engine's own colour by.
+      expect(domain, isNot(contains('Color')));
+      expect(domain, contains('hueShift'));
+      // And the view derives rather than hard-codes.
+      expect(view, contains('HSLColor'));
+      expect(view, isNot(contains('Color(0x')));
+      expect(view, isNot(contains('Colors.')));
+    });
+
+    test('scenery is not a graph entity and cannot become one', () {
+      final domain = read('lib/map_terrain.dart');
+      // An asset is a value in a field. If it ever gains a record type or a
+      // link type, a densely painted map starts flooding the story graph.
+      for (final banned in const [
+        'AuthorRecord(',
+        'RecordLink(',
+        'ConnectionEngine',
+        'connect(',
+      ]) {
+        expect(domain, isNot(contains(banned)),
+            reason: 'scenery must never become a story entity: $banned');
+      }
+    });
+
+    test('Phase 3 introduces no image generation and no asset fetching', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        for (final banned in const [
+          'Image.network',
+          'Image.file',
+          'http',
+          'generateImage',
+          'aiAsset',
+          'promptFor',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '$path reaches outside the deterministic asset library');
+        }
+      }
+    });
+
+    test('the camera still owns zoom, and Phase 3 did not smuggle in another',
+        () {
+      final view = read('lib/map_studio_view.dart');
+      for (final banned in const [
+        'InteractiveViewer',
+        'Transform.scale',
+        'TransformationController',
+      ]) {
+        expect(view, isNot(contains(banned)));
+      }
+      expect(view, contains('MapProjection'));
+      expect(view, contains('MapCamera'));
+    });
+  });
+
   group('phase boundary', () {
     test('the service exposes no later-phase entry point', () {
       final service = read('lib/map_service.dart');
       for (final api in const [
-        'generateTerrain',
-        'paintTerrain',
-        'createBrush',
+        // Terrain and brushes moved into scope with Phase 3 and are no longer
+        // listed here. The boundary this test defends is now Phase 4 and later.
         'exportMap',
         'shareMap',
         'publishMap',
@@ -506,21 +627,14 @@ void main() {
       }
     });
 
-    test('no Phase 3 or later API has been introduced anywhere', () {
+    test('no Phase 4 or later API has been introduced anywhere', () {
+      // Phase 3 legitimately crossed the old line: terrain, biomes, brushes,
+      // assets and styling are in scope now, so those names are gone from this
+      // list rather than the list being deleted. What is banned is what is
+      // still ahead -- overlays, simulation, export, sharing and community.
       for (final path in mapFiles) {
         final source = read(path);
         for (final banned in const [
-          'Terrain',
-          'terrain',
-          'Biome',
-          'biome',
-          'heightMap',
-          'heightmap',
-          'MapBrush',
-          'brushStroke',
-          'assetLibrary',
-          'AssetLibrary',
-          'backgroundImage',
           'exportMap',
           'printMap',
           'shareMap',

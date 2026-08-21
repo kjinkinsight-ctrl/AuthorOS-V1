@@ -266,7 +266,28 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
 
   AuthorOsDatabase.defaults()
       : _schemaVersion = currentSchemaVersion,
-        super(driftDatabase(name: 'authoros_creative'));
+        super(driftDatabase(
+          name: 'authoros_creative',
+          web: webOptions,
+        ));
+
+  /// Where the browser build finds sqlite.
+  ///
+  /// On Windows, macOS, Linux and mobile, drift opens a SQLite file through
+  /// the platform's own bindings and these options are ignored. The browser
+  /// has no such bindings, so drift runs SQLite as WebAssembly instead, backed
+  /// by OPFS or IndexedDB. It needs two files served next to `index.html` to
+  /// do it, and `driftDatabase` throws without them — which is what left every
+  /// Drift-backed Studio reporting "unavailable" on the web.
+  ///
+  /// Both files are copied out of the resolved `drift` package by
+  /// `scripts/provision-drift-web-assets.sh`, so they always match the version
+  /// in `pubspec.lock`. Nothing above this line changes: the Studios still
+  /// talk to the same [DriftConnectedDomainRepository] on every platform.
+  static final DriftWebOptions webOptions = DriftWebOptions(
+    sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+    driftWorker: Uri.parse('drift_worker.js'),
+  );
 
   static const currentSchemaVersion = 9;
   final int _schemaVersion;

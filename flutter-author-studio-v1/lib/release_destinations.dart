@@ -2,12 +2,14 @@
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_updater.dart';
+import 'local_image.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';
@@ -2825,6 +2827,12 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   }
 
   Future<void> _checkForAppUpdate() async {
+    // The version feed below advertises desktop installers. The browser build
+    // is whatever kjii.info last served, so on the web there is no newer
+    // download to offer and no reason to make the cross-origin request.
+    if (kIsWeb && widget.versionChecker == null) {
+      return;
+    }
     final currentVersion = widget.currentVersion ??
         (await PackageInfo.fromPlatform())
             .version; // keep the real installed version when not overridden
@@ -2930,6 +2938,28 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   }
 
   Future<void> _handleUpdateNow() async {
+    if (kIsWeb) {
+      // There is no installer to run and no process to restart in a browser:
+      // reloading the tab fetches whatever build the site is now serving.
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Update now'),
+          content: const Text(
+            'AuthorOS updates itself on the web. Reload this page to load the '
+            'latest build — your work stays saved in this browser.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Got it'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -3073,24 +3103,22 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
   }
 
   Widget _buildAvatarPreview({bool compact = false}) {
-    final avatarContent = avatarPath.isNotEmpty
-        ? Image.file(
-            File(avatarPath),
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-          )
-        : Container(
-            alignment: Alignment.center,
-            color: Theme.of(context).colorScheme.primaryContainer,
-            child: Text(
-              writerName.isNotEmpty ? writerName[0].toUpperCase() : 'A',
-              style: TextStyle(
-                fontSize: compact ? 26 : 36,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          );
+    final avatarContent = LocalImage(
+      path: avatarPath,
+      width: double.infinity,
+      height: double.infinity,
+      fallback: Container(
+        alignment: Alignment.center,
+        color: Theme.of(context).colorScheme.primaryContainer,
+        child: Text(
+          writerName.isNotEmpty ? writerName[0].toUpperCase() : 'A',
+          style: TextStyle(
+            fontSize: compact ? 26 : 36,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
 
     return Container(
       width: compact ? 72 : 120,

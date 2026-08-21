@@ -43,3 +43,16 @@ jobs:
 
       - name: Run tests
         run: flutter test
+
+      # Drift runs SQLite as WebAssembly in the browser and loads it from the
+      # site root, so the web build needs these two files present. They are
+      # copied out of the resolved drift package, not committed.
+      - name: Provision drift web assets
+        run: bash ../scripts/provision-drift-web-assets.sh
+
+      # AuthorOS ships as a web application, so a release web build is part of
+      # the gate. Nothing exercised this path before, which is how browser-only
+      # breakage reached main unnoticed. --no-web-resources-cdn matches the
+      # deploy: CanvasKit is served from our own origin, not gstatic.com.
+      - name: Build web release
+        run: flutter build web --release --no-web-resources-cdn

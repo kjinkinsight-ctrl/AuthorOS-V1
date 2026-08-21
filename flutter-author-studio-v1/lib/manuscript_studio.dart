@@ -1161,7 +1161,13 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Exported PDF to $path')),
+      SnackBar(
+        // The browser owns the save dialog and reports no destination back, so
+        // there is no path to name there — the file lands in downloads.
+        content: Text(
+          path.isEmpty ? 'Exported PDF to your downloads.' : 'Exported PDF to $path',
+        ),
+      ),
     );
   }
 

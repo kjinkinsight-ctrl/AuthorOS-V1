@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/world_record_types.dart';
+import 'package:author_studio_v1/map_overlay_service.dart';
 import 'package:author_studio_v1/map_service.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/world_service.dart';
@@ -20,6 +22,14 @@ void main() {
     'lib/map_domain.dart',
     'lib/map_service.dart',
     'lib/map_studio_view.dart',
+    // Phase 3 terrain, biomes, scenery and styling. In this list from the day
+    // it was written: every guardrail below applies to it too.
+    'lib/map_terrain.dart',
+    // Phase 4 story overlays. Also here from the day they were written: an
+    // overlay is a reading of canonical data, so every rule about stores,
+    // themes and vocabularies applies to it unchanged.
+    'lib/map_overlays.dart',
+    'lib/map_overlay_service.dart',
   ];
 
   group('one persistence system', () {
@@ -424,11 +434,21 @@ void main() {
     });
 
     test('the draw order is one declared order', () {
+      // Phase 3 inserted two layers. Terrain sits directly above the ground
+      // because it is what the world is made of; scenery sits above regions so
+      // a forest reads over its territory, and below the pins that name places.
+      // Phase 4 added two more: story paths draw beneath the overlays whose
+      // stops they join, and both sit above the world they are read against and
+      // below selection, which must always stay visible.
       expect(MapLayer.values.map((layer) => layer.name), [
         'base',
+        'terrain',
         'regions',
+        'assets',
         'locations',
         'markers',
+        'storyPaths',
+        'storyOverlays',
         'selection',
         'interaction',
       ]);
@@ -474,13 +494,289 @@ void main() {
     });
   });
 
+  group('Phase 3 — terrain, scenery and styling', () {
+    test('the visual domain stays plain Dart and store-free', () {
+      final domain = read('lib/map_terrain.dart');
+      expect(domain, isNot(contains('package:flutter/')),
+          reason: 'the visual domain must resolve without a Flutter binding');
+      for (final banned in const [
+        'SharedPreferences',
+        'dart:io',
+        'jsonEncode',
+        'class MapAssetRepository',
+        'class MapTerrainStore',
+        'class MapAssetDatabase',
+        'package:drift',
+      ]) {
+        expect(domain, isNot(contains(banned)),
+            reason: 'map_terrain.dart introduces $banned');
+      }
+    });
+
+    test('Phase 3 stores everything under the one reserved namespace', () {
+      for (final field in const [
+        MapVisualFields.terrain,
+        MapVisualFields.biomes,
+        MapVisualFields.assets,
+        MapVisualFields.style,
+      ]) {
+        expect(field, startsWith(MapFields.prefix));
+      }
+      // And invents no record type to hold any of it.
+      expect(read('lib/map_terrain.dart'),
+          isNot(contains('RecordTypeDefinition(')));
+    });
+
+    test('the service writes terrain and scenery through the record layer', () {
+      final service = read('lib/map_service.dart');
+      for (final api in const [
+        'paintTerrainStroke',
+        'fillTerrain',
+        'clearTerrain',
+        'setVisualStyle',
+        'setBiomes',
+        'addAsset',
+        'moveAsset',
+        'transformAsset',
+        'removeAsset',
+      ]) {
+        expect(service, contains(api), reason: 'MapService lacks $api');
+      }
+      // Still the one persistence path Phase 1 established.
+      expect(service, contains('RecordService'));
+      expect(service, isNot(contains('repository.putRecord')));
+      expect(service, isNot(contains('SharedPreferences')));
+    });
+
+    test('terrain colour is derived from the engine, never declared', () {
+      final view = read('lib/map_studio_view.dart');
+      final domain = read('lib/map_terrain.dart');
+      // The domain carries no colour at all -- only the factors the view
+      // rotates the engine's own colour by.
+      expect(domain, isNot(contains('Color')));
+      expect(domain, contains('hueShift'));
+      // And the view derives rather than hard-codes.
+      expect(view, contains('HSLColor'));
+      expect(view, isNot(contains('Color(0x')));
+      expect(view, isNot(contains('Colors.')));
+    });
+
+    test('scenery is not a graph entity and cannot become one', () {
+      final domain = read('lib/map_terrain.dart');
+      // An asset is a value in a field. If it ever gains a record type or a
+      // link type, a densely painted map starts flooding the story graph.
+      for (final banned in const [
+        'AuthorRecord(',
+        'RecordLink(',
+        'ConnectionEngine',
+        'connect(',
+      ]) {
+        expect(domain, isNot(contains(banned)),
+            reason: 'scenery must never become a story entity: $banned');
+      }
+    });
+
+    test('Phase 3 introduces no image generation and no asset fetching', () {
+      for (final path in mapFiles) {
+        final source = read(path);
+        for (final banned in const [
+          'Image.network',
+          'Image.file',
+          'http',
+          'generateImage',
+          'aiAsset',
+          'promptFor',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '$path reaches outside the deterministic asset library');
+        }
+      }
+    });
+
+    test('the camera still owns zoom, and Phase 3 did not smuggle in another',
+        () {
+      final view = read('lib/map_studio_view.dart');
+      for (final banned in const [
+        'InteractiveViewer',
+        'Transform.scale',
+        'TransformationController',
+      ]) {
+        expect(view, isNot(contains(banned)));
+      }
+      expect(view, contains('MapProjection'));
+      expect(view, contains('MapCamera'));
+    });
+  });
+
+  group('Phase 4 — story overlays', () {
+    test('the overlay layer owns no data of its own', () {
+      for (final path in const [
+        'lib/map_overlays.dart',
+        'lib/map_overlay_service.dart',
+      ]) {
+        final source = read(path);
+        for (final banned in const [
+          'class OverlayStore',
+          'class MapStoryGraph',
+          'class MapCharacter ',
+          'class MapEvent ',
+          'class MapTimeline',
+          'class MapScene ',
+          'class MapWorldModel',
+          'overlay_rows',
+          'Table',
+          'SharedPreferences',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '$path builds a second model of the story');
+        }
+      }
+    });
+
+    test('the overlay service is read-only by construction', () {
+      final service = read('lib/map_overlay_service.dart');
+      for (final banned in const [
+        'createRecord',
+        'updateRecord',
+        'archiveRecord',
+        'deleteRecord',
+        'putRecord',
+        'putManuscriptNodes',
+        'removeManuscriptNodes',
+        'RecordService',
+        'ConnectionEngine',
+        '.connect(',
+        'disconnect',
+        'Future<void> save',
+      ]) {
+        expect(service, isNot(contains(banned)),
+            reason: 'the overlay service performs $banned');
+      }
+      // What it does do: read the shared repository.
+      expect(service, contains('DriftConnectedDomainRepository'));
+      expect(service, contains('repository.recordsByProject'));
+      expect(service, contains('repository.backlinks'));
+    });
+
+    test('overlays point at the record that owns them', () {
+      final domain = read('lib/map_overlays.dart');
+      expect(domain, contains('sourceId'));
+      expect(domain, contains('sourceType'));
+      // No overlay may carry an edited copy of the record's own content.
+      for (final banned in const [
+        'set label',
+        'set position',
+        'Future<',
+      ]) {
+        expect(domain, isNot(contains(banned)),
+            reason: 'the overlay domain does more than describe a reading');
+      }
+    });
+
+    test('the overlay domain stays clear of Flutter', () {
+      final domain = read('lib/map_overlays.dart');
+      expect(domain, isNot(contains('package:flutter/')));
+      expect(domain, isNot(contains('IconData')));
+      expect(domain, isNot(contains('Widget')));
+      // Shape, not colour, tells the categories apart, and the shape names live
+      // in the domain while the glyphs live in the view.
+      expect(domain, contains('shapeId'));
+      expect(read('lib/map_studio_view.dart'), contains('_overlayIcon'));
+    });
+
+    test('every link the overlay layer reads is a canonical link type', () {
+      final registry = BuiltInConnectionTypes.registry();
+      for (final typeId in MapOverlayLinks.all) {
+        expect(
+          () => registry.resolve(typeId),
+          returnsNormally,
+          reason: '$typeId is not a link type AuthorOS already defines',
+        );
+      }
+    });
+
+    test('every type the overlay layer reads is a canonical record type', () {
+      final registry = BuiltInRecordTypes.registry();
+      final known = {
+        for (final definition in registry.definitions) definition.id,
+      };
+      expect(known, contains(MapOverlayTypes.character));
+      for (final typeId in MapOverlayTypes.events) {
+        expect(known, contains(typeId),
+            reason: '$typeId is not a record type AuthorOS already defines');
+      }
+    });
+
+    test('scenes stay manuscript nodes and are never turned into records', () {
+      final service = read('lib/map_overlay_service.dart');
+      expect(service, contains('manuscriptNodeById'));
+      for (final banned in const [
+        "typeId: 'scene'",
+        "typeId: 'chapter'",
+        "'map-scene'",
+        "'map-character'",
+        "'map-event'",
+        "'overlay-record'",
+      ]) {
+        expect(service, isNot(contains(banned)),
+            reason: 'the overlay layer promotes a manuscript node into $banned');
+      }
+    });
+
+    test('the Studio names a destination and routes nothing itself', () {
+      final view = read('lib/map_studio_view.dart');
+      expect(view, contains('enum MapStudioDestination'));
+      for (final banned in const [
+        'Navigator.push',
+        'Navigator.of(context).push',
+        'MaterialPageRoute',
+        'StudioSection',
+      ]) {
+        expect(view, isNot(contains(banned)),
+            reason: 'Map Studio routes with $banned instead of asking the shell');
+      }
+    });
+
+    test('the view reads overlays and writes none of them', () {
+      final view = read('lib/map_studio_view.dart');
+      for (final banned in const [
+        'overlayService.create',
+        'overlayService.update',
+        'overlayService.save',
+        'service.setOverlay',
+        'service.saveOverlay',
+        'MapOverlayItem(',
+        'MapJourney(',
+      ]) {
+        expect(view, isNot(contains(banned)),
+            reason: 'the view invents overlay data with $banned');
+      }
+      expect(view, contains('overlayService.loadOverlays'));
+    });
+
+    test('Phase 3 is still standing underneath the overlays', () {
+      final view = read('lib/map_studio_view.dart');
+      for (final api in const [
+        '_TerrainPainter',
+        '_assetIcon',
+        'MapTerrainBrush',
+        'MapVisualStyle',
+        'onPaintStroke',
+        'onPlaceAsset',
+      ]) {
+        expect(view, contains(api), reason: 'Phase 3 lost $api');
+      }
+    });
+  });
+
   group('phase boundary', () {
     test('the service exposes no later-phase entry point', () {
       final service = read('lib/map_service.dart');
       for (final api in const [
-        'generateTerrain',
-        'paintTerrain',
-        'createBrush',
+        // Terrain and brushes moved into scope with Phase 3, overlays with
+        // Phase 4. The boundary this test defends is now Phase 5 and later --
+        // and note that MapService still has no overlay method of any kind,
+        // because overlays are read through their own read-only service.
         'exportMap',
         'shareMap',
         'publishMap',
@@ -506,21 +802,14 @@ void main() {
       }
     });
 
-    test('no Phase 3 or later API has been introduced anywhere', () {
+    test('no Phase 5 or later API has been introduced anywhere', () {
+      // Phase 4 legitimately crossed the old line: story, character, timeline
+      // and manuscript overlays are in scope now, so those names are gone from
+      // this list rather than the list being deleted. What is banned is what is
+      // still ahead -- simulation, export, printing, sharing and community.
       for (final path in mapFiles) {
         final source = read(path);
         for (final banned in const [
-          'Terrain',
-          'terrain',
-          'Biome',
-          'biome',
-          'heightMap',
-          'heightmap',
-          'MapBrush',
-          'brushStroke',
-          'assetLibrary',
-          'AssetLibrary',
-          'backgroundImage',
           'exportMap',
           'printMap',
           'shareMap',
@@ -530,13 +819,9 @@ void main() {
           'weatherSimulation',
           'populationSimulation',
           'politicalSimulation',
-          'characterOverlay',
-          'plotOverlay',
-          'timelineOverlay',
-          'researchOverlay',
         ]) {
           expect(source, isNot(contains(banned)),
-              reason: '\$path introduces the Phase 3+ API \$banned');
+              reason: '\$path introduces the Phase 5+ API \$banned');
         }
       }
     });

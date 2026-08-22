@@ -105,6 +105,22 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
   @override
   void didUpdateWidget(covariant KnowledgeGraphView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // A second "open in graph" arrives while this view is already mounted, so
+    // reacting only in initState would silently ignore it.
+    if (oldWidget.initialNodeId != widget.initialNodeId &&
+        widget.initialNodeId != null &&
+        widget.projectId == oldWidget.projectId) {
+      setState(() {
+        _rootId = widget.initialNodeId;
+        _selectedId = widget.initialNodeId;
+        // A jump from another Studio is a fresh starting point, not a step in
+        // the trail the author was already following.
+        _trail = [];
+        _canvasOverrides.clear();
+      });
+      _reload();
+      return;
+    }
     if (oldWidget.projectId != widget.projectId) {
       _service = widget.service ??
           StoryGraphService(
@@ -128,6 +144,15 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
       _error = null;
     });
     try {
+      // Opening a location from World Studio while Character mode is active
+      // would otherwise arrive at a mode that cannot anchor on it. Switch to
+      // the mode that fits the node rather than showing an empty graph.
+      final requested = _rootId == null ? null : await _service.getNode(_rootId!);
+      if (requested != null && !_mode.acceptsRoot(requested)) {
+        _mode = StoryGraphModes.forNode(requested);
+        _filter = _mode.filterFrom(_filter);
+      }
+
       final roots = await _candidateRoots();
       final rootId = _rootId ?? (roots.isNotEmpty ? roots.first.id : null);
 

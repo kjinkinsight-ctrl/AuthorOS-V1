@@ -14,6 +14,7 @@ import 'core/template_engine.dart';
 import 'core/universal_search.dart';
 import 'core/version_audit.dart';
 import 'core/world_record_types.dart';
+import 'knowledge_graph/open_in_graph.dart';
 import 'persistence/authoros_database.dart';
 import 'world_continuity.dart';
 import 'world_service.dart';
@@ -303,6 +304,20 @@ class _WorldWorkspaceState extends State<WorldWorkspace> {
     ));
   }
 
+  /// Asks the shell for the Knowledge Graph, focused on [record].
+  ///
+  /// Separate from [_navigate], which always routes a record to the Studio
+  /// that owns it — the graph is a different destination, not a different
+  /// owner.
+  void _openInGraph(AuthorRecord record) {
+    widget.onNavigate?.call(WorldNavigationRequest(
+      destination: SearchDestination.knowledgeGraph,
+      recordId: record.id,
+      recordType: record.typeId,
+      title: record.title,
+    ));
+  }
+
   void _openRecord(AuthorRecord record) {
     final destination = searchDestinationForType(record.typeId);
     final ownedHere = destination == SearchDestination.worldStudio ||
@@ -578,6 +593,7 @@ class _WorldWorkspaceState extends State<WorldWorkspace> {
                     onSafeDelete: () => _showSafeDelete(record),
                     onOpenRecord: _openRecord,
                     onNavigate: _navigate,
+                    onOpenInGraph: _openInGraph,
                   );
 
             if (constraints.maxWidth >= 1180) {
@@ -1363,6 +1379,7 @@ class _WorldRecordPane extends StatefulWidget {
     required this.onSafeDelete,
     required this.onOpenRecord,
     required this.onNavigate,
+    required this.onOpenInGraph,
   });
 
   final WorldService service;
@@ -1391,6 +1408,7 @@ class _WorldRecordPane extends StatefulWidget {
   final VoidCallback onSafeDelete;
   final ValueChanged<AuthorRecord> onOpenRecord;
   final ValueChanged<AuthorRecord> onNavigate;
+  final ValueChanged<AuthorRecord> onOpenInGraph;
 
   @override
   State<_WorldRecordPane> createState() => _WorldRecordPaneState();
@@ -3200,7 +3218,20 @@ class _WorldRecordPaneState extends State<_WorldRecordPane> {
             key: const Key('world-inspector-panel'),
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _sectionTitle(context, 'Universal Record Inspector'),
+              Row(
+                children: [
+                  Expanded(
+                    child: _sectionTitle(
+                      context,
+                      'Universal Record Inspector',
+                    ),
+                  ),
+                  OpenInGraphButton(
+                    recordId: data.recordId,
+                    onOpen: () => widget.onOpenInGraph(widget.record),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               _kv(context, 'Record id', data.recordId),
               _kv(context, 'Record type', data.recordType),

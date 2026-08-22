@@ -185,7 +185,20 @@ POV or a status keeps matching; a sentence the author wrote now matches too.
 
 `ConnectedDomainSnapshot` gains `sceneProse`, and the archive gains
 `content/scene-prose.jsonl` under the manifest's existing `scene-content` role.
-It is optional on read, so an archive written before the split still restores.
+Like the `writing-sessions` and `manuscripts` entries added alongside it, it is
+written only when there is something to write and is absent-tolerant on read,
+so an archive from before the split is byte-identical in shape and still
+restores.
+
+This slots beside the work in
+[Archive Completeness](archive-completeness.md), which added
+`data/manuscripts.jsonl` to carry prose *because* prose was not in the database.
+It now carries the other half — the chapter and scene tree, which lives in the
+preferences-backed store and cannot travel in the snapshot — while the words
+come from `scene_prose_rows`. The two do not overlap: `ManuscriptStore` writes
+its blob with `includeProse: false`, so exactly one copy of the prose is in the
+file, and a test holds the format to that.
+
 Snapshot history is deliberately excluded: it is local recovery scratch, and
 carrying twenty-five copies of every scene would multiply the archive size for
 no gain to the author restoring it.
@@ -241,6 +254,10 @@ New tests:
   the History pane; chapters are offered no prose history.
 - `test/authoros_archive_test.dart` — prose survives an archive round trip, and
   an archive without it still loads.
+- `test/authoros_archive_completeness_test.dart` — R-2 re-verified where prose
+  now lives: byte-exact through `content/scene-prose.jsonl`, with the manuscript
+  entry carrying the shape of the book and the file holding one copy of the
+  prose, not two.
 
 `test/story_graph_architecture_test.dart` records the two new tables in its
 audited-table list, which is what makes adding a table a visible act.

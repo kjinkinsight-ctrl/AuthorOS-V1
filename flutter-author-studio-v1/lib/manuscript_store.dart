@@ -680,7 +680,23 @@ class ManuscriptStore {
       );
     }
 
-    await _repository.putManuscriptNodes(manuscriptNodesFor(manuscript));
+    final nodes = manuscriptNodesFor(manuscript);
+    await _repository.putManuscriptNodes(nodes);
+
+    // The projection is authoritative for its project, so saving it has to
+    // retire what it no longer contains as well as write what it does. Without
+    // this the projection is upsert-only: a chapter or scene removed from the
+    // manuscript keeps its node, its links and its search-index entry for the
+    // life of the database, and nothing can ever remove them.
+    final projected = {for (final node in nodes) node.id};
+    final retired = [
+      for (final node
+          in await _repository.manuscriptNodesForProject(manuscript.projectId))
+        if (!projected.contains(node.id)) node.id,
+    ];
+    if (retired.isNotEmpty) {
+      await _repository.removeManuscriptNodes(retired);
+    }
   }
 
   /// The shared-entity projection of [manuscript].

@@ -15,7 +15,9 @@ import 'dart:io';
 
 import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
+import 'package:author_studio_v1/core/codex_intelligence.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
+import 'package:author_studio_v1/core/entity_recognition.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
 import 'package:author_studio_v1/core/series_scope.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
@@ -225,6 +227,91 @@ void main() {
     }
     expect(offenders, isEmpty,
         reason: 'the universe tier needs a column, not a JSON field');
+  });
+
+  test('entity recognition has one definition', () {
+    // The mention predicate used to be written three times, in the Manuscript,
+    // Codex and World analyzers. Three copies of a matching rule are three
+    // chances for the Studios to disagree about whether a character appears in
+    // a scene, and the disagreement would be silent.
+    final offenders = <String>[];
+    for (final file in _libSources) {
+      if (file.path.endsWith('core/entity_recognition.dart')) continue;
+      final source = file.readAsStringSync();
+      if (source.contains('RegExp.escape(') &&
+          source.contains('[^a-z0-9]')) {
+        offenders.add(file.path);
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'use mentionsName rather than inlining the predicate');
+
+    expect(mentionsName('kali walked', 'Kali'), isTrue);
+    expect(mentionsName('kalina walked', 'Kali'), isFalse);
+  });
+
+  test('a derived edge never becomes a link on its own', () {
+    // Co-occurrence returns DerivedStoryGraphEdge, which has no id and cannot
+    // be persisted. The Story Graph's own exit criterion for derived edges is
+    // that not one reaches record_link_rows without an author pressing a
+    // button; discovery must not be the exception.
+    final source =
+        File('lib/core/codex_intelligence.dart').readAsStringSync();
+    expect(source.contains('RecordLink('), isFalse,
+        reason: 'discovery may not construct a persisted edge');
+    expect(source.contains('putRecord'), isFalse);
+    expect(source.contains('ConnectionEngine'), isFalse);
+
+    final edges = const CoOccurrenceDiscovery().discover(scenes: [
+      const SceneMentionSet(
+        sceneId: 'scene-1',
+        sceneTitle: 'One',
+        recordIds: {'a', 'b'},
+      ),
+      const SceneMentionSet(
+        sceneId: 'scene-2',
+        sceneTitle: 'Two',
+        recordIds: {'a', 'b'},
+      ),
+    ]);
+    expect(edges.single.derivation, kCoOccurrenceDerivation,
+        reason: 'a promoted inference must carry its origin');
+  });
+
+  test('the intelligence layer stays deterministic and offline', () {
+    // AI-free is the product position, not an implementation detail. This
+    // fails the moment a model or a network call appears in the layer that
+    // produces recommendations.
+    const forbidden = [
+      'package:http',
+      'dart:io',
+      'HttpClient',
+      'anthropic',
+      'openai',
+      'Random(',
+    ];
+    for (final name in const [
+      'lib/core/codex_intelligence.dart',
+      'lib/core/entity_recognition.dart',
+      'lib/codex_suggestions.dart',
+      'lib/codex_continuity.dart',
+      'lib/manuscript_continuity.dart',
+    ]) {
+      final source = File(name).readAsStringSync();
+      for (final token in forbidden) {
+        expect(source.contains(token), isFalse,
+            reason: '$name must stay deterministic and offline ($token)');
+      }
+    }
+  });
+
+  test('the Codex reads prose without creating any', () {
+    // loadStudio seeds and writes a starter manuscript on a miss. A Studio
+    // asking to read prose must never be what causes a manuscript to exist.
+    final source = File('lib/codex_suggestions.dart').readAsStringSync();
+    expect(source.contains('loadStudio'), isFalse,
+        reason: 'read through peekStudio, which never writes');
+    expect(source.contains('saveStudio'), isFalse);
   });
 
   test('the shared-scope predicate has one definition', () {

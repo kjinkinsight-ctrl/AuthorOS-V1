@@ -273,7 +273,10 @@ class CodexInfrastructureTypes {
   static const tag = 'codexTag';
   static const collection = 'codexCollection';
 
-  static const all = {category, tag, collection};
+  /// Which recommendations the author has dismissed.
+  static const suggestionState = 'codexSuggestionState';
+
+  static const all = {category, tag, collection, suggestionState};
 }
 
 class CodexEntryDraft {

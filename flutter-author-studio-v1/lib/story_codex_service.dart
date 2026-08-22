@@ -13,6 +13,7 @@ import 'core/record_validation.dart';
 import 'core/safe_delete.dart';
 import 'core/safe_delete_service.dart';
 import 'core/record_types.dart';
+import 'codex_suggestions.dart';
 import 'core/series_scope.dart';
 import 'core/story_codex_domain.dart';
 import 'core/template_engine.dart';
@@ -41,6 +42,13 @@ class StoryCodexService {
 
   SeriesScopeService get series =>
       SeriesScopeService(projectId: projectId, repository: repository);
+
+  /// Project-wide deterministic recommendations.
+  ///
+  /// Built here rather than stored so the Codex keeps exactly one entry point
+  /// and the inbox cannot drift from the entry list it describes.
+  CodexSuggestionService get suggestions =>
+      CodexSuggestionService(codex: this);
 
   ScopeResolver get scopes =>
       ScopeResolver(projectId: projectId, repository: repository);
@@ -885,9 +893,21 @@ class StoryCodexService {
   }
 
   /// Records visible on [branchId], keyed by id, for connection endpoints.
+  /// Every record this book may connect to, or recognise a mention of.
+  ///
+  /// Scoped rather than global: a character shared with the series is
+  /// recognised in this book's prose, and a character private to another book
+  /// is not. This used to read `repository.snapshot()` — the whole database —
+  /// and filter in Dart.
   Future<List<AuthorRecord>> connectableRecords({String? branchId}) async {
+    final chain = await scopeChain();
     final visible = branchId == null
-        ? (await repository.snapshot()).records.where(_belongsToProject).toList()
+        ? (await repository.recordsVisibleToProject(
+            projectId,
+            inheritedScopeIds: chain.inheritedScopeIds,
+          ))
+            .where((record) => _isVisible(record, chain))
+            .toList()
         : await branches.recordsForBranch(branchId);
     return visible
         .where((record) =>

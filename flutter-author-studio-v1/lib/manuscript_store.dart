@@ -636,6 +636,27 @@ class ManuscriptStore {
     return seeds;
   }
 
+  /// The stored manuscript, or null when this project has never had one.
+  ///
+  /// [loadStudio] cannot be used by a reader: on a miss it migrates, seeds a
+  /// starter manuscript and *writes it back*. That is right for the Manuscript
+  /// Studio opening its own project and wrong for anything else, so a Studio
+  /// that only wants to read prose — the Codex, scanning for entity mentions —
+  /// asks here instead and gets null rather than a manuscript it invented.
+  Future<ManuscriptProjectSummary?> peekStudio(String projectId) async {
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_studioKey(projectId));
+    if (encoded == null || encoded.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(encoded) as Map<String, dynamic>;
+      return ManuscriptProjectSummary.fromJson(decoded);
+    } catch (_) {
+      // A malformed blob is not a reason to seed one. The Manuscript Studio
+      // repairs it on its own next open.
+      return null;
+    }
+  }
+
   Future<ManuscriptProjectSummary> loadStudio(
     String projectId, {
     required String manuscriptTitle,

@@ -10,6 +10,8 @@ import 'core/record_inspection.dart';
 import 'core/record_types.dart';
 import 'core/record_validation.dart';
 import 'core/search_models.dart';
+import 'codex_suggestions.dart';
+import 'core/codex_intelligence.dart';
 import 'core/series_scope.dart';
 import 'core/story_codex_domain.dart';
 import 'core/template_engine.dart';
@@ -80,6 +82,15 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
   List<StoryBranch> branches = const [];
   ScopeChain scopeChain = const ScopeChain(projectId: '');
   SeriesScope? currentSeries;
+  /// The last sweep, or [CodexSuggestionSweep.empty] before one has run.
+  ///
+  /// Sweeping reads every entry and every scene, so it is not part of opening
+  /// the Codex: it runs when the author asks to see suggestions. Making the
+  /// workspace wait for it would make a project's size the cost of opening it.
+  CodexSuggestionSweep sweep = CodexSuggestionSweep.empty;
+  bool showSuggestions = false;
+  bool sweeping = false;
+  bool sweptOnce = false;
   Set<String> pinnedIds = const {};
   Map<String, RecordValidationResult> validation = const {};
   Map<String, TemplateCompatibilityReport> templateReports = const {};
@@ -309,6 +320,124 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
       );
 
   /// Starts a series and enrols this book in it.
+  /// Applies a recommendation, using the same path the per-entry Continuity
+  /// tab has always used.
+  ///
+  /// Nothing here writes a link or a record itself. `ContinuityActionService`
+  /// owns both mutations, so an accepted suggestion is validated, versioned and
+  /// audited exactly like a hand-made one — which is what keeps a derived edge
+  /// from ever reaching storage as anything but an author's decision.
+  Future<void> _acceptSuggestion(CodexSuggestion suggestion) async {
+    final actions = ContinuityActionService(
+      projectId: service.projectId,
+      repository: service.repository,
+      activeBranchId: activeBranchId,
+    );
+    ContinuityActionResult result;
+    if (suggestion.actionKind == ContinuityActionKind.create) {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (context) => _CodexNameDialog(
+          title: 'Create the missing record',
+          label: 'Name',
+          confirmLabel: 'Create record',
+          initialValue: suggestion.missingName,
+          message: suggestion.message,
+          fieldKey: const Key('codex-suggestion-name-field'),
+          confirmKey: const Key('codex-suggestion-name-confirm'),
+        ),
+      );
+      if (name == null || name.isEmpty) return;
+      result = await actions.createForRecommendation(
+        suggestion.issue,
+        name: name,
+        confirmed: true,
+      );
+    } else {
+      final confirmed = await _confirm(
+        title: 'Link these records?',
+        message: suggestion.message,
+        confirmLabel: 'Create link',
+      );
+      if (!confirmed) return;
+      final registry = await service.connectionRegistry();
+      final definition = registry.resolve(suggestion.connectionTypeId);
+      result = await actions.linkForRecommendation(
+        suggestion.issue,
+        sourceId: suggestion.subjectId,
+        targetId: suggestion.targetId!,
+        typeId: suggestion.connectionTypeId,
+        confirmed: true,
+        direction: definition.direction == ConnectionDirection.directed
+            ? RecordLinkDirection.directed
+            : RecordLinkDirection.undirected,
+      );
+    }
+    if (!mounted) return;
+    if (!result.mutationApplied) {
+      setState(() {
+        saveState = CodexSaveState.failed;
+        saveMessage = result.message.isEmpty
+            ? 'That recommendation could not be applied.'
+            : result.message;
+      });
+      return;
+    }
+    // An applied suggestion must not come back on the next sweep even if the
+    // rule that produced it is slow to notice. Recording the dismissal stores
+    // the author's decision rather than trusting the finding to disappear.
+    await _mutate(
+      () => service.suggestions.dismiss(suggestion.id),
+      success: 'Applied.',
+    );
+    if (!mounted) return;
+    await _refreshSuggestions();
+  }
+
+  /// Opens or closes the inbox, sweeping the first time it is opened.
+  Future<void> _toggleSuggestions() async {
+    if (showSuggestions) {
+      setState(() => showSuggestions = false);
+      return;
+    }
+    setState(() => showSuggestions = true);
+    if (sweptOnce) return;
+    await _refreshSuggestions();
+  }
+
+  Future<void> _refreshSuggestions() async {
+    setState(() => sweeping = true);
+    try {
+      final result = await service.suggestions.sweep();
+      if (!mounted) return;
+      setState(() {
+        sweep = result;
+        sweptOnce = true;
+        sweeping = false;
+      });
+    } catch (caught) {
+      if (!mounted) return;
+      setState(() {
+        sweeping = false;
+        sweptOnce = true;
+        saveState = CodexSaveState.failed;
+        saveMessage = _readableError(caught);
+      });
+    }
+  }
+
+  Future<void> _dismissSuggestion(CodexSuggestion suggestion) async {
+    await service.suggestions.dismiss(suggestion.id);
+    if (!mounted) return;
+    await _refreshSuggestions();
+  }
+
+  Future<void> _restoreDismissed() async {
+    await service.suggestions.restoreDismissed();
+    if (!mounted) return;
+    await _refreshSuggestions();
+  }
+
   Future<void> _startSeries() async {
     final name = await showDialog<String>(
       context: context,
@@ -517,6 +646,18 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         children: [
           _header(context),
           const SizedBox(height: 16),
+          if (showSuggestions)
+            if (sweeping)
+              const _CodexCard(child: _CodexInlineLoader())
+            else
+              _CodexSuggestionInbox(
+                key: const Key('codex-suggestion-inbox'),
+                sweep: sweep,
+                onAccept: _acceptSuggestion,
+                onDismiss: _dismissSuggestion,
+                onRestoreDismissed: _restoreDismissed,
+              )
+          else
           LayoutBuilder(builder: (context, constraints) {
             final rail = _CodexFilterRail(
               filter: filter,
@@ -719,6 +860,18 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                       ),
                     ),
                   ),
+                OutlinedButton.icon(
+                  key: const Key('codex-suggestions-button'),
+                  onPressed: _toggleSuggestions,
+                  icon: Badge(
+                    // No badge before the first sweep: a zero would claim the
+                    // project is clean when nothing has looked at it yet.
+                    isLabelVisible: sweptOnce && sweep.suggestions.isNotEmpty,
+                    label: Text('${sweep.suggestions.length}'),
+                    child: const Icon(Icons.lightbulb_outline),
+                  ),
+                  label: Text(showSuggestions ? 'Back to entries' : 'Suggestions'),
+                ),
                 OutlinedButton.icon(
                   key: const Key('codex-series-button'),
                   onPressed: _openSeriesMenu,
@@ -1286,6 +1439,188 @@ class _CodexEntryTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Every recommendation this project has, in one place.
+///
+/// The inbox owns no intelligence: it renders what `CodexSuggestionService`
+/// swept and hands each decision back to the workspace.
+class _CodexSuggestionInbox extends StatelessWidget {
+  const _CodexSuggestionInbox({
+    super.key,
+    required this.sweep,
+    required this.onAccept,
+    required this.onDismiss,
+    required this.onRestoreDismissed,
+  });
+
+  final CodexSuggestionSweep sweep;
+  final ValueChanged<CodexSuggestion> onAccept;
+  final ValueChanged<CodexSuggestion> onDismiss;
+  final VoidCallback onRestoreDismissed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scanned = '${sweep.entriesScanned} '
+        '${sweep.entriesScanned == 1 ? 'entry' : 'entries'} and '
+        '${sweep.scenesScanned} '
+        '${sweep.scenesScanned == 1 ? 'scene' : 'scenes'}';
+    return _CodexCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Suggestions',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Found by reading $scanned. Nothing is changed until you '
+                      'accept it.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (sweep.dismissedCount > 0)
+                TextButton.icon(
+                  key: const Key('codex-restore-dismissed'),
+                  onPressed: onRestoreDismissed,
+                  icon: const Icon(Icons.undo_rounded, size: 16),
+                  label: Text('${sweep.dismissedCount} dismissed'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (sweep.proseUnavailable) ...[
+            const _CodexBanner(
+              key: Key('codex-prose-unavailable-banner'),
+              icon: Icons.menu_book_outlined,
+              message: 'Your manuscript could not be read, so these suggestions '
+                  'cover Codex entries only.',
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (sweep.isEmpty)
+            const _CodexMessage(
+              key: Key('codex-suggestions-clean-state'),
+              icon: Icons.verified_outlined,
+              title: 'Nothing to suggest',
+              message: 'Every name in this project has a record, and every '
+                  'mention is connected.',
+            )
+          else
+            for (final suggestion in sweep.suggestions)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _CodexSuggestionTile(
+                  key: Key('codex-suggestion-${suggestion.id}'),
+                  suggestion: suggestion,
+                  onAccept: () => onAccept(suggestion),
+                  onDismiss: () => onDismiss(suggestion),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CodexSuggestionTile extends StatelessWidget {
+  const _CodexSuggestionTile({
+    super.key,
+    required this.suggestion,
+    required this.onAccept,
+    required this.onDismiss,
+  });
+
+  final CodexSuggestion suggestion;
+  final VoidCallback onAccept;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                switch (suggestion.severity) {
+                  ContinuitySeverity.critical => Icons.error_outline,
+                  ContinuitySeverity.warning => Icons.warning_amber_rounded,
+                  ContinuitySeverity.notice => Icons.info_outline,
+                },
+                size: 16,
+                color: suggestion.severity == ContinuitySeverity.critical
+                    ? scheme.error
+                    : scheme.tertiary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  suggestion.title,
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text(codexSuggestionSourceLabel(suggestion.source)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(suggestion.message, style: theme.textTheme.bodySmall),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              // Confidence is only meaningful where a rule computed one, and
+              // stating "100%" on an exact name match would overclaim.
+              if (suggestion.confidence < 1)
+                Text(
+                  '${(suggestion.confidence * 100).round()}% confidence',
+                  style: theme.textTheme.labelSmall,
+                ),
+              const Spacer(),
+              TextButton(
+                key: Key('codex-suggestion-dismiss-${suggestion.id}'),
+                onPressed: onDismiss,
+                child: const Text('Dismiss'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                key: Key('codex-suggestion-accept-${suggestion.id}'),
+                onPressed: onAccept,
+                child: Text(switch (suggestion.actionKind) {
+                  ContinuityActionKind.create => 'Create record',
+                  ContinuityActionKind.link => 'Create link',
+                  ContinuityActionKind.review => 'Review',
+                }),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

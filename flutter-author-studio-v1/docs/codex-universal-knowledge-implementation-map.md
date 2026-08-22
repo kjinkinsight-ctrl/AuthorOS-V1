@@ -1,6 +1,7 @@
 # AuthorOS — Codex / Universal Knowledge
 
-Status: **Phase 1 implemented — cross-book scope is live. Phases 2-4 designed, not built.**
+Status: **Phases 1 and 2 implemented — cross-book scope and deterministic
+intelligence are live. Phases 3-4 designed, not built.**
 Audited: 2026-08-22, from the working tree at `d1b74c8` (PR #35, Knowledge Graph);
 re-verified after merging `main` at `5092c72` (PR #52)
 Scope: series-wide and cross-book knowledge in the Story Codex, and the phase
@@ -86,6 +87,18 @@ not carried forward from an earlier document.
 | `lib/core/story_codex_domain.dart` | `CodexScopeFacet`, `CodexEntry.scopeFacet`/`isShared`, `CodexEntryFilter.scopes` |
 | `lib/story_codex_service.dart` | Scoped reads, `promoteToSeries`/`demoteToProject`, scope-aware relationship reads |
 | `lib/story_codex_workspace.dart` | Series control, scope facet, scope chip, shared marker, read-only banner, create-dialog scope selector |
+
+### Phase 2
+
+| Path | Role |
+|---|---|
+| `lib/core/entity_recognition.dart` | **New.** The one definition of what counts as a mention. Replaces three copies of the same predicate |
+| `lib/core/codex_intelligence.dart` | **New.** `CodexSuggestion`, `CoOccurrenceDiscovery`, `CodexSuggestionBuilder` |
+| `lib/codex_suggestions.dart` | **New.** `CodexSuggestionService` — the project-wide sweep and the dismissal store |
+| `lib/manuscript_store.dart` | `peekStudio` — reads prose without seeding a manuscript |
+| `lib/manuscript_continuity.dart`, `lib/codex_continuity.dart`, `lib/world_continuity.dart` | Private matchers deleted; all three now recognise names identically |
+| `lib/story_codex_service.dart` | `connectableRecords` reads the visible set; `suggestions` facade |
+| `lib/story_codex_workspace.dart` | The suggestions inbox, accept and dismiss |
 
 ---
 
@@ -173,6 +186,10 @@ infrastructure records on every Codex open.
 | project isolation still holds for a promoted record | a promoted record still cannot link outside its book |
 | a record has exactly one history partition | `SELECT DISTINCT project_id FROM record_version_rows` returns one row |
 | universe membership has no second home | no `_universe.` field key hides the deferred tier in JSON |
+| entity recognition has one definition | nothing inlines the mention predicate instead of calling `mentionsName` |
+| a derived edge never becomes a link on its own | discovery constructs no `RecordLink`, touches no `ConnectionEngine`, and stamps its derivation |
+| the intelligence layer stays deterministic and offline | no HTTP, no model, no `Random` in any file that produces recommendations |
+| the Codex reads prose without creating any | the sweep never calls `loadStudio` or `saveStudio` |
 | the shared-scope predicate has one definition | nothing inlines the shared-scope set instead of calling `isInheritedSharedScope` |
 | scope containers are named in one place | no hand-rolled `{'project', 'series'}` copy |
 
@@ -228,18 +245,54 @@ milestone touches or inherits:
 
 ## 8. The remaining phases
 
-**Phase 2 — automatic intelligence, deterministic.** No new engine and no model.
-`ManuscriptContinuityIntelligence` already flattens records into alias-bearing
-known names and matches them in scene prose; `CodexContinuityIntelligence`
-already emits the finding/action pair the workspace renders and resolves. Phase 2
-widens the record set those analyzers receive from project-scoped to
-`recordsVisibleToProject` — so a series character is recognised in book three's
-prose — adds a `suggestedLink` finding kind, and surfaces an inbox that is a
-*filtered view over findings*, not a second store. Co-occurrence discovery is a
-derived read and must be returned as a derived edge, never written as a
-`RecordLink`. This is string matching over author-authored aliases: exactly the
-AI-free differentiator `NEXT.md` §9 sells, and the determinism master-plan §12
-requires.
+**Phase 2 — automatic intelligence, deterministic. Built.** The audit found that
+recognition already existed and had simply never been aggregated:
+`ManuscriptContinuityIntelligence.analyzeScene` was already scanning scene prose
+for record names and aliases, and `CodexContinuityIntelligence` was already
+emitting the finding/action pair the workspace renders and resolves. What was
+missing was scope, a sweep, discovery, and somewhere to put the answers.
+
+So Phase 2 is mostly *reach*, not new inference:
+
+* **One recogniser.** The mention predicate was written three times — in the
+  Manuscript, Codex and World analyzers, byte for byte. Three copies of a
+  matching rule are three chances for the Studios to disagree about whether a
+  character appears in a scene. `entity_recognition.dart` is now the only
+  definition, and a guardrail fails if a fourth appears.
+* **Series reach.** `connectableRecords` reads `recordsVisibleToProject`, so a
+  character shared with the series is recognised in book three's prose and a
+  character private to another book is not.
+* **A project-wide sweep.** `CodexSuggestionService` runs both analyzers over
+  every visible entry and every scene, ranks the findings by severity then
+  confidence, and deduplicates them. It is a view over findings, not a second
+  store: accepting one goes back through `ContinuityActionService`, the same
+  path the per-entry Continuity tab has always used.
+* **Relationship discovery.** `CoOccurrenceDiscovery` counts records that share
+  scenes and returns `DerivedStoryGraphEdge` — the Story Graph's own type for
+  inferences, which has no id and cannot be persisted. One shared scene is a
+  coincidence and is not reported; the per-scene unlinked-mention rule already
+  covers it.
+* **Dismissals.** A suggestion's id is derived from its content, so it is stable
+  across sweeps and a dismissal sticks without storing the suggestion itself.
+  Dismissals are recoverable, and the count of hidden ones is always shown — a
+  quiet inbox must never be mistaken for an empty one.
+
+Two decisions worth recording:
+
+* **Sweeping is not part of opening the Codex.** It reads every entry and every
+  scene, so making the workspace await it would make a project's size the cost
+  of opening it. The sweep runs when the author asks for suggestions, and the
+  header badge stays blank until one has run — a zero would claim the project is
+  clean when nothing had looked at it.
+* **Reading prose must not create prose.** `ManuscriptStore.loadStudio` seeds and
+  *writes* a starter manuscript on a miss, which is right for the Manuscript
+  Studio opening its own project and wrong for a reader. `peekStudio` returns
+  null instead, and a guardrail keeps the Codex off `loadStudio`.
+
+Nothing here is generative and nothing reaches the network; a guardrail asserts
+that over the whole intelligence layer. This is string matching over
+author-authored aliases — the AI-free differentiator `NEXT.md` §9 sells and the
+determinism master-plan §12 requires.
 
 **Phase 3 — hierarchical worldbuilding and deep linking.** The universe tier
 lands here and pays for the `universe_id` column. Hierarchy *inside* a scope —
@@ -267,21 +320,47 @@ Measured twice: once against the audit base, and again after merging `main` at
 `5092c72`, which had moved 22 commits ahead (Map Studio phases 4-5, cross-Studio
 graph entry, archive completeness).
 
-| Step | `main` at `5092c72` | This branch |
-|---|---|---|
-| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 58 issues, 0 errors | **58 issues, 0 errors** |
-| `flutter test` | 1258 passed, 0 failed | **1294 passed, 0 failed** |
-| `flutter build web --release --no-web-resources-cdn` | green | green |
+| Step | `main` at `5092c72` | Phase 1 | Phases 1 and 2 |
+|---|---|---|---|
+| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 58 issues, 0 errors | 58 issues, 0 errors | **58 issues, 0 errors** |
+| `flutter test` | 1258 passed, 0 failed | 1294 passed, 0 failed | **1344 passed, 0 failed** |
+| `flutter build web --release --no-web-resources-cdn` | green | green | green |
 
-The analyzer count is unchanged against the branch's own base: this work added no
-new issues and cleared the six it introduced along the way. (Against the audit
-base `d1b74c8` the same figures were 57 -> 57 and 1153 -> 1189; `main` has since
-added one issue and 105 tests of its own.) The 36 new tests are
+The analyzer count is unchanged across both phases: this work added no new
+issues and cleared every one it introduced along the way. (Against the audit
+base `d1b74c8` the Phase 1 figures were 57 -> 57 and 1153 -> 1189; `main` has
+since added one issue and 105 tests of its own.)
+
+Phase 1 added 36 tests. Phase 2 adds 50 more:
+`entity_recognition_test.dart` (15), `codex_intelligence_test.dart` (14),
+`codex_suggestions_test.dart` (12), `codex_suggestion_inbox_test.dart` (5), and
+four guardrails appended to `scope_architecture_test.dart`. The 35 existing
+tests over the three continuity analyzers were left untouched and still pass,
+which is what proves collapsing their three private matchers into one shared
+recogniser changed no behaviour. The 36 new tests are
 `scope_resolver_test.dart` (7), `series_scope_test.dart` (6),
 `scoped_records_test.dart` (8), `scope_architecture_test.dart` (10),
 `story_codex_series_view_test.dart` (5).
 
-### Gate
+### Gate — Phase 2
+
+- [x] a name in a Codex entry's prose that matches another entry is offered as a
+      link, and the entry's own name is never matched against itself
+- [x] a name in the manuscript that has no record is offered as a record
+- [x] a record shared with the series is recognised in a second book's prose
+- [x] records that share two or more scenes are discovered as a relationship,
+      and a pair already linked is not offered again
+- [x] a sweep writes nothing: no link reaches `record_link_rows` until the
+      author accepts one
+- [x] accepting goes through `ContinuityActionService`, so it is validated,
+      versioned and audited like a hand-made change
+- [x] a dismissed recommendation stays dismissed across sweeps, is counted, and
+      can be restored
+- [x] opening the Codex does not sweep
+- [x] a project with no manuscript, or an unreadable one, still produces Codex
+      suggestions and says which happened
+
+### Gate — Phase 1
 
 - [x] a book can start a series, join one, and leave one
 - [x] an entry can be shared with the series and returned to its book

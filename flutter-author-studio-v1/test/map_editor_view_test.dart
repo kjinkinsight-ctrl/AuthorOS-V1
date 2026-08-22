@@ -232,6 +232,8 @@ void main() {
         'map-layer-assets',
         'map-layer-locations',
         'map-layer-markers',
+        'map-layer-storyPaths',
+        'map-layer-storyOverlays',
         'map-layer-selection',
         'map-layer-interaction',
       ]);
@@ -1127,7 +1129,7 @@ void main() {
       );
       final order = [
         for (final child in layer.children)
-          ((child as Positioned).child as GestureDetector).key,
+          (child as Positioned).child.key,
       ];
       expect(order, [
         const Key('map-asset-back'),

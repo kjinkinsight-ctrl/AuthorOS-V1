@@ -844,6 +844,15 @@ enum MapLayer {
   /// Marker pins.
   markers,
 
+  /// Journeys and story routes. Below the overlay points they connect, so a
+  /// line never hides the thing at its end.
+  storyPaths,
+
+  /// Story overlays: characters, events and scenes read from canonical data.
+  /// Above the map's own furniture because they are what the author came to
+  /// look at, below selection because they are still content.
+  storyOverlays,
+
   /// Selection rings, geometry handles and the marquee rectangle.
   selection,
 

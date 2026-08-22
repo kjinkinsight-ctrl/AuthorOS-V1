@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 
 import 'book/book_cover.dart';
+import 'book/book_dictionary.dart';
 import 'book/book_document.dart';
 import 'book/book_epub_exporter.dart';
 import 'book/book_export_targets.dart';
@@ -22,8 +23,13 @@ import 'book/book_pdf_renderer.dart';
 import 'book/book_preview_painter.dart';
 import 'book/book_store.dart';
 import 'book/epub_settings.dart';
+import 'book/proof_rules.dart';
+import 'book/proofing.dart';
+import 'manuscript_continuity.dart';
+import 'manuscript_service.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
+import 'persistence/authoros_database.dart';
 
 /// Asks the author for a cover image.
 ///
@@ -65,19 +71,19 @@ extension BookStageX on BookStage {
         BookStage.export => Icons.ios_share_outlined,
       };
 
-  /// Editing and proofing are a later phase. They are shown rather than hidden
-  /// so the pipeline reads as a whole, and disabled so nothing pretends to work.
-  bool get isAvailable =>
-      this != BookStage.editing && this != BookStage.proofing;
+  /// Every stage of the pipeline is built.
+  bool get isAvailable => true;
 
   String get summary => switch (this) {
         BookStage.structure =>
           'Front matter, parts and back matter, and the details that fill the '
               'title and copyright pages.',
         BookStage.editing =>
-          'Deterministic typographic checks over the manuscript. A later phase.',
+          'The mechanics of the text: spacing, quotation marks, stray indents '
+              'and repeated words.',
         BookStage.proofing =>
-          'Whole-book consistency and pre-flight checks. A later phase.',
+          'What only the whole book can see: spelling, consistency, and the '
+              'checks that need a finished layout.',
         BookStage.formatting => 'Trim size, margins and typography.',
         BookStage.design =>
           'Chapter openers, scene breaks, running heads and page numbers.',
@@ -98,6 +104,8 @@ class BookStudioView extends StatefulWidget {
     this.epubExporter = const BookEpubExporter(),
     this.coverStore = const BookCoverStore(),
     this.coverPicker = pickCoverFile,
+    this.proofingEngine = const ProofingEngine(),
+    this.database,
   });
 
   final StarterProject project;
@@ -110,6 +118,11 @@ class BookStudioView extends StatefulWidget {
 
   /// Injected so a test can supply an image without a file dialog.
   final Future<Uint8List?> Function() coverPicker;
+
+  final ProofingEngine proofingEngine;
+
+  /// Where record names and manuscript history live. Defaults to the app's own.
+  final AuthorOsDatabase? database;
 
   @override
   State<BookStudioView> createState() => _BookStudioViewState();
@@ -129,6 +142,14 @@ class _BookStudioViewState extends State<BookStudioView> {
   BookDocument? _document;
   PaginatedBook? _paginated;
   BookCover? _cover;
+
+  ProofReport _proof = ProofReport.empty;
+  ProofReport _layoutProof = ProofReport.empty;
+  BookDictionary? _dictionary;
+  Set<String> _knownNames = const {};
+  bool _proofing = false;
+  bool _fixing = false;
+  String _proofCacheKey = '';
 
   /// Guards repagination: a format tweak reflows the book, a repaint does not.
   String _layoutCacheKey = '';
@@ -170,6 +191,7 @@ class _BookStudioViewState extends State<BookStudioView> {
         _loading = false;
       });
       _repaginate();
+      _reproof();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -260,12 +282,158 @@ class _BookStudioViewState extends State<BookStudioView> {
     });
   }
 
+  ManuscriptService get _manuscriptService {
+    final database = widget.database;
+    final repository = database == null
+        ? authorOsRepository
+        : DriftConnectedDomainRepository(database);
+    return ManuscriptService(
+      projectId: widget.project.id,
+      repository: repository,
+      // The store mirrors nodes into the same database the service uses; left
+      // to its default it would reach for the app's own singleton.
+      store: database == null
+          ? widget.manuscriptStore
+          : ManuscriptStore(repository: repository),
+    );
+  }
+
+  /// Runs the rules over the manuscript, and over the laid-out book.
+  ///
+  /// Cached against the same inputs the layout is, so moving a slider does not
+  /// re-proof a book that has not changed.
+  void _reproof({bool force = false}) {
+    final manuscript = _manuscript;
+    final book = _book;
+    if (manuscript == null || book == null) return;
+
+    // Deliberately not keyed on the format: no text rule depends on a trim
+    // size or a margin, so dragging a slider must not re-run sixteen rules
+    // over the whole manuscript on every frame. The layout findings below are
+    // recomputed regardless, and they are cheap.
+    final key = '${manuscript.updatedAt.toIso8601String()}|'
+        '${_dictionary != null}|${_knownNames.length}|'
+        '${book.frontMatter.length}|${book.backMatter.length}|'
+        '${book.copyrightYear}|${book.copyrightHolder}|'
+        '${book.authorOverride}';
+    final reuse = !force && key == _proofCacheKey;
+
+    final report = reuse
+        ? _proof
+        : widget.proofingEngine.analyse(ProofContext(
+            manuscript: manuscript,
+            book: book,
+            dictionary: _dictionary,
+            knownNames: _knownNames,
+          ));
+
+    final paginated = _paginated;
+    final layout = paginated == null
+        ? ProofReport.empty
+        : widget.proofingEngine.analyseLayout(paginated);
+
+    setState(() {
+      _proof = report;
+      _layoutProof = layout;
+      _proofCacheKey = key;
+    });
+  }
+
+  /// Loads the dictionary the first time proofing is opened.
+  ///
+  /// Deliberately not part of studio start-up: it is 350 KB, and most sessions
+  /// never open this stage.
+  Future<void> _ensureDictionary() async {
+    if (_dictionary != null || _proofing) return;
+    setState(() => _proofing = true);
+    try {
+      final names = await _loadKnownNames();
+      final dictionary = await BookDictionary.load(personal: names);
+      if (!mounted) return;
+      setState(() {
+        _dictionary = dictionary;
+        _knownNames = names;
+        _proofing = false;
+      });
+      _reproof(force: true);
+    } catch (error) {
+      if (!mounted) return;
+      // Spelling simply stays unchecked; the studio says so rather than
+      // implying the book is clean.
+      setState(() => _proofing = false);
+      _message('The dictionary could not be loaded, so spelling was not '
+          'checked. $error');
+    }
+  }
+
+  /// Every record title and alias in the project.
+  ///
+  /// Reuses the set the continuity engine already builds, so an author's
+  /// invented names are never flagged and nothing has to be trained.
+  Future<Set<String>> _loadKnownNames() async {
+    try {
+      final records = await _manuscriptService.connectableRecords();
+      return ManuscriptContinuityIntelligence.knownNames(records);
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Applies fixes to the manuscript.
+  ///
+  /// This is the one place Book Studio writes prose, and it happens only when
+  /// the author asks. It goes through [ManuscriptService] rather than the store
+  /// so the change lands in the manuscript's own version history and can be
+  /// undone from Manuscript Studio like any other edit.
+  Future<void> _applyFixes(Iterable<ProofFinding> findings) async {
+    var manuscript = _manuscript;
+    if (manuscript == null || _fixing) return;
+
+    final grouped = const ProofFixer().bySceneId(findings);
+    if (grouped.isEmpty) return;
+
+    setState(() => _fixing = true);
+    var changed = 0;
+    try {
+      final service = _manuscriptService;
+      for (final entry in grouped.entries) {
+        final scene = manuscript!.sceneById(entry.key);
+        if (scene == null) continue;
+        final updated =
+            const ProofFixer().apply(scene.content, entry.value);
+        if (updated == scene.content) continue;
+        manuscript = await service.writeSceneBody(
+          manuscript,
+          entry.key,
+          updated,
+          recordHistory: true,
+        );
+        changed += entry.value.length;
+      }
+      if (!mounted) return;
+      setState(() {
+        _manuscript = manuscript;
+        _fixing = false;
+      });
+      _repaginate(force: true);
+      _reproof(force: true);
+      _message(changed == 0
+          ? 'Nothing left to fix.'
+          : 'Fixed $changed ${changed == 1 ? 'thing' : 'things'}.');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _fixing = false);
+      _message('Those fixes could not be applied. $error');
+    }
+  }
+
   Future<void> _update(BookProject Function(BookProject) change) async {
     final book = _book;
     if (book == null) return;
     final updated = change(book);
     setState(() => _book = updated);
     _repaginate();
+    _reproof();
     await widget.bookStore.save(updated);
   }
 
@@ -513,7 +681,8 @@ class _BookStudioViewState extends State<BookStudioView> {
             BookStage.design => _designStage(theme),
             BookStage.preview => _previewStage(theme),
             BookStage.export => _exportStage(theme),
-            BookStage.editing || BookStage.proofing => _laterPhase(theme),
+            BookStage.editing => _findingsStage(theme, ProofStage.editing),
+            BookStage.proofing => _findingsStage(theme, ProofStage.proofing),
           },
         ),
       );
@@ -1458,17 +1627,240 @@ class _BookStudioViewState extends State<BookStudioView> {
     );
   }
 
-  Widget _laterPhase(ThemeData theme) => _Panel(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _SectionHeading(_stage.label, theme),
-            const SizedBox(height: 8),
-            Text(_stage.summary, style: theme.textTheme.bodyMedium),
-          ],
+  /// The Editing and Proofing stages, which differ only in which findings they
+  /// show and whether the dictionary has to be loaded first.
+  Widget _findingsStage(ThemeData theme, ProofStage stage) {
+    final isProofing = stage == ProofStage.proofing;
+    if (isProofing && _dictionary == null && !_proofing) {
+      // Loading is deferred until the author actually asks for this stage.
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _ensureDictionary());
+    }
+
+    final findings = <ProofFinding>[
+      ..._proof.forStage(stage),
+      if (isProofing) ..._layoutProof.findings,
+    ];
+    final fixable = findings.where((finding) => finding.isFixable).toList();
+    final grouped = <String, List<ProofFinding>>{};
+    for (final finding in findings) {
+      (grouped[finding.ruleId] ??= []).add(finding);
+    }
+
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        _Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: _SectionHeading(stage.label, theme)),
+                  if (fixable.isNotEmpty)
+                    FilledButton.icon(
+                      key: Key('book-fix-all-${stage.name}'),
+                      onPressed:
+                          _fixing ? null : () => _applyFixes(fixable),
+                      icon: _fixing
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.auto_fix_high_outlined, size: 18),
+                      label: Text('Fix all ${fixable.length}'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(stage.summary,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final severity in ProofSeverity.values)
+                    _Stat(
+                      label: severity.label,
+                      value: '${findings.where((f) =>
+                          f.severity == severity).length}',
+                    ),
+                  _Stat(label: 'Can be fixed', value: '${fixable.length}'),
+                ],
+              ),
+              if (isProofing) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _proofing
+                      ? 'Loading the dictionary…'
+                      : _dictionary == null
+                          ? 'Spelling has not been checked.'
+                          : 'Spelling checked against '
+                              '${_dictionary!.wordCount} words, plus '
+                              '${_knownNames.length} names from your records.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
-      );
+        const SizedBox(height: 12),
+        if (findings.isEmpty)
+          _Panel(
+            child: Row(
+              children: [
+                Icon(Icons.check_circle_outline,
+                    color: theme.colorScheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    isProofing
+                        ? 'Nothing to report. Every check passed.'
+                        : 'The text is clean.',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          for (final entry in grouped.entries) ...[
+            _ruleGroup(theme, entry.key, entry.value),
+            const SizedBox(height: 12),
+          ],
+        if (isProofing) ...[
+          _Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SectionHeading('Story continuity', theme),
+                const SizedBox(height: 6),
+                Text(
+                  'Unlinked characters, impossible travel and the rest live in '
+                  'Manuscript Studio\'s continuity panel, where they can be '
+                  'resolved against your records. They are not repeated here.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _ruleGroup(
+      ThemeData theme, String ruleId, List<ProofFinding> findings) {
+    final rule = BuiltInProofRules.byId(ruleId);
+    final fixable = findings.where((finding) => finding.isFixable).toList();
+    final worst = findings
+        .map((finding) => finding.severity)
+        .reduce((a, b) => a.rank <= b.rank ? a : b);
+
+    return _Panel(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                switch (worst) {
+                  ProofSeverity.critical => Icons.error_outline,
+                  ProofSeverity.warning => Icons.warning_amber_outlined,
+                  ProofSeverity.notice => Icons.info_outline,
+                },
+                size: 18,
+                color: worst == ProofSeverity.notice
+                    ? theme.colorScheme.onSurfaceVariant
+                    : theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '${rule?.label ?? findings.first.title} · ${findings.length}',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (fixable.isNotEmpty)
+                OutlinedButton(
+                  key: Key('book-fix-$ruleId'),
+                  onPressed: _fixing ? null : () => _applyFixes(fixable),
+                  child: Text('Fix ${fixable.length}'),
+                ),
+            ],
+          ),
+          if (rule != null) ...[
+            const SizedBox(height: 4),
+            Text(rule.description,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          ],
+          const SizedBox(height: 10),
+          for (final finding in findings.take(8))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        style: theme.textTheme.bodySmall,
+                        children: [
+                          if (finding.found.trim().isNotEmpty)
+                            TextSpan(
+                              text: '"${_preview(finding.found)}"  ',
+                              style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          TextSpan(text: finding.message),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 180,
+                    child: Text(
+                      finding.where,
+                      textAlign: TextAlign.end,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (findings.length > 8)
+            Text('and ${findings.length - 8} more',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                )),
+        ],
+      ),
+    );
+  }
+
+  /// Keeps a snippet short and shows whitespace, which is otherwise invisible
+  /// in exactly the findings that are about whitespace.
+  static String _preview(String value) {
+    final shown = value
+        .replaceAll('\t', '→')
+        .replaceAll('\n', '⏎')
+        .replaceAll(' ', '·');
+    return shown.length <= 32 ? shown : '${shown.substring(0, 32)}…';
+  }
 
   Widget _issuesPanel(ThemeData theme, List<String> messages) => _Panel(
         child: Column(

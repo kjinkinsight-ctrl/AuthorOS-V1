@@ -7,6 +7,7 @@ import 'package:author_studio_v1/book/book_cover.dart';
 import 'package:author_studio_v1/book/book_store.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/native.dart';
+import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
@@ -62,6 +63,14 @@ void main() {
   setUp(() => database = AuthorOsDatabase(NativeDatabase.memory()));
   tearDown(() => database.close());
 
+  /// Seeds a manuscript whose prose has something for the rules to find.
+  void seedManuscript(ManuscriptProjectSummary manuscript) {
+    SharedPreferences.setMockInitialValues({
+      'author_studio.manuscript_studio.project-book':
+          jsonEncode(manuscript.toJson()),
+    });
+  }
+
   Future<void> pumpStudio(
     WidgetTester tester, {
     BookFileSaver? saver,
@@ -81,6 +90,7 @@ void main() {
               fileSaver: saver ?? _MemoryBookFileSaver(),
               coverStore: BookCoverStore(database: database),
               coverPicker: coverPicker ?? () async => null,
+              database: database,
             ),
           ),
         ),
@@ -98,22 +108,21 @@ void main() {
     expect(find.text('Structure'), findsWidgets);
   });
 
-  testWidgets('shows every pipeline stage, with the later ones disabled',
-      (tester) async {
+  testWidgets('every pipeline stage is present and reachable', (tester) async {
     await pumpStudio(tester);
 
     for (final stage in BookStage.values) {
       expect(find.byKey(Key('book-stage-${stage.name}')), findsOneWidget,
           reason: '${stage.label} is missing from the pipeline');
+      expect(stage.isAvailable, isTrue,
+          reason: '${stage.label} is still a placeholder');
     }
 
-    // Editing and proofing are visible so the pipeline reads whole, but they
-    // must not pretend to work: tapping one leaves the studio where it was.
+    // Every stage now navigates somewhere real.
     await tester.tap(find.byKey(const Key('book-stage-editing')));
     await tester.pumpAndSettle();
-    expect(find.text('Front matter'), findsOneWidget,
-        reason: 'a disabled stage must not navigate anywhere');
-    expect(find.text('later'), findsNothing);
+    expect(find.text('Front matter'), findsNothing);
+    expect(find.text('Editing'), findsWidgets);
   });
 
   testWidgets('the preview paints real pages', (tester) async {
@@ -293,5 +302,94 @@ void main() {
     );
     expect(await BookCoverStore(database: database).load('project-book'),
         isNull);
+  });
+
+  testWidgets('the editing stage lists what it found and can fix it',
+      (tester) async {
+    seedManuscript(messyManuscriptFixture());
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-editing')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Editing'), findsWidgets);
+    expect(find.textContaining('Fix all'), findsOneWidget);
+    // The rules that fire on this fixture, each grouped under its own heading.
+    expect(find.textContaining('Double spaces'), findsOneWidget);
+    expect(find.textContaining('Indentation typed by hand'), findsOneWidget);
+  });
+
+  testWidgets('fixing writes the corrected prose back to the manuscript',
+      (tester) async {
+    seedManuscript(messyManuscriptFixture());
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-editing')));
+    await tester.pumpAndSettle();
+
+    // Writing prose back goes through the manuscript's own service, which does
+    // real asynchronous work; the harness's fake clock will not advance it.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-fix-all-editing')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pumpAndSettle();
+
+    final stored = await const ManuscriptStore().readStudio('project-book');
+    final prose = stored!.chapters.first.scenes.first.content;
+
+    expect(prose, isNot(startsWith('\t')),
+        reason: 'the hand-typed indent should be gone');
+    expect(prose, isNot(contains('  ')),
+        reason: 'double spaces should be collapsed');
+    expect(prose, contains('“'),
+        reason: 'straight quotes should have been curled');
+    expect(prose, isNot(contains(' ,')),
+        reason: 'the space before the comma should be closed up');
+  });
+
+  testWidgets('fixing twice leaves nothing left to fix', (tester) async {
+    seedManuscript(messyManuscriptFixture());
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-editing')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-fix-all-editing')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pumpAndSettle();
+
+    // The report is recomputed after a fix, so the button should be gone.
+    expect(find.byKey(const Key('book-fix-all-editing')), findsNothing);
+    expect(find.textContaining('The text is clean'), findsOneWidget);
+  });
+
+  testWidgets('clean prose reports nothing rather than nothing at all',
+      (tester) async {
+    seedManuscript(cleanManuscriptFixture());
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-editing')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('The text is clean'), findsOneWidget);
+  });
+
+  testWidgets('the proofing stage says whether spelling was checked',
+      (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-proofing')));
+    await tester.pumpAndSettle();
+
+    // The dictionary loads on demand, and until it has, the studio says so
+    // rather than implying the book is clean.
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Spelling checked against'), findsOneWidget);
   });
 }

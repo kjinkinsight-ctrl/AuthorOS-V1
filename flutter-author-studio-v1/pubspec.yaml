@@ -60,6 +60,10 @@ flutter:
     - assets/fonts/Inter-700.ttf
     - assets/fonts/Merriweather-400.ttf
     - assets/fonts/Merriweather-700.ttf
+    # The offline spelling dictionary. ~350 KB, and deliberately loaded lazily:
+    # nothing touches it until a proofing pass runs. Licence in
+    # assets/dictionaries/LICENSE.md.
+    - assets/dictionaries/en.txt.gz
 
 flutter_launcher_icons:
   android: true

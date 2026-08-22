@@ -299,3 +299,56 @@ List<int> _testZlibStore(List<int> data) {
   return out;
 }
 
+
+/// A manuscript with something for every editing rule to find.
+///
+/// Deliberately the kind of mess a real draft accumulates: an indent typed by
+/// hand, a double space, a space before a comma, straight quotes and a doubled
+/// word.
+ManuscriptProjectSummary messyManuscriptFixture() => ManuscriptProjectSummary(
+      projectId: 'project-book',
+      manuscriptTitle: 'The Widow Knife',
+      currentChapterId: 'ch-1',
+      currentSceneId: 'sc-1',
+      createdAt: fixtureTimestamp,
+      updatedAt: fixtureTimestamp,
+      version: 1,
+      chapters: [
+        chapter(id: 'ch-1', title: 'The Arrival', order: 1, scenes: [
+          scene(
+            id: 'sc-1',
+            chapterId: 'ch-1',
+            title: 'Opening',
+            order: 1,
+            content: '\tThe knife was  old , and she said "go" twice.\n'
+                'She went to to the door and waited.',
+          ),
+        ]),
+      ],
+    );
+
+/// A manuscript whose prose has nothing for any rule to find.
+///
+/// The ordinary fixture repeats one word, which the repeated-word rule quite
+/// correctly objects to.
+ManuscriptProjectSummary cleanManuscriptFixture() => ManuscriptProjectSummary(
+      projectId: 'project-book',
+      manuscriptTitle: 'The Widow Knife',
+      currentChapterId: 'ch-1',
+      currentSceneId: 'sc-1',
+      createdAt: fixtureTimestamp,
+      updatedAt: fixtureTimestamp,
+      version: 1,
+      chapters: [
+        chapter(id: 'ch-1', title: 'The Arrival', order: 1, scenes: [
+          scene(
+            id: 'sc-1',
+            chapterId: 'ch-1',
+            title: 'Opening',
+            order: 1,
+            content: 'The knife was old before the house was old.\n'
+                'She turned it against the light of the window.',
+          ),
+        ]),
+      ],
+    );

@@ -5841,6 +5841,1511 @@ class WritingSessionRowsCompanion extends UpdateCompanion<WritingSessionRow> {
   }
 }
 
+class $WritingGoalRowsTable extends WritingGoalRows
+    with TableInfo<$WritingGoalRowsTable, WritingGoalRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $WritingGoalRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _projectIdMeta =
+      const VerificationMeta('projectId');
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+      'project_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _dailyWordsMeta =
+      const VerificationMeta('dailyWords');
+  @override
+  late final GeneratedColumn<int> dailyWords = GeneratedColumn<int>(
+      'daily_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _weeklyWordsMeta =
+      const VerificationMeta('weeklyWords');
+  @override
+  late final GeneratedColumn<int> weeklyWords = GeneratedColumn<int>(
+      'weekly_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _monthlyWordsMeta =
+      const VerificationMeta('monthlyWords');
+  @override
+  late final GeneratedColumn<int> monthlyWords = GeneratedColumn<int>(
+      'monthly_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [projectId, dailyWords, weeklyWords, monthlyWords, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'writing_goal_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<WritingGoalRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('project_id')) {
+      context.handle(_projectIdMeta,
+          projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta));
+    } else if (isInserting) {
+      context.missing(_projectIdMeta);
+    }
+    if (data.containsKey('daily_words')) {
+      context.handle(
+          _dailyWordsMeta,
+          dailyWords.isAcceptableOrUnknown(
+              data['daily_words']!, _dailyWordsMeta));
+    } else if (isInserting) {
+      context.missing(_dailyWordsMeta);
+    }
+    if (data.containsKey('weekly_words')) {
+      context.handle(
+          _weeklyWordsMeta,
+          weeklyWords.isAcceptableOrUnknown(
+              data['weekly_words']!, _weeklyWordsMeta));
+    } else if (isInserting) {
+      context.missing(_weeklyWordsMeta);
+    }
+    if (data.containsKey('monthly_words')) {
+      context.handle(
+          _monthlyWordsMeta,
+          monthlyWords.isAcceptableOrUnknown(
+              data['monthly_words']!, _monthlyWordsMeta));
+    } else if (isInserting) {
+      context.missing(_monthlyWordsMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {projectId};
+  @override
+  WritingGoalRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return WritingGoalRow(
+      projectId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}project_id'])!,
+      dailyWords: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}daily_words'])!,
+      weeklyWords: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}weekly_words'])!,
+      monthlyWords: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}monthly_words'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $WritingGoalRowsTable createAlias(String alias) {
+    return $WritingGoalRowsTable(attachedDatabase, alias);
+  }
+}
+
+class WritingGoalRow extends DataClass implements Insertable<WritingGoalRow> {
+  final String projectId;
+  final int dailyWords;
+  final int weeklyWords;
+  final int monthlyWords;
+  final DateTime updatedAt;
+  const WritingGoalRow(
+      {required this.projectId,
+      required this.dailyWords,
+      required this.weeklyWords,
+      required this.monthlyWords,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['project_id'] = Variable<String>(projectId);
+    map['daily_words'] = Variable<int>(dailyWords);
+    map['weekly_words'] = Variable<int>(weeklyWords);
+    map['monthly_words'] = Variable<int>(monthlyWords);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  WritingGoalRowsCompanion toCompanion(bool nullToAbsent) {
+    return WritingGoalRowsCompanion(
+      projectId: Value(projectId),
+      dailyWords: Value(dailyWords),
+      weeklyWords: Value(weeklyWords),
+      monthlyWords: Value(monthlyWords),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory WritingGoalRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return WritingGoalRow(
+      projectId: serializer.fromJson<String>(json['projectId']),
+      dailyWords: serializer.fromJson<int>(json['dailyWords']),
+      weeklyWords: serializer.fromJson<int>(json['weeklyWords']),
+      monthlyWords: serializer.fromJson<int>(json['monthlyWords']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'projectId': serializer.toJson<String>(projectId),
+      'dailyWords': serializer.toJson<int>(dailyWords),
+      'weeklyWords': serializer.toJson<int>(weeklyWords),
+      'monthlyWords': serializer.toJson<int>(monthlyWords),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  WritingGoalRow copyWith(
+          {String? projectId,
+          int? dailyWords,
+          int? weeklyWords,
+          int? monthlyWords,
+          DateTime? updatedAt}) =>
+      WritingGoalRow(
+        projectId: projectId ?? this.projectId,
+        dailyWords: dailyWords ?? this.dailyWords,
+        weeklyWords: weeklyWords ?? this.weeklyWords,
+        monthlyWords: monthlyWords ?? this.monthlyWords,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  WritingGoalRow copyWithCompanion(WritingGoalRowsCompanion data) {
+    return WritingGoalRow(
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      dailyWords:
+          data.dailyWords.present ? data.dailyWords.value : this.dailyWords,
+      weeklyWords:
+          data.weeklyWords.present ? data.weeklyWords.value : this.weeklyWords,
+      monthlyWords: data.monthlyWords.present
+          ? data.monthlyWords.value
+          : this.monthlyWords,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WritingGoalRow(')
+          ..write('projectId: $projectId, ')
+          ..write('dailyWords: $dailyWords, ')
+          ..write('weeklyWords: $weeklyWords, ')
+          ..write('monthlyWords: $monthlyWords, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(projectId, dailyWords, weeklyWords, monthlyWords, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is WritingGoalRow &&
+          other.projectId == this.projectId &&
+          other.dailyWords == this.dailyWords &&
+          other.weeklyWords == this.weeklyWords &&
+          other.monthlyWords == this.monthlyWords &&
+          other.updatedAt == this.updatedAt);
+}
+
+class WritingGoalRowsCompanion extends UpdateCompanion<WritingGoalRow> {
+  final Value<String> projectId;
+  final Value<int> dailyWords;
+  final Value<int> weeklyWords;
+  final Value<int> monthlyWords;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const WritingGoalRowsCompanion({
+    this.projectId = const Value.absent(),
+    this.dailyWords = const Value.absent(),
+    this.weeklyWords = const Value.absent(),
+    this.monthlyWords = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  WritingGoalRowsCompanion.insert({
+    required String projectId,
+    required int dailyWords,
+    required int weeklyWords,
+    required int monthlyWords,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : projectId = Value(projectId),
+        dailyWords = Value(dailyWords),
+        weeklyWords = Value(weeklyWords),
+        monthlyWords = Value(monthlyWords),
+        updatedAt = Value(updatedAt);
+  static Insertable<WritingGoalRow> custom({
+    Expression<String>? projectId,
+    Expression<int>? dailyWords,
+    Expression<int>? weeklyWords,
+    Expression<int>? monthlyWords,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (projectId != null) 'project_id': projectId,
+      if (dailyWords != null) 'daily_words': dailyWords,
+      if (weeklyWords != null) 'weekly_words': weeklyWords,
+      if (monthlyWords != null) 'monthly_words': monthlyWords,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  WritingGoalRowsCompanion copyWith(
+      {Value<String>? projectId,
+      Value<int>? dailyWords,
+      Value<int>? weeklyWords,
+      Value<int>? monthlyWords,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return WritingGoalRowsCompanion(
+      projectId: projectId ?? this.projectId,
+      dailyWords: dailyWords ?? this.dailyWords,
+      weeklyWords: weeklyWords ?? this.weeklyWords,
+      monthlyWords: monthlyWords ?? this.monthlyWords,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (dailyWords.present) {
+      map['daily_words'] = Variable<int>(dailyWords.value);
+    }
+    if (weeklyWords.present) {
+      map['weekly_words'] = Variable<int>(weeklyWords.value);
+    }
+    if (monthlyWords.present) {
+      map['monthly_words'] = Variable<int>(monthlyWords.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WritingGoalRowsCompanion(')
+          ..write('projectId: $projectId, ')
+          ..write('dailyWords: $dailyWords, ')
+          ..write('weeklyWords: $weeklyWords, ')
+          ..write('monthlyWords: $monthlyWords, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SeriesRowsTable extends SeriesRows
+    with TableInfo<$SeriesRowsTable, SeriesRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SeriesRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _defaultTargetWordsMeta =
+      const VerificationMeta('defaultTargetWords');
+  @override
+  late final GeneratedColumn<int> defaultTargetWords = GeneratedColumn<int>(
+      'default_target_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, name, defaultTargetWords, createdAt, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'series_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<SeriesRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('default_target_words')) {
+      context.handle(
+          _defaultTargetWordsMeta,
+          defaultTargetWords.isAcceptableOrUnknown(
+              data['default_target_words']!, _defaultTargetWordsMeta));
+    } else if (isInserting) {
+      context.missing(_defaultTargetWordsMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SeriesRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SeriesRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      defaultTargetWords: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}default_target_words'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $SeriesRowsTable createAlias(String alias) {
+    return $SeriesRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SeriesRow extends DataClass implements Insertable<SeriesRow> {
+  final String id;
+  final String name;
+  final int defaultTargetWords;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const SeriesRow(
+      {required this.id,
+      required this.name,
+      required this.defaultTargetWords,
+      required this.createdAt,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['default_target_words'] = Variable<int>(defaultTargetWords);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  SeriesRowsCompanion toCompanion(bool nullToAbsent) {
+    return SeriesRowsCompanion(
+      id: Value(id),
+      name: Value(name),
+      defaultTargetWords: Value(defaultTargetWords),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SeriesRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SeriesRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      defaultTargetWords: serializer.fromJson<int>(json['defaultTargetWords']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'defaultTargetWords': serializer.toJson<int>(defaultTargetWords),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  SeriesRow copyWith(
+          {String? id,
+          String? name,
+          int? defaultTargetWords,
+          DateTime? createdAt,
+          DateTime? updatedAt}) =>
+      SeriesRow(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        defaultTargetWords: defaultTargetWords ?? this.defaultTargetWords,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  SeriesRow copyWithCompanion(SeriesRowsCompanion data) {
+    return SeriesRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      defaultTargetWords: data.defaultTargetWords.present
+          ? data.defaultTargetWords.value
+          : this.defaultTargetWords,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeriesRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('defaultTargetWords: $defaultTargetWords, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, defaultTargetWords, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SeriesRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.defaultTargetWords == this.defaultTargetWords &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SeriesRowsCompanion extends UpdateCompanion<SeriesRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> defaultTargetWords;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const SeriesRowsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.defaultTargetWords = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SeriesRowsCompanion.insert({
+    required String id,
+    required String name,
+    required int defaultTargetWords,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        name = Value(name),
+        defaultTargetWords = Value(defaultTargetWords),
+        createdAt = Value(createdAt),
+        updatedAt = Value(updatedAt);
+  static Insertable<SeriesRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? defaultTargetWords,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (defaultTargetWords != null)
+        'default_target_words': defaultTargetWords,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SeriesRowsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? name,
+      Value<int>? defaultTargetWords,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return SeriesRowsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      defaultTargetWords: defaultTargetWords ?? this.defaultTargetWords,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (defaultTargetWords.present) {
+      map['default_target_words'] = Variable<int>(defaultTargetWords.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeriesRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('defaultTargetWords: $defaultTargetWords, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ProjectRowsTable extends ProjectRows
+    with TableInfo<$ProjectRowsTable, ProjectRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ProjectRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _payloadJsonMeta =
+      const VerificationMeta('payloadJson');
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+      'payload_json', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _seriesIdMeta =
+      const VerificationMeta('seriesId');
+  @override
+  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
+      'series_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _seriesPositionMeta =
+      const VerificationMeta('seriesPosition');
+  @override
+  late final GeneratedColumn<int> seriesPosition = GeneratedColumn<int>(
+      'series_position', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, payloadJson, seriesId, seriesPosition, createdAt, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'project_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<ProjectRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+          _payloadJsonMeta,
+          payloadJson.isAcceptableOrUnknown(
+              data['payload_json']!, _payloadJsonMeta));
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('series_id')) {
+      context.handle(_seriesIdMeta,
+          seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta));
+    }
+    if (data.containsKey('series_position')) {
+      context.handle(
+          _seriesPositionMeta,
+          seriesPosition.isAcceptableOrUnknown(
+              data['series_position']!, _seriesPositionMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ProjectRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ProjectRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      payloadJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload_json'])!,
+      seriesId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}series_id']),
+      seriesPosition: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}series_position']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $ProjectRowsTable createAlias(String alias) {
+    return $ProjectRowsTable(attachedDatabase, alias);
+  }
+}
+
+class ProjectRow extends DataClass implements Insertable<ProjectRow> {
+  final String id;
+  final String payloadJson;
+  final String? seriesId;
+  final int? seriesPosition;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const ProjectRow(
+      {required this.id,
+      required this.payloadJson,
+      this.seriesId,
+      this.seriesPosition,
+      required this.createdAt,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['payload_json'] = Variable<String>(payloadJson);
+    if (!nullToAbsent || seriesId != null) {
+      map['series_id'] = Variable<String>(seriesId);
+    }
+    if (!nullToAbsent || seriesPosition != null) {
+      map['series_position'] = Variable<int>(seriesPosition);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  ProjectRowsCompanion toCompanion(bool nullToAbsent) {
+    return ProjectRowsCompanion(
+      id: Value(id),
+      payloadJson: Value(payloadJson),
+      seriesId: seriesId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seriesId),
+      seriesPosition: seriesPosition == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seriesPosition),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory ProjectRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ProjectRow(
+      id: serializer.fromJson<String>(json['id']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      seriesId: serializer.fromJson<String?>(json['seriesId']),
+      seriesPosition: serializer.fromJson<int?>(json['seriesPosition']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'seriesId': serializer.toJson<String?>(seriesId),
+      'seriesPosition': serializer.toJson<int?>(seriesPosition),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  ProjectRow copyWith(
+          {String? id,
+          String? payloadJson,
+          Value<String?> seriesId = const Value.absent(),
+          Value<int?> seriesPosition = const Value.absent(),
+          DateTime? createdAt,
+          DateTime? updatedAt}) =>
+      ProjectRow(
+        id: id ?? this.id,
+        payloadJson: payloadJson ?? this.payloadJson,
+        seriesId: seriesId.present ? seriesId.value : this.seriesId,
+        seriesPosition:
+            seriesPosition.present ? seriesPosition.value : this.seriesPosition,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  ProjectRow copyWithCompanion(ProjectRowsCompanion data) {
+    return ProjectRow(
+      id: data.id.present ? data.id.value : this.id,
+      payloadJson:
+          data.payloadJson.present ? data.payloadJson.value : this.payloadJson,
+      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      seriesPosition: data.seriesPosition.present
+          ? data.seriesPosition.value
+          : this.seriesPosition,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProjectRow(')
+          ..write('id: $id, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('seriesPosition: $seriesPosition, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id, payloadJson, seriesId, seriesPosition, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ProjectRow &&
+          other.id == this.id &&
+          other.payloadJson == this.payloadJson &&
+          other.seriesId == this.seriesId &&
+          other.seriesPosition == this.seriesPosition &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ProjectRowsCompanion extends UpdateCompanion<ProjectRow> {
+  final Value<String> id;
+  final Value<String> payloadJson;
+  final Value<String?> seriesId;
+  final Value<int?> seriesPosition;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const ProjectRowsCompanion({
+    this.id = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.seriesId = const Value.absent(),
+    this.seriesPosition = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ProjectRowsCompanion.insert({
+    required String id,
+    required String payloadJson,
+    this.seriesId = const Value.absent(),
+    this.seriesPosition = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        payloadJson = Value(payloadJson),
+        createdAt = Value(createdAt),
+        updatedAt = Value(updatedAt);
+  static Insertable<ProjectRow> custom({
+    Expression<String>? id,
+    Expression<String>? payloadJson,
+    Expression<String>? seriesId,
+    Expression<int>? seriesPosition,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (seriesId != null) 'series_id': seriesId,
+      if (seriesPosition != null) 'series_position': seriesPosition,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ProjectRowsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? payloadJson,
+      Value<String?>? seriesId,
+      Value<int?>? seriesPosition,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return ProjectRowsCompanion(
+      id: id ?? this.id,
+      payloadJson: payloadJson ?? this.payloadJson,
+      seriesId: seriesId ?? this.seriesId,
+      seriesPosition: seriesPosition ?? this.seriesPosition,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (seriesId.present) {
+      map['series_id'] = Variable<String>(seriesId.value);
+    }
+    if (seriesPosition.present) {
+      map['series_position'] = Variable<int>(seriesPosition.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProjectRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('seriesPosition: $seriesPosition, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SceneRevisionRowsTable extends SceneRevisionRows
+    with TableInfo<$SceneRevisionRowsTable, SceneRevisionRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SceneRevisionRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _projectIdMeta =
+      const VerificationMeta('projectId');
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+      'project_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _sceneIdMeta =
+      const VerificationMeta('sceneId');
+  @override
+  late final GeneratedColumn<String> sceneId = GeneratedColumn<String>(
+      'scene_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _chapterIdMeta =
+      const VerificationMeta('chapterId');
+  @override
+  late final GeneratedColumn<String> chapterId = GeneratedColumn<String>(
+      'chapter_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+      'title', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _contentMeta =
+      const VerificationMeta('content');
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+      'content', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _contentDigestMeta =
+      const VerificationMeta('contentDigest');
+  @override
+  late final GeneratedColumn<String> contentDigest = GeneratedColumn<String>(
+      'content_digest', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _wordCountMeta =
+      const VerificationMeta('wordCount');
+  @override
+  late final GeneratedColumn<int> wordCount = GeneratedColumn<int>(
+      'word_count', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _capturedAtMeta =
+      const VerificationMeta('capturedAt');
+  @override
+  late final GeneratedColumn<DateTime> capturedAt = GeneratedColumn<DateTime>(
+      'captured_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _triggerMeta =
+      const VerificationMeta('trigger');
+  @override
+  late final GeneratedColumn<String> trigger = GeneratedColumn<String>(
+      'trigger', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        projectId,
+        sceneId,
+        chapterId,
+        title,
+        content,
+        contentDigest,
+        wordCount,
+        capturedAt,
+        trigger
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'scene_revision_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<SceneRevisionRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('project_id')) {
+      context.handle(_projectIdMeta,
+          projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta));
+    } else if (isInserting) {
+      context.missing(_projectIdMeta);
+    }
+    if (data.containsKey('scene_id')) {
+      context.handle(_sceneIdMeta,
+          sceneId.isAcceptableOrUnknown(data['scene_id']!, _sceneIdMeta));
+    } else if (isInserting) {
+      context.missing(_sceneIdMeta);
+    }
+    if (data.containsKey('chapter_id')) {
+      context.handle(_chapterIdMeta,
+          chapterId.isAcceptableOrUnknown(data['chapter_id']!, _chapterIdMeta));
+    } else if (isInserting) {
+      context.missing(_chapterIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('content')) {
+      context.handle(_contentMeta,
+          content.isAcceptableOrUnknown(data['content']!, _contentMeta));
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('content_digest')) {
+      context.handle(
+          _contentDigestMeta,
+          contentDigest.isAcceptableOrUnknown(
+              data['content_digest']!, _contentDigestMeta));
+    } else if (isInserting) {
+      context.missing(_contentDigestMeta);
+    }
+    if (data.containsKey('word_count')) {
+      context.handle(_wordCountMeta,
+          wordCount.isAcceptableOrUnknown(data['word_count']!, _wordCountMeta));
+    } else if (isInserting) {
+      context.missing(_wordCountMeta);
+    }
+    if (data.containsKey('captured_at')) {
+      context.handle(
+          _capturedAtMeta,
+          capturedAt.isAcceptableOrUnknown(
+              data['captured_at']!, _capturedAtMeta));
+    } else if (isInserting) {
+      context.missing(_capturedAtMeta);
+    }
+    if (data.containsKey('trigger')) {
+      context.handle(_triggerMeta,
+          trigger.isAcceptableOrUnknown(data['trigger']!, _triggerMeta));
+    } else if (isInserting) {
+      context.missing(_triggerMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SceneRevisionRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SceneRevisionRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      projectId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}project_id'])!,
+      sceneId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}scene_id'])!,
+      chapterId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}chapter_id'])!,
+      title: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
+      content: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content'])!,
+      contentDigest: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content_digest'])!,
+      wordCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}word_count'])!,
+      capturedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}captured_at'])!,
+      trigger: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}trigger'])!,
+    );
+  }
+
+  @override
+  $SceneRevisionRowsTable createAlias(String alias) {
+    return $SceneRevisionRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SceneRevisionRow extends DataClass
+    implements Insertable<SceneRevisionRow> {
+  final String id;
+  final String projectId;
+  final String sceneId;
+  final String chapterId;
+  final String title;
+  final String content;
+  final String contentDigest;
+  final int wordCount;
+  final DateTime capturedAt;
+  final String trigger;
+  const SceneRevisionRow(
+      {required this.id,
+      required this.projectId,
+      required this.sceneId,
+      required this.chapterId,
+      required this.title,
+      required this.content,
+      required this.contentDigest,
+      required this.wordCount,
+      required this.capturedAt,
+      required this.trigger});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['project_id'] = Variable<String>(projectId);
+    map['scene_id'] = Variable<String>(sceneId);
+    map['chapter_id'] = Variable<String>(chapterId);
+    map['title'] = Variable<String>(title);
+    map['content'] = Variable<String>(content);
+    map['content_digest'] = Variable<String>(contentDigest);
+    map['word_count'] = Variable<int>(wordCount);
+    map['captured_at'] = Variable<DateTime>(capturedAt);
+    map['trigger'] = Variable<String>(trigger);
+    return map;
+  }
+
+  SceneRevisionRowsCompanion toCompanion(bool nullToAbsent) {
+    return SceneRevisionRowsCompanion(
+      id: Value(id),
+      projectId: Value(projectId),
+      sceneId: Value(sceneId),
+      chapterId: Value(chapterId),
+      title: Value(title),
+      content: Value(content),
+      contentDigest: Value(contentDigest),
+      wordCount: Value(wordCount),
+      capturedAt: Value(capturedAt),
+      trigger: Value(trigger),
+    );
+  }
+
+  factory SceneRevisionRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SceneRevisionRow(
+      id: serializer.fromJson<String>(json['id']),
+      projectId: serializer.fromJson<String>(json['projectId']),
+      sceneId: serializer.fromJson<String>(json['sceneId']),
+      chapterId: serializer.fromJson<String>(json['chapterId']),
+      title: serializer.fromJson<String>(json['title']),
+      content: serializer.fromJson<String>(json['content']),
+      contentDigest: serializer.fromJson<String>(json['contentDigest']),
+      wordCount: serializer.fromJson<int>(json['wordCount']),
+      capturedAt: serializer.fromJson<DateTime>(json['capturedAt']),
+      trigger: serializer.fromJson<String>(json['trigger']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'projectId': serializer.toJson<String>(projectId),
+      'sceneId': serializer.toJson<String>(sceneId),
+      'chapterId': serializer.toJson<String>(chapterId),
+      'title': serializer.toJson<String>(title),
+      'content': serializer.toJson<String>(content),
+      'contentDigest': serializer.toJson<String>(contentDigest),
+      'wordCount': serializer.toJson<int>(wordCount),
+      'capturedAt': serializer.toJson<DateTime>(capturedAt),
+      'trigger': serializer.toJson<String>(trigger),
+    };
+  }
+
+  SceneRevisionRow copyWith(
+          {String? id,
+          String? projectId,
+          String? sceneId,
+          String? chapterId,
+          String? title,
+          String? content,
+          String? contentDigest,
+          int? wordCount,
+          DateTime? capturedAt,
+          String? trigger}) =>
+      SceneRevisionRow(
+        id: id ?? this.id,
+        projectId: projectId ?? this.projectId,
+        sceneId: sceneId ?? this.sceneId,
+        chapterId: chapterId ?? this.chapterId,
+        title: title ?? this.title,
+        content: content ?? this.content,
+        contentDigest: contentDigest ?? this.contentDigest,
+        wordCount: wordCount ?? this.wordCount,
+        capturedAt: capturedAt ?? this.capturedAt,
+        trigger: trigger ?? this.trigger,
+      );
+  SceneRevisionRow copyWithCompanion(SceneRevisionRowsCompanion data) {
+    return SceneRevisionRow(
+      id: data.id.present ? data.id.value : this.id,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      sceneId: data.sceneId.present ? data.sceneId.value : this.sceneId,
+      chapterId: data.chapterId.present ? data.chapterId.value : this.chapterId,
+      title: data.title.present ? data.title.value : this.title,
+      content: data.content.present ? data.content.value : this.content,
+      contentDigest: data.contentDigest.present
+          ? data.contentDigest.value
+          : this.contentDigest,
+      wordCount: data.wordCount.present ? data.wordCount.value : this.wordCount,
+      capturedAt:
+          data.capturedAt.present ? data.capturedAt.value : this.capturedAt,
+      trigger: data.trigger.present ? data.trigger.value : this.trigger,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SceneRevisionRow(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('sceneId: $sceneId, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('contentDigest: $contentDigest, ')
+          ..write('wordCount: $wordCount, ')
+          ..write('capturedAt: $capturedAt, ')
+          ..write('trigger: $trigger')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, projectId, sceneId, chapterId, title,
+      content, contentDigest, wordCount, capturedAt, trigger);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SceneRevisionRow &&
+          other.id == this.id &&
+          other.projectId == this.projectId &&
+          other.sceneId == this.sceneId &&
+          other.chapterId == this.chapterId &&
+          other.title == this.title &&
+          other.content == this.content &&
+          other.contentDigest == this.contentDigest &&
+          other.wordCount == this.wordCount &&
+          other.capturedAt == this.capturedAt &&
+          other.trigger == this.trigger);
+}
+
+class SceneRevisionRowsCompanion extends UpdateCompanion<SceneRevisionRow> {
+  final Value<String> id;
+  final Value<String> projectId;
+  final Value<String> sceneId;
+  final Value<String> chapterId;
+  final Value<String> title;
+  final Value<String> content;
+  final Value<String> contentDigest;
+  final Value<int> wordCount;
+  final Value<DateTime> capturedAt;
+  final Value<String> trigger;
+  final Value<int> rowid;
+  const SceneRevisionRowsCompanion({
+    this.id = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.sceneId = const Value.absent(),
+    this.chapterId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.content = const Value.absent(),
+    this.contentDigest = const Value.absent(),
+    this.wordCount = const Value.absent(),
+    this.capturedAt = const Value.absent(),
+    this.trigger = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SceneRevisionRowsCompanion.insert({
+    required String id,
+    required String projectId,
+    required String sceneId,
+    required String chapterId,
+    required String title,
+    required String content,
+    required String contentDigest,
+    required int wordCount,
+    required DateTime capturedAt,
+    required String trigger,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        projectId = Value(projectId),
+        sceneId = Value(sceneId),
+        chapterId = Value(chapterId),
+        title = Value(title),
+        content = Value(content),
+        contentDigest = Value(contentDigest),
+        wordCount = Value(wordCount),
+        capturedAt = Value(capturedAt),
+        trigger = Value(trigger);
+  static Insertable<SceneRevisionRow> custom({
+    Expression<String>? id,
+    Expression<String>? projectId,
+    Expression<String>? sceneId,
+    Expression<String>? chapterId,
+    Expression<String>? title,
+    Expression<String>? content,
+    Expression<String>? contentDigest,
+    Expression<int>? wordCount,
+    Expression<DateTime>? capturedAt,
+    Expression<String>? trigger,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (projectId != null) 'project_id': projectId,
+      if (sceneId != null) 'scene_id': sceneId,
+      if (chapterId != null) 'chapter_id': chapterId,
+      if (title != null) 'title': title,
+      if (content != null) 'content': content,
+      if (contentDigest != null) 'content_digest': contentDigest,
+      if (wordCount != null) 'word_count': wordCount,
+      if (capturedAt != null) 'captured_at': capturedAt,
+      if (trigger != null) 'trigger': trigger,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SceneRevisionRowsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? projectId,
+      Value<String>? sceneId,
+      Value<String>? chapterId,
+      Value<String>? title,
+      Value<String>? content,
+      Value<String>? contentDigest,
+      Value<int>? wordCount,
+      Value<DateTime>? capturedAt,
+      Value<String>? trigger,
+      Value<int>? rowid}) {
+    return SceneRevisionRowsCompanion(
+      id: id ?? this.id,
+      projectId: projectId ?? this.projectId,
+      sceneId: sceneId ?? this.sceneId,
+      chapterId: chapterId ?? this.chapterId,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      contentDigest: contentDigest ?? this.contentDigest,
+      wordCount: wordCount ?? this.wordCount,
+      capturedAt: capturedAt ?? this.capturedAt,
+      trigger: trigger ?? this.trigger,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (sceneId.present) {
+      map['scene_id'] = Variable<String>(sceneId.value);
+    }
+    if (chapterId.present) {
+      map['chapter_id'] = Variable<String>(chapterId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (contentDigest.present) {
+      map['content_digest'] = Variable<String>(contentDigest.value);
+    }
+    if (wordCount.present) {
+      map['word_count'] = Variable<int>(wordCount.value);
+    }
+    if (capturedAt.present) {
+      map['captured_at'] = Variable<DateTime>(capturedAt.value);
+    }
+    if (trigger.present) {
+      map['trigger'] = Variable<String>(trigger.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SceneRevisionRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('sceneId: $sceneId, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('contentDigest: $contentDigest, ')
+          ..write('wordCount: $wordCount, ')
+          ..write('capturedAt: $capturedAt, ')
+          ..write('trigger: $trigger, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   _$AuthorOsDatabase(QueryExecutor e) : super(e);
   $AuthorOsDatabaseManager get managers => $AuthorOsDatabaseManager(this);
@@ -5866,6 +7371,12 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   late final $AuditEventRowsTable auditEventRows = $AuditEventRowsTable(this);
   late final $WritingSessionRowsTable writingSessionRows =
       $WritingSessionRowsTable(this);
+  late final $WritingGoalRowsTable writingGoalRows =
+      $WritingGoalRowsTable(this);
+  late final $SeriesRowsTable seriesRows = $SeriesRowsTable(this);
+  late final $ProjectRowsTable projectRows = $ProjectRowsTable(this);
+  late final $SceneRevisionRowsTable sceneRevisionRows =
+      $SceneRevisionRowsTable(this);
   late final Index authorRecordsType = Index('author_records_type',
       'CREATE INDEX author_records_type ON author_record_rows (type_id)');
   late final Index authorRecordsScope = Index('author_records_scope',
@@ -5928,6 +7439,13 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   late final Index writingSessionsProjectStarted = Index(
       'writing_sessions_project_started',
       'CREATE INDEX writing_sessions_project_started ON writing_session_rows (project_id, started_at)');
+  late final Index projectsSeriesPosition = Index('projects_series_position',
+      'CREATE INDEX projects_series_position ON project_rows (series_id, series_position)');
+  late final Index sceneRevisionsScene = Index('scene_revisions_scene',
+      'CREATE INDEX scene_revisions_scene ON scene_revision_rows (project_id, scene_id)');
+  late final Index sceneRevisionsSceneCaptured = Index(
+      'scene_revisions_scene_captured',
+      'CREATE INDEX scene_revisions_scene_captured ON scene_revision_rows (project_id, scene_id, captured_at)');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5945,6 +7463,10 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         recordVersionRows,
         auditEventRows,
         writingSessionRows,
+        writingGoalRows,
+        seriesRows,
+        projectRows,
+        sceneRevisionRows,
         authorRecordsType,
         authorRecordsScope,
         authorRecordsProject,
@@ -5972,7 +7494,10 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         auditEventsChange,
         auditEventsCreated,
         writingSessionsProject,
-        writingSessionsProjectStarted
+        writingSessionsProjectStarted,
+        projectsSeriesPosition,
+        sceneRevisionsScene,
+        sceneRevisionsSceneCaptured
       ];
 }
 
@@ -9941,6 +11466,797 @@ typedef $$WritingSessionRowsTableProcessedTableManager = ProcessedTableManager<
     ),
     WritingSessionRow,
     PrefetchHooks Function()>;
+typedef $$WritingGoalRowsTableCreateCompanionBuilder = WritingGoalRowsCompanion
+    Function({
+  required String projectId,
+  required int dailyWords,
+  required int weeklyWords,
+  required int monthlyWords,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$WritingGoalRowsTableUpdateCompanionBuilder = WritingGoalRowsCompanion
+    Function({
+  Value<String> projectId,
+  Value<int> dailyWords,
+  Value<int> weeklyWords,
+  Value<int> monthlyWords,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$WritingGoalRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $WritingGoalRowsTable> {
+  $$WritingGoalRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get dailyWords => $composableBuilder(
+      column: $table.dailyWords, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get weeklyWords => $composableBuilder(
+      column: $table.weeklyWords, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get monthlyWords => $composableBuilder(
+      column: $table.monthlyWords, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$WritingGoalRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $WritingGoalRowsTable> {
+  $$WritingGoalRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get dailyWords => $composableBuilder(
+      column: $table.dailyWords, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get weeklyWords => $composableBuilder(
+      column: $table.weeklyWords, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get monthlyWords => $composableBuilder(
+      column: $table.monthlyWords,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$WritingGoalRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $WritingGoalRowsTable> {
+  $$WritingGoalRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
+
+  GeneratedColumn<int> get dailyWords => $composableBuilder(
+      column: $table.dailyWords, builder: (column) => column);
+
+  GeneratedColumn<int> get weeklyWords => $composableBuilder(
+      column: $table.weeklyWords, builder: (column) => column);
+
+  GeneratedColumn<int> get monthlyWords => $composableBuilder(
+      column: $table.monthlyWords, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$WritingGoalRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $WritingGoalRowsTable,
+    WritingGoalRow,
+    $$WritingGoalRowsTableFilterComposer,
+    $$WritingGoalRowsTableOrderingComposer,
+    $$WritingGoalRowsTableAnnotationComposer,
+    $$WritingGoalRowsTableCreateCompanionBuilder,
+    $$WritingGoalRowsTableUpdateCompanionBuilder,
+    (
+      WritingGoalRow,
+      BaseReferences<_$AuthorOsDatabase, $WritingGoalRowsTable, WritingGoalRow>
+    ),
+    WritingGoalRow,
+    PrefetchHooks Function()> {
+  $$WritingGoalRowsTableTableManager(
+      _$AuthorOsDatabase db, $WritingGoalRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$WritingGoalRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$WritingGoalRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$WritingGoalRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> projectId = const Value.absent(),
+            Value<int> dailyWords = const Value.absent(),
+            Value<int> weeklyWords = const Value.absent(),
+            Value<int> monthlyWords = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              WritingGoalRowsCompanion(
+            projectId: projectId,
+            dailyWords: dailyWords,
+            weeklyWords: weeklyWords,
+            monthlyWords: monthlyWords,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String projectId,
+            required int dailyWords,
+            required int weeklyWords,
+            required int monthlyWords,
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              WritingGoalRowsCompanion.insert(
+            projectId: projectId,
+            dailyWords: dailyWords,
+            weeklyWords: weeklyWords,
+            monthlyWords: monthlyWords,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$WritingGoalRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $WritingGoalRowsTable,
+    WritingGoalRow,
+    $$WritingGoalRowsTableFilterComposer,
+    $$WritingGoalRowsTableOrderingComposer,
+    $$WritingGoalRowsTableAnnotationComposer,
+    $$WritingGoalRowsTableCreateCompanionBuilder,
+    $$WritingGoalRowsTableUpdateCompanionBuilder,
+    (
+      WritingGoalRow,
+      BaseReferences<_$AuthorOsDatabase, $WritingGoalRowsTable, WritingGoalRow>
+    ),
+    WritingGoalRow,
+    PrefetchHooks Function()>;
+typedef $$SeriesRowsTableCreateCompanionBuilder = SeriesRowsCompanion Function({
+  required String id,
+  required String name,
+  required int defaultTargetWords,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$SeriesRowsTableUpdateCompanionBuilder = SeriesRowsCompanion Function({
+  Value<String> id,
+  Value<String> name,
+  Value<int> defaultTargetWords,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$SeriesRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $SeriesRowsTable> {
+  $$SeriesRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get defaultTargetWords => $composableBuilder(
+      column: $table.defaultTargetWords,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$SeriesRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $SeriesRowsTable> {
+  $$SeriesRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get defaultTargetWords => $composableBuilder(
+      column: $table.defaultTargetWords,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$SeriesRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $SeriesRowsTable> {
+  $$SeriesRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get defaultTargetWords => $composableBuilder(
+      column: $table.defaultTargetWords, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$SeriesRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $SeriesRowsTable,
+    SeriesRow,
+    $$SeriesRowsTableFilterComposer,
+    $$SeriesRowsTableOrderingComposer,
+    $$SeriesRowsTableAnnotationComposer,
+    $$SeriesRowsTableCreateCompanionBuilder,
+    $$SeriesRowsTableUpdateCompanionBuilder,
+    (
+      SeriesRow,
+      BaseReferences<_$AuthorOsDatabase, $SeriesRowsTable, SeriesRow>
+    ),
+    SeriesRow,
+    PrefetchHooks Function()> {
+  $$SeriesRowsTableTableManager(_$AuthorOsDatabase db, $SeriesRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SeriesRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SeriesRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SeriesRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<int> defaultTargetWords = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SeriesRowsCompanion(
+            id: id,
+            name: name,
+            defaultTargetWords: defaultTargetWords,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String name,
+            required int defaultTargetWords,
+            required DateTime createdAt,
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SeriesRowsCompanion.insert(
+            id: id,
+            name: name,
+            defaultTargetWords: defaultTargetWords,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SeriesRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $SeriesRowsTable,
+    SeriesRow,
+    $$SeriesRowsTableFilterComposer,
+    $$SeriesRowsTableOrderingComposer,
+    $$SeriesRowsTableAnnotationComposer,
+    $$SeriesRowsTableCreateCompanionBuilder,
+    $$SeriesRowsTableUpdateCompanionBuilder,
+    (
+      SeriesRow,
+      BaseReferences<_$AuthorOsDatabase, $SeriesRowsTable, SeriesRow>
+    ),
+    SeriesRow,
+    PrefetchHooks Function()>;
+typedef $$ProjectRowsTableCreateCompanionBuilder = ProjectRowsCompanion
+    Function({
+  required String id,
+  required String payloadJson,
+  Value<String?> seriesId,
+  Value<int?> seriesPosition,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$ProjectRowsTableUpdateCompanionBuilder = ProjectRowsCompanion
+    Function({
+  Value<String> id,
+  Value<String> payloadJson,
+  Value<String?> seriesId,
+  Value<int?> seriesPosition,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$ProjectRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $ProjectRowsTable> {
+  $$ProjectRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get seriesId => $composableBuilder(
+      column: $table.seriesId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get seriesPosition => $composableBuilder(
+      column: $table.seriesPosition,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$ProjectRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $ProjectRowsTable> {
+  $$ProjectRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get seriesId => $composableBuilder(
+      column: $table.seriesId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get seriesPosition => $composableBuilder(
+      column: $table.seriesPosition,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$ProjectRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $ProjectRowsTable> {
+  $$ProjectRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => column);
+
+  GeneratedColumn<String> get seriesId =>
+      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+
+  GeneratedColumn<int> get seriesPosition => $composableBuilder(
+      column: $table.seriesPosition, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$ProjectRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $ProjectRowsTable,
+    ProjectRow,
+    $$ProjectRowsTableFilterComposer,
+    $$ProjectRowsTableOrderingComposer,
+    $$ProjectRowsTableAnnotationComposer,
+    $$ProjectRowsTableCreateCompanionBuilder,
+    $$ProjectRowsTableUpdateCompanionBuilder,
+    (
+      ProjectRow,
+      BaseReferences<_$AuthorOsDatabase, $ProjectRowsTable, ProjectRow>
+    ),
+    ProjectRow,
+    PrefetchHooks Function()> {
+  $$ProjectRowsTableTableManager(_$AuthorOsDatabase db, $ProjectRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ProjectRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ProjectRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ProjectRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> payloadJson = const Value.absent(),
+            Value<String?> seriesId = const Value.absent(),
+            Value<int?> seriesPosition = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ProjectRowsCompanion(
+            id: id,
+            payloadJson: payloadJson,
+            seriesId: seriesId,
+            seriesPosition: seriesPosition,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String payloadJson,
+            Value<String?> seriesId = const Value.absent(),
+            Value<int?> seriesPosition = const Value.absent(),
+            required DateTime createdAt,
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ProjectRowsCompanion.insert(
+            id: id,
+            payloadJson: payloadJson,
+            seriesId: seriesId,
+            seriesPosition: seriesPosition,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$ProjectRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $ProjectRowsTable,
+    ProjectRow,
+    $$ProjectRowsTableFilterComposer,
+    $$ProjectRowsTableOrderingComposer,
+    $$ProjectRowsTableAnnotationComposer,
+    $$ProjectRowsTableCreateCompanionBuilder,
+    $$ProjectRowsTableUpdateCompanionBuilder,
+    (
+      ProjectRow,
+      BaseReferences<_$AuthorOsDatabase, $ProjectRowsTable, ProjectRow>
+    ),
+    ProjectRow,
+    PrefetchHooks Function()>;
+typedef $$SceneRevisionRowsTableCreateCompanionBuilder
+    = SceneRevisionRowsCompanion Function({
+  required String id,
+  required String projectId,
+  required String sceneId,
+  required String chapterId,
+  required String title,
+  required String content,
+  required String contentDigest,
+  required int wordCount,
+  required DateTime capturedAt,
+  required String trigger,
+  Value<int> rowid,
+});
+typedef $$SceneRevisionRowsTableUpdateCompanionBuilder
+    = SceneRevisionRowsCompanion Function({
+  Value<String> id,
+  Value<String> projectId,
+  Value<String> sceneId,
+  Value<String> chapterId,
+  Value<String> title,
+  Value<String> content,
+  Value<String> contentDigest,
+  Value<int> wordCount,
+  Value<DateTime> capturedAt,
+  Value<String> trigger,
+  Value<int> rowid,
+});
+
+class $$SceneRevisionRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $SceneRevisionRowsTable> {
+  $$SceneRevisionRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get sceneId => $composableBuilder(
+      column: $table.sceneId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get chapterId => $composableBuilder(
+      column: $table.chapterId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get contentDigest => $composableBuilder(
+      column: $table.contentDigest, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get wordCount => $composableBuilder(
+      column: $table.wordCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get trigger => $composableBuilder(
+      column: $table.trigger, builder: (column) => ColumnFilters(column));
+}
+
+class $$SceneRevisionRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $SceneRevisionRowsTable> {
+  $$SceneRevisionRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get sceneId => $composableBuilder(
+      column: $table.sceneId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get chapterId => $composableBuilder(
+      column: $table.chapterId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get contentDigest => $composableBuilder(
+      column: $table.contentDigest,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get wordCount => $composableBuilder(
+      column: $table.wordCount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get trigger => $composableBuilder(
+      column: $table.trigger, builder: (column) => ColumnOrderings(column));
+}
+
+class $$SceneRevisionRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $SceneRevisionRowsTable> {
+  $$SceneRevisionRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
+
+  GeneratedColumn<String> get sceneId =>
+      $composableBuilder(column: $table.sceneId, builder: (column) => column);
+
+  GeneratedColumn<String> get chapterId =>
+      $composableBuilder(column: $table.chapterId, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<String> get contentDigest => $composableBuilder(
+      column: $table.contentDigest, builder: (column) => column);
+
+  GeneratedColumn<int> get wordCount =>
+      $composableBuilder(column: $table.wordCount, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get trigger =>
+      $composableBuilder(column: $table.trigger, builder: (column) => column);
+}
+
+class $$SceneRevisionRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $SceneRevisionRowsTable,
+    SceneRevisionRow,
+    $$SceneRevisionRowsTableFilterComposer,
+    $$SceneRevisionRowsTableOrderingComposer,
+    $$SceneRevisionRowsTableAnnotationComposer,
+    $$SceneRevisionRowsTableCreateCompanionBuilder,
+    $$SceneRevisionRowsTableUpdateCompanionBuilder,
+    (
+      SceneRevisionRow,
+      BaseReferences<_$AuthorOsDatabase, $SceneRevisionRowsTable,
+          SceneRevisionRow>
+    ),
+    SceneRevisionRow,
+    PrefetchHooks Function()> {
+  $$SceneRevisionRowsTableTableManager(
+      _$AuthorOsDatabase db, $SceneRevisionRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SceneRevisionRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SceneRevisionRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SceneRevisionRowsTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> projectId = const Value.absent(),
+            Value<String> sceneId = const Value.absent(),
+            Value<String> chapterId = const Value.absent(),
+            Value<String> title = const Value.absent(),
+            Value<String> content = const Value.absent(),
+            Value<String> contentDigest = const Value.absent(),
+            Value<int> wordCount = const Value.absent(),
+            Value<DateTime> capturedAt = const Value.absent(),
+            Value<String> trigger = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SceneRevisionRowsCompanion(
+            id: id,
+            projectId: projectId,
+            sceneId: sceneId,
+            chapterId: chapterId,
+            title: title,
+            content: content,
+            contentDigest: contentDigest,
+            wordCount: wordCount,
+            capturedAt: capturedAt,
+            trigger: trigger,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String projectId,
+            required String sceneId,
+            required String chapterId,
+            required String title,
+            required String content,
+            required String contentDigest,
+            required int wordCount,
+            required DateTime capturedAt,
+            required String trigger,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SceneRevisionRowsCompanion.insert(
+            id: id,
+            projectId: projectId,
+            sceneId: sceneId,
+            chapterId: chapterId,
+            title: title,
+            content: content,
+            contentDigest: contentDigest,
+            wordCount: wordCount,
+            capturedAt: capturedAt,
+            trigger: trigger,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SceneRevisionRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $SceneRevisionRowsTable,
+    SceneRevisionRow,
+    $$SceneRevisionRowsTableFilterComposer,
+    $$SceneRevisionRowsTableOrderingComposer,
+    $$SceneRevisionRowsTableAnnotationComposer,
+    $$SceneRevisionRowsTableCreateCompanionBuilder,
+    $$SceneRevisionRowsTableUpdateCompanionBuilder,
+    (
+      SceneRevisionRow,
+      BaseReferences<_$AuthorOsDatabase, $SceneRevisionRowsTable,
+          SceneRevisionRow>
+    ),
+    SceneRevisionRow,
+    PrefetchHooks Function()>;
 
 class $AuthorOsDatabaseManager {
   final _$AuthorOsDatabase _db;
@@ -9973,4 +12289,12 @@ class $AuthorOsDatabaseManager {
       $$AuditEventRowsTableTableManager(_db, _db.auditEventRows);
   $$WritingSessionRowsTableTableManager get writingSessionRows =>
       $$WritingSessionRowsTableTableManager(_db, _db.writingSessionRows);
+  $$WritingGoalRowsTableTableManager get writingGoalRows =>
+      $$WritingGoalRowsTableTableManager(_db, _db.writingGoalRows);
+  $$SeriesRowsTableTableManager get seriesRows =>
+      $$SeriesRowsTableTableManager(_db, _db.seriesRows);
+  $$ProjectRowsTableTableManager get projectRows =>
+      $$ProjectRowsTableTableManager(_db, _db.projectRows);
+  $$SceneRevisionRowsTableTableManager get sceneRevisionRows =>
+      $$SceneRevisionRowsTableTableManager(_db, _db.sceneRevisionRows);
 }

@@ -18,12 +18,15 @@ import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
+import 'package:author_studio_v1/core/scene_revision.dart';
 import 'package:author_studio_v1/core/story_graph.dart';
 import 'package:author_studio_v1/core/version_audit.dart';
 import 'package:author_studio_v1/manuscript_service.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
+import 'package:author_studio_v1/core/writing_series.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:author_studio_v1/project_roster_store.dart';
 import 'package:author_studio_v1/world_service.dart';
 import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
@@ -48,6 +51,29 @@ const _auditedTables = {
   // merged into main. It is deliberately in this list and deliberately NOT
   // graph truth — see the invariant I-12 test below.
   'writing_session_rows',
+  // The author's daily, weekly, and monthly word targets, from the author
+  // performance milestone. A per-project setting, not a node and not an edge:
+  // deliberately listed here and deliberately not graph truth — see the
+  // writing-goals test below, which holds it there the same way I-12 holds
+  // sessions.
+  'writing_goal_rows',
+  // Named series, from the series-analytics milestone. A series is library
+  // structure: it names a sequence of books and the target a joining book
+  // inherits, and nothing else. It could not have been graph data even by
+  // choice — a series spans projects, and the project-isolation test above
+  // shows the graph refuses to link across them.
+  'series_rows',
+  // The project roster: every book on this machine, and which series it
+  // belongs to. Before it, AuthorOS held one project in a single preference
+  // key. A catalogue entry, not a node and not an edge — see the roster test
+  // below.
+  'project_rows',
+  // Prose history, from the scene-revision milestone. The first place in
+  // AuthorOS that keeps a copy of a scene's words after they are overwritten.
+  // Deliberately in this list and deliberately not graph truth: a revision is
+  // an archived body of text, and the graph has never stored prose at all —
+  // see the scene-revision test below, and R-14 in the Story Graph audit.
+  'scene_revision_rows',
 };
 
 final _timestamp = DateTime.utc(2026, 8, 21, 9);
@@ -421,6 +447,279 @@ void main() {
         .map((definition) => definition.id)
         .toList();
     expect(sessionEdges, isEmpty);
+  });
+
+  test('writing goals stay a setting and never become graph truth', () async {
+    // The same question I-12 forces about a session, asked about a goal: is
+    // the author's word target graph data? It is not. It is a per-project
+    // setting, and this test holds it there.
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
+
+    // A goal is not a node: no foreign key into the graph's identity table.
+    final foreignKeys = await database
+        .customSelect('PRAGMA foreign_key_list(writing_goal_rows)')
+        .get();
+    expect(
+      foreignKeys,
+      isEmpty,
+      reason: 'writing_goal_rows gained a foreign key. A goal that points '
+          'into connected_entities is a graph node, not a setting.',
+    );
+
+    // One row per project, so goals can never accumulate into a history.
+    final columns = await database
+        .customSelect('PRAGMA table_info(writing_goal_rows)')
+        .get();
+    final primaryKey = columns
+        .where((row) => row.read<int>('pk') > 0)
+        .map((row) => row.read<String>('name'))
+        .toList();
+    expect(
+      primaryKey,
+      ['project_id'],
+      reason: 'Writing goals are keyed by project. A surrogate key would let '
+          'one project hold several sets of targets.',
+    );
+
+    // A writing goal is not a record type either. Note the ids are specific:
+    // the Plot Studio already registers a `goal` record type, which is a
+    // story goal a character pursues — a different thing entirely from the
+    // author's word target, and legitimately graph data.
+    expect(
+      BuiltInRecordTypes.definitions.map((definition) => definition.id),
+      isNot(anyOf(
+        contains('writing-goal'),
+        contains('writingGoal'),
+        contains('writing-goals'),
+      )),
+      reason: 'A writing goal became a registered record type. Word targets '
+          'are a setting; promoting one to a node makes Analytics a source '
+          'of graph truth.',
+    );
+
+    // And no connection type may take one as an endpoint.
+    final goalEdges = BuiltInConnectionTypes.definitions
+        .where((definition) =>
+            definition.sourceTypeIds.contains('writing-goal') ||
+            definition.targetTypeIds.contains('writing-goal'))
+        .map((definition) => definition.id)
+        .toList();
+    expect(goalEdges, isEmpty);
+  });
+
+  test('scene revisions stay archived prose and never become graph truth',
+      () async {
+    // The question I-12 forces about a session, asked about a paragraph: is a
+    // stored copy of a scene's prose graph data? It is not — and here the
+    // answer is stronger than a judgement call. The graph has never held prose
+    // at all: `manuscriptNodeForScene` stores metadata and a word count, and
+    // R-14 in the Story Graph audit records scene text being unsearchable as a
+    // known consequence. A revision table that leaked into the graph would
+    // reverse that silently.
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
+
+    // Not a node: no foreign key into the graph's identity table.
+    final foreignKeys = await database
+        .customSelect('PRAGMA foreign_key_list(scene_revision_rows)')
+        .get();
+    expect(
+      foreignKeys,
+      isEmpty,
+      reason: 'scene_revision_rows gained a foreign key. A revision that '
+          'points into connected_entities is a graph node, not an archive.',
+    );
+
+    // A surrogate key, unlike goals: a scene keeps many revisions, and that
+    // is the entire point of the table.
+    final columns = await database
+        .customSelect('PRAGMA table_info(scene_revision_rows)')
+        .get();
+    final primaryKey = columns
+        .where((row) => row.read<int>('pk') > 0)
+        .map((row) => row.read<String>('name'))
+        .toList();
+    expect(primaryKey, ['id']);
+
+    // Not a record type, and not an endpoint of any connection.
+    expect(
+      BuiltInRecordTypes.definitions.map((definition) => definition.id),
+      isNot(anyOf(
+        contains('scene-revision'),
+        contains('sceneRevision'),
+        contains('revision'),
+      )),
+      reason: 'A stored copy of prose became a registered record type, which '
+          'would put scene text into the graph and into the search index.',
+    );
+    final revisionEdges = BuiltInConnectionTypes.definitions
+        .where((definition) =>
+            definition.sourceTypeIds.contains('scene-revision') ||
+            definition.targetTypeIds.contains('scene-revision'))
+        .map((definition) => definition.id)
+        .toList();
+    expect(revisionEdges, isEmpty);
+
+    // And writing one leaves graph truth alone.
+    final repository = DriftConnectedDomainRepository(database);
+    await repository.putSceneRevision(
+      SceneRevision(
+        id: 'rev-1',
+        projectId: 'project-a',
+        sceneId: 'scene-1',
+        chapterId: 'chapter-1',
+        title: 'The Blood Price',
+        content: 'She opened the door.',
+        wordCount: 4,
+        capturedAt: _timestamp,
+        trigger: SceneRevisionTrigger.boundary,
+      ),
+    );
+
+    for (final table in const [
+      'connected_entities',
+      'author_record_rows',
+      'manuscript_node_rows',
+      'record_link_rows',
+      'record_version_rows',
+      'audit_event_rows',
+    ]) {
+      final count = await database
+          .customSelect('SELECT COUNT(*) AS total FROM $table')
+          .getSingle();
+      expect(count.read<int>('total'), 0, reason: table);
+    }
+    final indexed = await database
+        .customSelect('SELECT COUNT(*) AS total FROM author_search')
+        .getSingle();
+    expect(
+      indexed.read<int>('total'),
+      0,
+      reason: 'Keeping a copy of a scene must not put its prose into the '
+          'search index — the manuscript itself deliberately does not.',
+    );
+  });
+
+  test('the project roster stays a catalogue and never becomes graph truth',
+      () async {
+    // The question I-12 forces about a session, asked about a book: is the
+    // roster graph data? It is not. It is the author's catalogue of projects,
+    // and a series is a sequence within it.
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
+
+    // Neither table points into the graph's identity table.
+    for (final table in const ['project_rows', 'series_rows']) {
+      final foreignKeys =
+          await database.customSelect('PRAGMA foreign_key_list($table)').get();
+      expect(
+        foreignKeys,
+        isEmpty,
+        reason: '$table gained a foreign key. A roster row that points into '
+            'connected_entities is a node, not a catalogue entry.',
+      );
+    }
+
+    // One row per project, and one per series.
+    for (final table in const ['project_rows', 'series_rows']) {
+      final columns =
+          await database.customSelect('PRAGMA table_info($table)').get();
+      final primaryKey = columns
+          .where((row) => row.read<int>('pk') > 0)
+          .map((row) => row.read<String>('name'))
+          .toList();
+      expect(
+        primaryKey,
+        [table == 'project_rows' ? 'id' : 'id'],
+        reason: '$table must be keyed by its own id, so a project cannot '
+            'hold two roster rows.',
+      );
+    }
+
+    // The series/book record-type placeholders stay placeholders. Promoting
+    // them into real typed records is M4's call, not this milestone's.
+    //
+    // Read from the declarations rather than through `registry.resolve`:
+    // these types derive from `general-lore`, so a resolved definition
+    // inherits that type's fields and would never look empty.
+    for (final typeId in const ['series', 'book', 'project']) {
+      final declared = BuiltInRecordTypes.definitions
+          .firstWhere((definition) => definition.id == typeId);
+      expect(
+        declared.fields,
+        isEmpty,
+        reason: '$typeId declared fields of its own. The roster stores books; '
+            'promoting the record type is a separate, deliberate decision.',
+      );
+      expect(declared.baseTypeId, 'general-lore', reason: typeId);
+    }
+
+    // Note what is deliberately NOT asserted here: that no connection type
+    // touches `book`. `appearsIn` and `mentionedIn` already take a `book`
+    // record as a target, and that is fine — a `book` record in the Codex is
+    // a thing a character can appear in. It is not a roster row. The
+    // invariant that matters is that series membership is stored as roster
+    // columns rather than as edges, which the next test proves directly by
+    // building a series and showing the graph did not move.
+  });
+
+  test('building a series writes no records, links, versions or audit events',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repository = DriftConnectedDomainRepository(database);
+    final roster = ProjectRosterStore(repository: repository);
+
+    Future<Map<String, int>> graphTruth() async {
+      final snapshot = await repository.snapshot();
+      return {
+        'records': snapshot.records.length,
+        'links': snapshot.links.length,
+        'versions': snapshot.versions.length,
+        'auditEvents': snapshot.auditEvents.length,
+        'manuscriptNodes': snapshot.manuscriptNodes.length,
+      };
+    }
+
+    final before = await graphTruth();
+
+    await roster.saveSeries(
+      const WritingSeries(
+        id: 'series-1',
+        name: 'Endovier Chronicles',
+        defaultTargetWords: 90000,
+      ),
+    );
+    for (final id in const ['book-1', 'book-2']) {
+      await roster.save(
+        StarterProject(
+          id: id,
+          title: id,
+          genre: 'Fantasy',
+          projectType: 'Novel',
+          wordGoal: 90000,
+          acts: const [],
+          chapters: const [],
+          characterSheets: const [],
+          beatChecklist: const [],
+          firstSceneTitle: 'Opening Scene',
+        ),
+      );
+      await roster.addBookToSeries(projectId: id, seriesId: 'series-1');
+    }
+
+    expect(
+      await graphTruth(),
+      before,
+      reason: 'A series is roster data. Creating one must not create records, '
+          'links, versions, audit events or manuscript nodes.',
+    );
+    expect(await roster.books('series-1'), hasLength(2));
   });
 
   test('research lives in records and the legacy panel blob is never rewritten',

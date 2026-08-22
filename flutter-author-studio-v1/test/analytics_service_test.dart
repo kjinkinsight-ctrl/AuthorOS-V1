@@ -5,12 +5,15 @@ import 'package:author_studio_v1/analytics_service.dart';
 import 'package:author_studio_v1/character_service.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/record_service.dart';
+import 'package:author_studio_v1/core/writing_goals.dart';
+import 'package:author_studio_v1/core/writing_session.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/plot_service.dart';
 import 'package:author_studio_v1/timeline_domain.dart';
 import 'package:author_studio_v1/timeline_service.dart';
+import 'package:author_studio_v1/writing_goals_store.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -126,6 +129,214 @@ void main() {
         createdAt: timestamp,
         updatedAt: timestamp,
       );
+
+  group('scene completion', () {
+    test('scenes are counted by status, the same way chapters are', () async {
+      final project = _project('as-scenes');
+      await saveManuscript(project, [
+        _chapter('ch-1', title: 'One', scenes: [
+          _scene('ch-1', 'sc-1', status: ManuscriptNodeStatus.complete),
+          _scene('ch-1', 'sc-2', status: ManuscriptNodeStatus.complete),
+          _scene('ch-1', 'sc-3', status: ManuscriptNodeStatus.draft),
+        ]),
+        _chapter('ch-2', title: 'Two', scenes: [
+          _scene('ch-2', 'sc-4', status: ManuscriptNodeStatus.planned),
+        ]),
+      ]);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(summary.sceneCount, 4);
+      expect(summary.completedSceneCount, 2);
+      expect(summary.draftSceneCount, 1);
+      expect(summary.scenesByStatus['planned'], 1);
+    });
+
+    test('a manuscript with no scenes reports an empty map, not zeros',
+        () async {
+      final project = _project('as-no-scenes');
+      await saveManuscript(project, [
+        _chapter('ch-1', title: 'One', scenes: const []),
+      ]);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(summary.scenesByStatus, isEmpty);
+      expect(summary.completedSceneCount, 0);
+    });
+
+    test('scene status is keyed exactly as chapter status is', () async {
+      final project = _project('as-scene-keys');
+      await saveManuscript(project, [
+        _chapter('ch-1',
+            title: 'One',
+            status: ManuscriptNodeStatus.complete,
+            scenes: [
+              _scene('ch-1', 'sc-1', status: ManuscriptNodeStatus.complete),
+            ]),
+      ]);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(
+        summary.scenesByStatus.keys,
+        everyElement(isIn(summary.chaptersByStatus.keys)),
+      );
+    });
+  });
+
+  group('writing goals', () {
+    test('a project that never set goals reports the seeded targets',
+        () async {
+      final project = _project('as-goals-default');
+      await saveManuscript(project, const []);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(summary.writingGoals.dailyWords, 2000);
+      expect(summary.writingGoals.weeklyWords, 10000);
+      expect(summary.writingGoals.monthlyWords, 40000);
+      expect(summary.writingGoals.isCustomized, isFalse);
+    });
+
+    test('stored goals reach the summary', () async {
+      final project = _project('as-goals-stored');
+      await saveManuscript(project, const []);
+      await WritingGoalsStore(repository: repository).save(
+        WritingGoals.defaultsFor(project.id).copyWith(dailyWords: 1500),
+      );
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(summary.writingGoals.dailyWords, 1500);
+      expect(summary.writingGoals.isCustomized, isTrue);
+    });
+
+    test('goal progress compares against the history the summary carries',
+        () async {
+      // Pinned: a wall-clock session two hours old lands on yesterday when
+      // the suite runs just after midnight, and "today" would read as zero.
+      final now = DateTime(2026, 8, 20, 14, 30);
+      final project = _project('as-goals-progress');
+      await saveManuscript(project, const []);
+      await repository.putWritingSession(
+        WritingSession(
+          id: 'ws-1',
+          projectId: project.id,
+          startedAt: DateTime(2026, 8, 20, 9),
+          endedAt: DateTime(2026, 8, 20, 10),
+          startingWordCount: 0,
+          endingWordCount: 1000,
+          wordsAdded: 1000,
+          wordsRemoved: 0,
+        ),
+      );
+
+      final summary = await AnalyticsService(
+        project: project,
+        repository: repository,
+        manuscriptStore: manuscriptStore,
+        clock: () => now,
+      ).getSummary();
+
+      expect(
+        summary.goalProgress.wordsToday,
+        summary.writingHistory.wordsToday,
+      );
+      expect(summary.goalProgress.wordsToday, 1000);
+      expect(summary.goalProgress.dailyProgress, 1000 / 2000);
+      expect(summary.goalProgress.dailyWordsRemaining, 1000);
+    });
+  });
+
+  group('velocity and projection', () {
+    test('velocity holds the very history the summary reports', () async {
+      final project = _project('as-velocity-identity');
+      await saveManuscript(project, const []);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(identical(summary.velocity.history, summary.writingHistory), isTrue);
+    });
+
+    test('a project with no sessions projects nothing', () async {
+      final project = _project('as-velocity-empty');
+      await saveManuscript(project, [
+        _chapter('ch-1', title: 'One', scenes: [
+          _scene('ch-1', 'sc-1', content: _words(100)),
+        ]),
+      ]);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(summary.velocity.hasVelocity, isFalse);
+      expect(summary.projection.hasTarget, isTrue);
+      expect(summary.projection.hasProjection, isFalse);
+    });
+
+    test('the projection reports the summary\'s own remainder', () async {
+      final project = _project('as-projection-remainder', wordGoal: 1000);
+      await saveManuscript(project, [
+        _chapter('ch-1', title: 'One', scenes: [
+          _scene('ch-1', 'sc-1', content: _words(250)),
+        ]),
+      ]);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(summary.projection.wordsRemaining, summary.wordsRemaining);
+      expect(summary.projection.currentWords, summary.totalWordCount);
+      expect(summary.projection.targetWords, summary.targetWordCount);
+    });
+
+    test('a project without a target projects nothing at all', () async {
+      final project = _project('as-projection-no-target', wordGoal: 0);
+      await saveManuscript(project, const []);
+
+      final summary = await serviceFor(project).getSummary();
+
+      expect(summary.projection.hasTarget, isFalse);
+      expect(summary.projection.estimatedDaysToCompletion, isNull);
+      expect(summary.projection.projectedCompletionDate, isNull);
+    });
+
+    test('a pinned clock projects a finishing day from recorded sessions',
+        () async {
+      final now = DateTime(2026, 8, 20, 14, 30);
+      final project = _project('as-projection-pinned', wordGoal: 1000);
+      await saveManuscript(project, [
+        _chapter('ch-1', title: 'One', scenes: [
+          _scene('ch-1', 'sc-1', content: _words(500)),
+        ]),
+      ]);
+      // 500 words over the ten days from 11 August through 20 August is
+      // 50 words a day; the 500 that remain are ten more days of writing.
+      await repository.putWritingSession(
+        WritingSession(
+          id: 'ws-1',
+          projectId: project.id,
+          startedAt: DateTime(2026, 8, 11, 9),
+          endedAt: DateTime(2026, 8, 11, 10),
+          startingWordCount: 0,
+          endingWordCount: 500,
+          wordsAdded: 500,
+          wordsRemoved: 0,
+        ),
+      );
+
+      final summary = await AnalyticsService(
+        project: project,
+        repository: repository,
+        manuscriptStore: manuscriptStore,
+        clock: () => now,
+      ).getSummary();
+
+      expect(summary.velocity.daysElapsed, 10);
+      expect(summary.velocity.averageDailyWords, 50.0);
+      expect(summary.projection.estimatedDaysToCompletion, 10);
+      expect(summary.projection.projectedCompletionDate, DateTime(2026, 8, 30));
+    });
+  });
 
   group('empty project', () {
     test('an empty project reports zeros and does not crash', () async {

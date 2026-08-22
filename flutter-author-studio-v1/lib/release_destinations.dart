@@ -16,7 +16,7 @@ import 'persistence/authoros_database.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';
-import 'sync/project_sync_service.dart';
+import 'sync/sync_appliers.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/theme_definition.dart';
 import 'theme/theme_persistence.dart';
@@ -2525,8 +2525,11 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
 
     setState(() {});
 
-    // Drain anything saved while signed out.
-    await const ProjectSyncService().flushQueue();
+    // Drain anything saved while signed out, and pull down whatever the
+    // author's other devices have. Sign-in is the moment a fresh install has
+    // an empty roster and the server has a full one, so it is the one trigger
+    // where the download matters most.
+    await buildSyncEngine().sync();
     if (!mounted) {
       return;
     }

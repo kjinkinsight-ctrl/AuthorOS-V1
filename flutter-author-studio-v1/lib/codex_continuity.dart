@@ -1,7 +1,7 @@
 import 'continuity.dart';
 import 'core/connected_domain.dart';
-import 'core/story_codex_domain.dart';
 import 'core/entity_recognition.dart';
+import 'core/story_codex_domain.dart';
 
 /// Codex-side inputs and resolution parameters for one Continuity
 /// Intelligence recommendation.
@@ -145,7 +145,7 @@ class CodexContinuityIntelligence {
       final mention = [candidate.title, ...candidate.aliases]
           .map((name) => name.trim())
           .where((name) => name.length >= minimumMentionLength)
-          .where((name) => mentionsName(prose, name))
+          .where((name) => _matcher.mentions(prose, name))
           .firstOrNull;
       if (mention == null) continue;
       findings.add(CodexContinuityFinding(
@@ -167,7 +167,7 @@ class CodexContinuityIntelligence {
       final isCharacterRoster = characterRosterFields.contains(field.key);
       final isLocationRoster = locationRosterFields.contains(field.key);
       if (!isCharacterRoster && !isLocationRoster) continue;
-      for (final name in _names(field.value)) {
+      for (final name in EntityNames.split(field.value)) {
         if (findings.length >= maxFindingsPerEntry) break;
         if (name.length < minimumMentionLength) continue;
         if (normalizedKnown.contains(name.toLowerCase())) continue;
@@ -200,28 +200,8 @@ class CodexContinuityIntelligence {
   /// Every title and alias that exists in the project, for missing-record
   /// checks. Accepts raw Universal Records so a name owned by another Studio
   /// counts as known.
-  static Set<String> knownNames(Iterable<AuthorRecord> records) => <String>{
-        for (final record in records) ...[
-          record.title.trim(),
-          ...CodexEntry(record).aliases.map((alias) => alias.trim()),
-        ],
-      }..remove('');
+  static Set<String> knownNames(Iterable<AuthorRecord> records) =>
+      EntityNames.knownNames(records);
 }
 
-
-List<String> _names(Object? value) {
-  if (value is String) {
-    return value
-        .split(RegExp(r'[,;\n]'))
-        .map((item) => item.trim())
-        .where((item) => item.isNotEmpty)
-        .toList();
-  }
-  if (value is List) {
-    return value
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
-        .toList();
-  }
-  return const [];
-}
+const _matcher = EntityNameMatcher();

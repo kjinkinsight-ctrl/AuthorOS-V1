@@ -22,6 +22,8 @@ import 'core/universal_search.dart';
 import 'core/version_audit.dart';
 import 'knowledge_graph/open_in_graph.dart';
 import 'persistence/authoros_database.dart';
+import 'entity_profile_service.dart';
+import 'entity_profile_view.dart';
 import 'story_codex_service.dart';
 
 /// Where a connected record lives, so the shell can switch Studios.
@@ -1620,6 +1622,7 @@ CodexValidationBadge? codexValidationBadge(
 
 enum _CodexTab {
   overview,
+  profile,
   fields,
   relationships,
   sources,
@@ -1630,6 +1633,7 @@ enum _CodexTab {
 
 String _tabLabel(_CodexTab tab) => switch (tab) {
       _CodexTab.overview => 'Overview',
+      _CodexTab.profile => 'Profile',
       _CodexTab.fields => 'Fields',
       _CodexTab.relationships => 'Relationships',
       _CodexTab.sources => 'Sources',
@@ -2476,6 +2480,7 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
           const Divider(height: 28),
           switch (tab) {
             _CodexTab.overview => _overviewTab(context),
+            _CodexTab.profile => _profileTab(context),
             _CodexTab.fields => _fieldsTab(context),
             _CodexTab.relationships => _relationshipsTab(context),
             _CodexTab.sources => _sourcesTab(context),
@@ -2517,6 +2522,29 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
             label: const Text('Save'),
           ),
         ],
+      );
+
+  /// The entity's whole series on one page — what it is, where it is used
+  /// across every book, and what disagrees about it.
+  ///
+  /// Rendered by the shared [EntityProfileView] rather than a Codex-specific
+  /// layout: the profile belongs to the entity, not to this screen.
+  Widget _profileTab(BuildContext context) => EntityProfileView(
+        key: Key('codex-profile-${widget.entry.id}'),
+        recordId: widget.entry.id,
+        service: EntityProfileService(
+          projectId: widget.service.projectId,
+          repository: widget.service.repository,
+        ),
+        // The pane navigates by record, so a profile link only opens what this
+        // workspace can already show. Anything outside the loaded Codex list
+        // is left alone rather than opened into a blank pane.
+        onOpenRecord: (recordId) {
+          final match = widget.entries
+              .where((entry) => entry.id == recordId)
+              .firstOrNull;
+          if (match != null) widget.onNavigate(match.record);
+        },
       );
 
   Widget _overviewTab(BuildContext context) {

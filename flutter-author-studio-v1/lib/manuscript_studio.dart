@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/prose_document.dart';
+import 'core/prose_markup.dart';
 import 'core/version_audit.dart';
 import 'manuscript_export.dart';
 import 'manuscript_service.dart';
 import 'manuscript_store.dart';
 import 'sync/manuscript_appliers.dart';
 import 'manuscript_workspace.dart';
+import 'prose_editor.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 import 'core/scene_revision.dart';
@@ -117,7 +120,7 @@ class _SaveIntent extends Intent {
 
 class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     with WidgetsBindingObserver {
-  final TextEditingController _editorController = TextEditingController();
+  final ProseEditingController _editorController = ProseEditingController();
   final TextEditingController _searchController = TextEditingController();
 
   final TextEditingController _filterController = TextEditingController();
@@ -535,12 +538,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     }
 
     final scene = chapter.scenes[sceneIndex];
-    if (scene.content == _editorController.text) {
+    final markup = _editorController.markup;
+    // Formatting counts as a change even when not one character moved, so the
+    // text comparison alone is not enough to decide there is nothing to save.
+    if (scene.content == _editorController.text &&
+        (markup.isPlain
+            ? scene.document == null
+            : scene.document == markup.toDocument())) {
       return;
     }
 
     final updatedScene = scene.copyWith(
       content: _editorController.text,
+      // Null while the scene is plain, which is almost always. Only a scene
+      // that actually carries marks pays for a document.
+      document: markup.isPlain ? null : markup.toDocument(),
       updatedAt: DateTime.now(),
     );
 
@@ -624,9 +636,15 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     try {
       if (_selection.kind == ManuscriptSelectionKind.scene) {
         final scene = manuscript.sceneById(_selection.sceneId);
-        _editorController.text = scene?.content ?? '';
+        // Through `markup`, never `text`: assigning the text alone would leave
+        // the previous scene's marks anchored over this scene's words.
+        _editorController.markup = scene == null
+            ? ProseMarkup.empty
+            : ProseMarkup.fromDocument(
+                scene.document ?? ProseDocument.fromPlainText(scene.content),
+              );
       } else {
-        _editorController.text = '';
+        _editorController.markup = ProseMarkup.empty;
       }
     } finally {
       _isApplyingSelection = false;
@@ -2351,13 +2369,24 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ProseFormattingToolbar(
+              controller: _editorController,
+              enabled: _canEdit,
+            ),
+          ),
+          const SizedBox(height: 4),
           Expanded(
             child: Center(
               child: ConstrainedBox(
                 constraints:
                     BoxConstraints(maxWidth: _readingRhythm.editorWidth),
-                child: TextField(
+                child: ProseFormattingShortcuts(
+                  controller: _editorController,
+                  enabled: _canEdit,
+                  child: TextField(
                   key: const Key('manuscript-draft-field'),
                   controller: _editorController,
                   readOnly: !_canEdit,
@@ -2374,6 +2403,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                     hintText: 'Write this scene...',
                     contentPadding:
                         EdgeInsets.all(_readingRhythm.editorPadding),
+                  ),
                   ),
                 ),
               ),
@@ -2448,28 +2478,38 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
           ),
           const SizedBox(height: 8),
           _buildReadingRhythmControl(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
+          ProseFormattingToolbar(
+            controller: _editorController,
+            enabled: _canEdit,
+          ),
+          const SizedBox(height: 4),
           Expanded(
             child: Center(
               child: ConstrainedBox(
                 constraints:
                     BoxConstraints(maxWidth: _readingRhythm.editorWidth),
-                child: TextField(
-                  key: const Key('manuscript-draft-field'),
+                child: ProseFormattingShortcuts(
                   controller: _editorController,
-                  maxLines: null,
-                  expands: true,
-                  keyboardType: TextInputType.multiline,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontFamily: 'monospace',
-                        fontSize: _readingRhythm.fontSize,
-                        height: _readingRhythm.lineHeight,
-                      ),
-                  decoration: InputDecoration(
-                    border: InputBorder.none,
-                    hintText: 'Write this scene...',
-                    contentPadding:
-                        EdgeInsets.all(_readingRhythm.editorPadding),
+                  enabled: _canEdit,
+                  child: TextField(
+                    key: const Key('manuscript-draft-field'),
+                    controller: _editorController,
+                    readOnly: !_canEdit,
+                    maxLines: null,
+                    expands: true,
+                    keyboardType: TextInputType.multiline,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontFamily: 'monospace',
+                          fontSize: _readingRhythm.fontSize,
+                          height: _readingRhythm.lineHeight,
+                        ),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Write this scene...',
+                      contentPadding:
+                          EdgeInsets.all(_readingRhythm.editorPadding),
+                    ),
                   ),
                 ),
               ),

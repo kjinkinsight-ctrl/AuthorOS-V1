@@ -5,6 +5,7 @@ import 'character_service.dart';
 import 'continuity.dart';
 import 'core/connected_domain.dart';
 import 'core/connection_engine.dart';
+import 'core/record_service.dart';
 import 'persistence/authoros_database.dart';
 import 'timeline_service.dart';
 import 'world_service.dart';
@@ -238,31 +239,62 @@ class ContinuityActionService {
     if (!confirmed) return _cancelled;
 
     try {
-      final existing = await timeline.getTimelineRecord(recordId);
+      final now = (timestamp ?? DateTime.now()).toUtc();
+      final timelineRecord = await timeline.getTimelineRecord(recordId);
+
+      if (timelineRecord != null) {
+        if (activeBranchId == null) {
+          await timeline.updateTimelineRecord(
+            timelineRecord.copyWith(
+              fields: {...timelineRecord.fields, ...proposedFields},
+              updatedAt: now,
+            ),
+            summary: 'Applied confirmed continuity recommendation',
+          );
+        } else {
+          await timeline.overrideInBranch(
+            activeBranchId!,
+            recordId,
+            fields: proposedFields,
+            timestamp: now,
+          );
+        }
+        return _afterMutation(recordId: recordId, recheck: recheck);
+      }
+
+      // Not every reviewable warning is about a timeline event. A canon
+      // conflict on a character, or an unresolved reference on a location, is
+      // just as reviewable, and this path used to fail outright for them.
+      final records = RecordService(
+        projectId: projectId,
+        repository: repository,
+      );
+      final existing = await records.getRecord(recordId);
       if (existing == null) {
         return const ContinuityActionResult(
           status: ContinuityActionStatus.failed,
           warningRemains: true,
-          message: 'The timeline record no longer exists.',
+          message: 'The record no longer exists.',
         );
       }
-      final now = (timestamp ?? DateTime.now()).toUtc();
-      if (activeBranchId == null) {
-        await timeline.updateTimelineRecord(
-          existing.copyWith(
-            fields: {...existing.fields, ...proposedFields},
-            updatedAt: now,
-          ),
-          summary: 'Applied confirmed continuity recommendation',
-        );
-      } else {
-        await timeline.overrideInBranch(
-          activeBranchId!,
-          recordId,
-          fields: proposedFields,
-          timestamp: now,
+      if (activeBranchId != null) {
+        // Branch overrides for non-timeline records go through the owning
+        // Studio, which knows that record's shape. Refusing is honest; writing
+        // canon while a branch is active would not be.
+        return const ContinuityActionResult(
+          status: ContinuityActionStatus.failed,
+          warningRemains: true,
+          message: 'Switch to Canon to apply this fix, or edit it in the '
+              'branch through its own Studio.',
         );
       }
+      await records.updateRecord(
+        existing.copyWith(
+          fields: {...existing.fields, ...proposedFields},
+          updatedAt: now,
+        ),
+        summary: 'Applied confirmed continuity recommendation',
+      );
       return _afterMutation(recordId: recordId, recheck: recheck);
     } catch (error) {
       return ContinuityActionResult(

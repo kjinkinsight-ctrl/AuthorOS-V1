@@ -132,25 +132,87 @@ class BuiltInConnectionTypes {
     ConnectionTypeDefinition(
       id: 'appearsIn',
       displayName: 'Appears in',
+      // Widened beyond the original twelve so any Codex entity can record a
+      // book, chapter or scene appearance. Every id is named, so the edge
+      // stays typed instead of becoming another wildcard.
       sourceTypeIds: [
         'character',
-        'location',
-        'place',
-        'region',
-        'country',
-        'city',
-        'settlement',
-        'district',
-        'building',
+        'person',
+        'historical-figure',
+        'public-figure',
+        'deity',
+        'entity-state',
         'faction',
+        'organisation',
+        'house',
+        'clan',
+        'guild',
+        'company',
+        'military-unit',
+        'government',
+        'institution',
         'item',
         'artefact',
+        'weapon',
+        'armour',
+        'vehicle',
+        'document',
+        'species',
+        'race',
+        'creature',
+        'monster',
+        'language',
+        'culture',
+        'religion',
+        'magic-system',
+        'technology',
+        'concept',
+        'secret',
+        'general-lore',
+        'historical-event',
+        ...WorldRecordTypes.spatialTypeIds,
         ...PlotRecordTypes.recordTypeIds,
       ],
       targetTypeIds: ['scene', 'chapter', 'book'],
       inverseLabel: 'Features',
+      temporalSupport: true,
       builtIn: true,
       sourcePackId: 'authoros-core',
+      // Book-usage detail lives here. ConnectionTypeRegistry._validateMetadata
+      // rejects any key a definition does not declare, so an appearance cannot
+      // carry a role or a status until the field exists.
+      metadataFields: [
+        const RecordFieldDefinition(
+          id: 'role',
+          label: 'Role',
+          type: RecordFieldType.shortText,
+          order: 0,
+        ),
+        const RecordFieldDefinition(
+          id: 'firstAppearance',
+          label: 'First appearance',
+          type: RecordFieldType.shortText,
+          order: 1,
+        ),
+        const RecordFieldDefinition(
+          id: 'lastAppearance',
+          label: 'Last appearance',
+          type: RecordFieldType.shortText,
+          order: 2,
+        ),
+        const RecordFieldDefinition(
+          id: 'status',
+          label: 'Status in this book',
+          type: RecordFieldType.shortText,
+          order: 3,
+        ),
+        const RecordFieldDefinition(
+          id: 'notes',
+          label: 'Notes',
+          type: RecordFieldType.longText,
+          order: 4,
+        ),
+      ],
     ),
     const ConnectionTypeDefinition(
       id: 'mentionedIn',
@@ -311,6 +373,7 @@ class BuiltInConnectionTypes {
       sourceTypeIds: [
         'codex-entry',
         'reference',
+        'entity-state',
         ...ResearchRecordTypes.recordTypeIds,
       ],
       targetTypeIds: ['*'],
@@ -326,6 +389,37 @@ class BuiltInConnectionTypes {
       inverseLabel: 'Contains',
       builtIn: true,
       sourcePackId: 'authoros-core',
+    ),
+    // The series spine. Typed on both endpoints rather than reusing the
+    // wildcard `partOf`, so a book's place in its series is a fact the
+    // registry can check.
+    const ConnectionTypeDefinition(
+      id: 'bookInSeries',
+      displayName: 'Book in series',
+      sourceTypeIds: ['book'],
+      targetTypeIds: ['series'],
+      inverseLabel: 'Has book',
+      builtIn: true,
+      sourcePackId: 'authoros-series-core',
+      metadataFields: [
+        RecordFieldDefinition(
+          id: 'order',
+          label: 'Order in series',
+          type: RecordFieldType.number,
+          order: 0,
+        ),
+      ],
+    ),
+    // A book's state record belongs to exactly one book. Typed both ways so a
+    // state can never be attached to something that is not a book.
+    const ConnectionTypeDefinition(
+      id: 'stateInBook',
+      displayName: 'State in book',
+      sourceTypeIds: ['entity-state'],
+      targetTypeIds: ['book'],
+      inverseLabel: 'Has entity state',
+      builtIn: true,
+      sourcePackId: 'authoros-series-core',
     ),
     ConnectionTypeDefinition(
       id: 'relatedTo',

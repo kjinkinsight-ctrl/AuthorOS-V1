@@ -9,6 +9,8 @@ order for the rest of the Codex vision
 Builds on: `docs/story-codex-implementation-map.md`,
 `docs/universal-story-graph-architecture.md`,
 `docs/authoros-2-master-plan.md` §6.1, §12, §14 (M4)
+Delivered work: `docs/codex-universal-knowledge-delivery-map.md` maps the shipped
+services, records and screens for this milestone
 Decision in force: **D-3** — scenes and chapters remain manuscript-domain nodes
 
 ---

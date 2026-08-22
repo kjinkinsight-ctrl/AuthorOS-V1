@@ -211,16 +211,35 @@ void main() {
   });
 
   test('no cross-project connection type was introduced', () {
+    // The invariant: a record's *scope* — which book or series it belongs to —
+    // is `seriesId`/`bookId`/`scopeId` on the row, never a link. Two ways to
+    // answer "is this record series canon?" is how the two answers drift.
+    //
+    // `bookInSeries` is the deliberate exception, and it is not scope: it
+    // links a Codex `book` record to a Codex `series` record, the same way
+    // `appearsIn` links a character to a book. It moves no scope column, and
+    // `ScopeResolver` never reads it. The behavioural proof that the roster
+    // still owns membership is in story_graph_architecture_test.dart —
+    // "building a series writes no records, links, versions or audit events".
+    const codexSpine = {'bookinseries'};
+
     final ids = BuiltInConnectionTypes.registry()
         .definitions
         .map((definition) => definition.id.toLowerCase())
         .toList();
 
     for (final id in ids) {
+      if (codexSpine.contains(id)) continue;
       expect(id.contains('series'), isFalse,
           reason: 'scope membership is a column, not an edge');
       expect(id.contains('universe'), isFalse);
     }
+
+    // The exception stays an exception: it is typed to two Codex record types
+    // and cannot be pointed at anything else.
+    final spine = BuiltInConnectionTypes.registry().resolve('bookInSeries');
+    expect(spine.permits('book', 'series'), isTrue);
+    expect(spine.permits('character', 'series'), isFalse);
   });
 
   test('project isolation still holds for a promoted record', () async {

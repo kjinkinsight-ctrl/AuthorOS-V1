@@ -886,6 +886,106 @@ class MapService {
 
   // ------------------------------------------------------------- markers ----
 
+  /// Marks [recordId] as becoming known to the reader in manuscript node
+  /// [nodeId], by writing the canonical `revealedIn` relationship.
+  ///
+  /// **The only write in the whole of Phase 6.** Presentation, projection,
+  /// export and reader filtering are read-only by construction; this is the one
+  /// place a reveal comes into existence, and it exists only because an author
+  /// asked for it. Nothing infers a reveal point, and nothing creates one as a
+  /// side effect of drawing, exporting or opening anything.
+  ///
+  /// The relationship is the one AuthorOS already defines — "Revealed in",
+  /// inverse "Reveals" — written through the same [ConnectionEngine] as every
+  /// other Map Studio link, so it validates, versions and audits like any
+  /// other. There is no second spoiler system and no Map-owned reveal store.
+  ///
+  /// [nodeId] must be a manuscript node of a type a reveal can point at. The
+  /// registry defines `revealedIn` with wildcard endpoints, so it would accept
+  /// anything at all; the discipline has to come from here. A reveal that
+  /// pointed at a character rather than a scene would order by nothing and
+  /// filter by nothing, so it is refused rather than stored.
+  ///
+  /// Reversible by [removeRevealPoint], which deletes the link outright.
+  Future<RecordLink> addRevealPoint({
+    required String recordId,
+    required String nodeId,
+    DateTime? timestamp,
+  }) async {
+    final record = await records.getRecord(recordId);
+    if (record == null || (record.projectId ?? record.scopeId) != projectId) {
+      throw MapStudioException('$recordId is not a record in $projectId.');
+    }
+    final node = await repository.manuscriptNodeById(nodeId);
+    if (node == null || node.projectId != projectId) {
+      throw MapStudioException(
+        '$nodeId is not a manuscript node in $projectId.',
+      );
+    }
+    if (!MapTypes.revealTargetTypes.contains(node.nodeType)) {
+      throw MapStudioException(
+        'A reveal point must be a ${MapTypes.revealTargetTypes.join(', ')} — '
+        '$nodeId is a ${node.nodeType}.',
+      );
+    }
+    // Source is the thing revealed, target the place it is revealed: "the
+    // Drowned City is revealed in Chapter 7", which is the direction the
+    // relationship's own label reads in.
+    return connections.connect(
+      sourceId: recordId,
+      targetId: nodeId,
+      typeId: MapTypes.revealedIn,
+      timestamp: timestamp,
+    );
+  }
+
+  /// Undoes [addRevealPoint], returning true where there was one to undo.
+  ///
+  /// A reveal point is an editorial decision, and editorial decisions get
+  /// changed. Removing one restores the record to "the author has not said when
+  /// this becomes known", which every reader level below the author's own
+  /// treats as hidden — so unrevealing is safe by the same rule that makes an
+  /// untouched project safe.
+  Future<bool> removeRevealPoint({
+    required String recordId,
+    required String nodeId,
+    DateTime? timestamp,
+  }) async {
+    final link = await _revealLink(recordId, nodeId);
+    if (link == null) return false;
+    await connections.disconnect(link.id, timestamp: timestamp);
+    return true;
+  }
+
+  /// Every reveal point on [recordId], earliest first by manuscript order.
+  ///
+  /// Read-only, and returns the links themselves so a caller can show the
+  /// author what exists and remove any one of them.
+  Future<List<MapRevealLink>> revealPointsFor(String recordId) async {
+    final links = await repository.outgoingLinks(recordId);
+    final reveals = <MapRevealLink>[];
+    for (final link in links) {
+      if (link.scopeId != projectId) continue;
+      if (link.typeId != MapTypes.revealedIn) continue;
+      final node = await repository.manuscriptNodeById(link.targetId);
+      if (node == null) continue;
+      reveals.add(MapRevealLink(link: link, node: node));
+    }
+    reveals.sort((a, b) => a.node.id.compareTo(b.node.id));
+    return reveals;
+  }
+
+  Future<RecordLink?> _revealLink(String recordId, String nodeId) async {
+    for (final link in await repository.outgoingLinks(recordId)) {
+      if (link.scopeId == projectId &&
+          link.typeId == MapTypes.revealedIn &&
+          link.targetId == nodeId) {
+        return link;
+      }
+    }
+    return null;
+  }
+
   Future<MapMarkerView> createMarker(
     MapMarkerDraft draft, {
     DateTime? timestamp,

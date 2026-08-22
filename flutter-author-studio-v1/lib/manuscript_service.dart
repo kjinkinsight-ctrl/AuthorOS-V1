@@ -516,6 +516,72 @@ class ManuscriptService {
     );
   }
 
+  /// Files [chapterId] under [bookId], or releases it when [bookId] is null.
+  ///
+  /// Book membership is manuscript structure, so it is stored on the chapter
+  /// and projected into its node's `extensionData` — the same shape a scene's
+  /// `chapterId` already has. Deliberately not an edge: a chapter node is
+  /// upsert-only and never deleted, so an edge here would survive the chapter
+  /// it describes.
+  Future<ManuscriptProjectSummary> assignChapterToBook(
+    ManuscriptProjectSummary manuscript,
+    String chapterId,
+    String? bookId, {
+    DateTime? timestamp,
+  }) async {
+    _requireCanonEditable();
+    final chapter = manuscript.chapterById(chapterId);
+    if (chapter == null) throw StateError('Unknown chapter: $chapterId');
+    final target = bookId?.trim();
+    final normalized = target == null || target.isEmpty ? null : target;
+    if (normalized == chapter.bookId) return manuscript;
+    final now = (timestamp ?? DateTime.now()).toUtc();
+    return save(
+      _withChapter(
+        manuscript,
+        chapter.copyWith(
+          bookId: normalized,
+          clearBookId: normalized == null,
+          updatedAt: now,
+        ),
+      ),
+      changed: [chapterId],
+      metadata: {
+        'previousBookId': chapter.bookId,
+        'newBookId': normalized,
+      },
+      timestamp: now,
+    );
+  }
+
+  /// The chapters filed under [bookId], in manuscript order.
+  ///
+  /// Passing null returns the chapters no book claims, which is every chapter
+  /// in a project that has not been split into books.
+  List<ManuscriptChapter> chaptersForBook(
+    ManuscriptProjectSummary manuscript,
+    String? bookId,
+  ) {
+    final target = bookId?.trim();
+    final normalized = target == null || target.isEmpty ? null : target;
+    return manuscript.chapters
+        .where((chapter) => chapter.bookId == normalized)
+        .toList();
+  }
+
+  /// The book a scene or chapter belongs to, or null when no book claims it.
+  ///
+  /// A scene inherits its chapter's book rather than storing its own, so the
+  /// two can never disagree.
+  String? bookForNode(ManuscriptProjectSummary manuscript, String nodeId) {
+    final chapter = manuscript.chapterById(nodeId);
+    if (chapter != null) return chapter.bookId;
+    for (final each in manuscript.chapters) {
+      if (each.scenes.any((scene) => scene.id == nodeId)) return each.bookId;
+    }
+    return null;
+  }
+
   Future<ManuscriptProjectSummary> renameScene(
     ManuscriptProjectSummary manuscript,
     String sceneId,

@@ -181,12 +181,23 @@ void main() {
 
       await pumpView(tester, project);
 
-      expect(find.byKey(const Key('analytics-progress-section')), findsOneWidget);
-      expect(find.text('Current Words'), findsOneWidget);
-      expect(find.text('Target'), findsOneWidget);
-      expect(find.text('Words Remaining'), findsOneWidget);
-      expect(find.text('750'), findsOneWidget);
-      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      final section = find.byKey(const Key('analytics-progress-section'));
+      expect(section, findsOneWidget);
+      // Scoped to the section under test: the Manuscript Projection panel
+      // shows its own Current Words and Target, and the remainder appears in
+      // the Writing Metrics tiles too. Those are the same numbers by design,
+      // so what this test means is "the progress card reports them", not
+      // "only one card on the page may".
+      Finder inProgress(Finder finder) =>
+          find.descendant(of: section, matching: finder);
+      expect(inProgress(find.text('Current Words')), findsOneWidget);
+      expect(inProgress(find.text('Target')), findsOneWidget);
+      expect(inProgress(find.text('Words Remaining')), findsOneWidget);
+      expect(inProgress(find.text('750')), findsOneWidget);
+      expect(
+        inProgress(find.byType(LinearProgressIndicator)),
+        findsOneWidget,
+      );
     });
 
     testWidgets('chapter statistics list counts and extremes', (tester) async {
@@ -265,8 +276,35 @@ void main() {
       await pumpView(tester, project);
 
       expect(find.textContaining('No writing target set'), findsWidgets);
+      // Still global: no card anywhere may invent a percentage of a target
+      // that was never set.
       expect(find.textContaining('0%'), findsNothing);
-      expect(find.byType(LinearProgressIndicator), findsNothing);
+
+      // The manuscript-target cards draw no bar without a target.
+      for (final section in const [
+        'analytics-progress-section',
+        'analytics-projection-section',
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(Key(section)),
+            matching: find.byType(LinearProgressIndicator),
+          ),
+          findsNothing,
+          reason: '$section must not draw progress against no target',
+        );
+      }
+
+      // The goal bars do render: a daily word goal exists independently of
+      // the manuscript target, and 0 of 2,000 words today is a true statement
+      // about a target the author really has.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('analytics-goals-section')),
+          matching: find.byType(LinearProgressIndicator),
+        ),
+        findsNWidgets(3),
+      );
     });
 
     testWidgets('an empty project explains itself instead of showing zeros',

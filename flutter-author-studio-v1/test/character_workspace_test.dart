@@ -41,7 +41,7 @@ void main() {
 
   Future<void> pumpWorkspace(
     WidgetTester tester, {
-    ValueChanged<CharacterWorkspaceDestination>? onNavigate,
+    ValueChanged<CharacterNavigationRequest>? onNavigate,
     String? branchId,
     String? branchName,
   }) async {
@@ -344,12 +344,17 @@ void main() {
       typeId: 'appearsIn',
       timestamp: timestamp,
     );
-    CharacterWorkspaceDestination? destination;
-    await pumpWorkspace(tester, onNavigate: (value) => destination = value);
+    CharacterNavigationRequest? request;
+    await pumpWorkspace(tester, onNavigate: (value) => request = value);
 
     await selectSection(tester, 'manuscript');
     await tester.tap(find.text('Opening Scene'));
-    expect(destination, CharacterWorkspaceDestination.manuscript);
+
+    expect(request?.destination, CharacterWorkspaceDestination.manuscript);
+    // The id is what makes the connection followable. Character Studio used to
+    // emit the destination alone, so this click opened Manuscript Studio on
+    // whatever happened to be selected there rather than on this scene.
+    expect(request?.recordId, 'scene-opening');
   });
 
   testWidgets('branch editing creates override and preserves Canon',

@@ -86,6 +86,41 @@ class MapTypes {
 
   /// The link from a marker to the entity it stands for.
   static const markerRepresents = 'represents';
+
+  /// The link that says where something becomes known to the reader.
+  ///
+  /// Canonical and shared: `revealedIn` is defined once in
+  /// `built_in_connection_types.dart` and read by the Story Graph and the
+  /// Codex as well as by Map Studio. Phase 6 writes it only through
+  /// `MapService.addRevealPoint`, and only when an author asks.
+  static const revealedIn = 'revealedIn';
+
+  /// The manuscript node types a reveal point may name.
+  ///
+  /// `revealedIn` is registered with wildcard endpoints, so the registry alone
+  /// would accept a reveal pointing at anything. A reveal has to sit somewhere
+  /// in reading order to mean anything, so Map Studio narrows it to the three
+  /// node types that do.
+  static const revealTargetTypes = {'chapter', 'scene', 'book'};
+}
+
+/// A reveal point as it is stored: the link, and the node it points at.
+///
+/// Returned by `MapService.revealPointsFor` so the Studio can list what an
+/// author has already said and undo any of it. Holding the link means removal
+/// needs no second lookup and no reconstructed identifier.
+class MapRevealLink {
+  const MapRevealLink({required this.link, required this.node});
+
+  final RecordLink link;
+  final ManuscriptNodeReference node;
+
+  String get nodeId => node.id;
+  String get nodeType => node.nodeType;
+  String get nodeTitle => node.title;
+
+  /// How this reads to the author: "Revealed in Chapter 7".
+  String get label => 'Revealed in ${node.title}';
 }
 
 /// The default map extent, in map-space units.
@@ -775,6 +810,12 @@ enum MapEditorTool {
 
   /// Drag to move the camera. No record changes.
   pan,
+
+  /// Paint the ground with a terrain brush.
+  terrain,
+
+  /// Place and shape visual scenery.
+  asset,
 }
 
 extension MapEditorToolLabel on MapEditorTool {
@@ -784,13 +825,22 @@ extension MapEditorToolLabel on MapEditorTool {
         MapEditorTool.move => 'Move',
         MapEditorTool.region => 'Region',
         MapEditorTool.pan => 'Pan',
+        MapEditorTool.terrain => 'Terrain',
+        MapEditorTool.asset => 'Scenery',
       };
 
   /// True when this tool writes to records at all.
   bool get isEditing =>
       this == MapEditorTool.place ||
       this == MapEditorTool.move ||
-      this == MapEditorTool.region;
+      this == MapEditorTool.region ||
+      this == MapEditorTool.terrain ||
+      this == MapEditorTool.asset;
+
+  /// True when the tool paints or places scenery rather than story entities.
+  /// Phase 3 tools change how a map looks; they never create a graph entity.
+  bool get isVisual =>
+      this == MapEditorTool.terrain || this == MapEditorTool.asset;
 }
 
 /// What the place tool drops onto the canvas.
@@ -812,14 +862,40 @@ enum MapLayer {
   /// The map ground and its graticule.
   base,
 
+  /// Painted terrain. Above the ground, below everything that means something:
+  /// terrain is what the world is made of, not what happens on it.
+  terrain,
+
   /// Region fills and outlines.
   regions,
+
+  /// Political borders. Over the ground they divide, under the scenery and the
+  /// places they contain: a border is a claim about territory, not a thing that
+  /// stands on it.
+  borders,
+
+  /// Placed scenery — trees, mountains, settlements. Above regions so a forest
+  /// reads over the territory it grows in, below the pins that name places.
+  assets,
+
+  /// Roads, rivers, passes and sea lanes. Above the ground and the scenery on
+  /// it, below the places they join.
+  worldRoutes,
 
   /// Location pins.
   locations,
 
   /// Marker pins.
   markers,
+
+  /// Journeys and story routes. Below the overlay points they connect, so a
+  /// line never hides the thing at its end.
+  storyPaths,
+
+  /// Story overlays: characters, events and scenes read from canonical data.
+  /// Above the map's own furniture because they are what the author came to
+  /// look at, below selection because they are still content.
+  storyOverlays,
 
   /// Selection rings, geometry handles and the marquee rectangle.
   selection,

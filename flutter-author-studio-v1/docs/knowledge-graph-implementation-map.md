@@ -270,7 +270,7 @@ quietly assumed away:
 
 | Risk | Consequence for the graph |
 |---|---|
-| **R-2 / R-22** — prose and writing sessions are not in the archive | A restored project is structure-only. **The graph must never present node existence as evidence that prose exists.** It renders live data, so this affects restore, not rendering |
+| ~~**R-2 / R-22**~~ — prose and writing sessions not archived | **CLOSED.** The `.authoros` format now carries both — see `docs/archive-completeness.md`. Both entries are optional on import, so archives written before the change still load |
 | **R-8** — eight raw validated-write bypasses (one in `world_studio.dart`, seven in `story_codex_service.dart`) | Records written through those paths skipped validation. The graph reads them as-is and cannot tell |
 | **R-21** — a dashboard read still seeds manuscript nodes on a cold project | Node existence is evidence of a *read*, not of authorship. A guardrail keeps the graph itself out of that path |
 

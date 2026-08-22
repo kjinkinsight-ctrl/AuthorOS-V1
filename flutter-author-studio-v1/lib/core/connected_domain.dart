@@ -4,6 +4,7 @@ import 'connection_types.dart';
 import 'branch_domain.dart';
 import 'branch_engine.dart';
 import 'version_audit.dart';
+import 'writing_session.dart';
 
 export 'record_scope.dart';
 
@@ -286,6 +287,7 @@ class ConnectedDomainSnapshot {
     this.branchLinkOverlays = const [],
     this.versions = const [],
     this.auditEvents = const [],
+    this.writingSessions = const [],
   });
 
   final List<AuthorRecord> records;
@@ -298,6 +300,15 @@ class ConnectedDomainSnapshot {
   final List<BranchLinkOverlay> branchLinkOverlays;
   final List<RecordVersion> versions;
   final List<AuditEvent> auditEvents;
+
+  /// Writing session history.
+  ///
+  /// Sessions are **not graph data** — invariant I-16 keeps them out, and a
+  /// guardrail holds them there. They travel in the snapshot for the same
+  /// reason [versions] and [auditEvents] do: backup is a separate concern from
+  /// graph membership, and a snapshot that omitted them would silently drop
+  /// every daily total, streak and longitudinal metric the author had built up.
+  final List<WritingSession> writingSessions;
 
   Map<String, Object?> toJson() => {
         'schemaVersion': 1,
@@ -318,6 +329,8 @@ class ConnectedDomainSnapshot {
             branchLinkOverlays.map((overlay) => overlay.toJson()).toList(),
         'versions': versions.map((version) => version.toJson()).toList(),
         'auditEvents': auditEvents.map((event) => event.toJson()).toList(),
+        'writingSessions':
+            writingSessions.map((session) => session.toJson()).toList(),
       };
 
   factory ConnectedDomainSnapshot.fromJson(Map<String, dynamic> json) {
@@ -346,6 +359,9 @@ class ConnectedDomainSnapshot {
       versions: _mapList(json['versions']).map(RecordVersion.fromJson).toList(),
       auditEvents:
           _mapList(json['auditEvents']).map(AuditEvent.fromJson).toList(),
+      writingSessions: _mapList(json['writingSessions'])
+          .map(WritingSession.fromJson)
+          .toList(),
     );
   }
 }

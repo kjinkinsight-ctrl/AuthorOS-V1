@@ -1,3 +1,22 @@
+> ## 🔒 Architecture Lock — read this first
+>
+> **August 22, 2026.** Feature work is paused for an architecture-lock pass. The
+> principles below are no longer future ideas; they are the constraints all
+> future AuthorOS work builds inside.
+>
+> - [**AuthorOS Architecture Lock**](flutter-author-studio-v1/docs/architecture/authoros-architecture-lock.md) — the twelve locked principles, the feature gate, the sequence
+> - [**ADR-0006: Architectural Precedence**](flutter-author-studio-v1/docs/architecture/ADR-0006-architectural-precedence.md) — the rule that makes them binding
+> - [**Compliance Audit**](flutter-author-studio-v1/docs/authoros-architecture-compliance-audit.md) — where the actual `main` tree stands against them
+>
+> **When a new feature conflicts with an established AuthorOS architectural
+> principle, the feature must adapt to the architecture — the architecture must
+> not be weakened to accommodate the feature.**
+>
+> This document stays what it has always been: the vision and the roadmap. It
+> says what to build. The lock says what any build must be true of. Nothing here
+> is cancelled by it — Map Studio Phase 7 in particular is deferred, not dropped,
+> until Step 6 of the lock's sequence re-audits its design.
+
 GIRL. **YES.** 😂🔥
 
 Now I see the bigger product.

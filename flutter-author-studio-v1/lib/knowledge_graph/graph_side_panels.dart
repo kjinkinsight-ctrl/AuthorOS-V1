@@ -50,6 +50,30 @@ class GraphFilterRail extends StatelessWidget {
       key: const Key('graph-filter-rail'),
       padding: const EdgeInsets.all(12),
       children: [
+        // First, not last. This is the summary of what everything below is
+        // doing, and a count buried under four toggles is nearly as invisible
+        // as no count at all — which would defeat the point of saying it.
+        if (hiddenCount > 0) ...[
+          Container(
+            key: const Key('graph-hidden-notice'),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: palette.outlineVariant),
+            ),
+            // Never hide silently: a graph that quietly drops connections
+            // reads as complete when it is not, which is a continuity hazard
+            // rather than a tidy view. The count is of the focused node's
+            // connections, which is what the filters were measured against.
+            child: Text(
+              '$hiddenCount ${hiddenCount == 1 ? 'connection is' : 'connections are'} '
+              'hidden by these filters.',
+              style: palette.label,
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         _header('Show', palette),
         Wrap(
           spacing: 6,
@@ -130,27 +154,6 @@ class GraphFilterRail extends StatelessWidget {
               onFilterChanged(filter.copyWith(includeDeleted: value)),
           palette: palette,
         ),
-        if (hiddenCount > 0) ...[
-          const SizedBox(height: 12),
-          Container(
-            key: const Key('graph-hidden-notice'),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: palette.surface,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: palette.outlineVariant),
-            ),
-            // Never hide silently: a graph that quietly drops nodes is a
-            // continuity hazard, not a tidy view. The count is of the focused
-            // node's connections, which is what the filters were measured
-            // against — so the wording says connections, not nodes.
-            child: Text(
-              '$hiddenCount ${hiddenCount == 1 ? 'connection is' : 'connections are'} '
-              'hidden by these filters.',
-              style: palette.label,
-            ),
-          ),
-        ],
       ],
     );
   }

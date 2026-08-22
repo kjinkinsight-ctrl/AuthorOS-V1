@@ -177,17 +177,23 @@ void main() {
     expect(find.byKey(const Key('graph-node-vincenzo')), findsOneWidget);
   });
 
-  testWidgets('the rail says how many nodes the filters are hiding',
+  testWidgets('the rail says how many connections the filters are hiding',
       (tester) async {
     await seed();
     await pumpGraph(tester);
 
+    // Nothing is hidden until a filter hides it.
+    expect(find.byKey(const Key('graph-hidden-notice')), findsNothing);
+
     await tester.tap(find.byKey(const Key('graph-category-filter-locations')));
     await tester.pumpAndSettle();
 
-    // Never hide silently: a graph that quietly drops nodes reads as complete
-    // when it is not.
+    // Never hide silently: a graph that quietly drops connections reads as
+    // complete when it is not. The notice sits at the top of the rail, where
+    // it is actually seen.
     expect(find.byKey(const Key('graph-hidden-notice')), findsOneWidget);
+    expect(find.text('1 connection is hidden by these filters.'),
+        findsOneWidget);
   });
 
   testWidgets('switching mode re-anchors the graph', (tester) async {

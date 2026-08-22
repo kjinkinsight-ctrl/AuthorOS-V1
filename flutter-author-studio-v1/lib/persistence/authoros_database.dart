@@ -683,6 +683,13 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
   }
 }
 
+/// [kSharedScopeTypes] as the strings `scope_type` actually stores.
+///
+/// Derived rather than retyped, so the SQL predicate and the Dart predicate
+/// cannot drift apart.
+final List<String> _sharedScopeNames =
+    kSharedScopeTypes.map((scope) => scope.name).toList();
+
 class DriftConnectedDomainRepository {
   const DriftConnectedDomainRepository(this.database);
 
@@ -1726,6 +1733,63 @@ class DriftConnectedDomainRepository {
             (table) =>
                 table.projectId.equals(projectId) |
                 table.scopeId.equals(projectId),
+          )
+          ..orderBy([(table) => OrderingTerm.asc(table.title)]))
+        .get();
+    return rows.map(_recordFromRow).toList();
+  }
+
+  /// Every record of [typeId], in every scope.
+  ///
+  /// The scoped reads above cannot find a series: a series is owned by the
+  /// series scope it defines, so no project's scope id matches it. This is a
+  /// query — it adds no table, no column and no second store.
+  Future<List<AuthorRecord>> recordsByType(String typeId) async {
+    final rows = await (database.select(database.authorRecordRows)
+          ..where((table) => table.typeId.equals(typeId))
+          ..orderBy([(table) => OrderingTerm.asc(table.title)]))
+        .get();
+    return rows.map(_recordFromRow).toList();
+  }
+
+  /// The projects enrolled in [seriesId].
+  ///
+  /// Served by the existing `author_records_series_book` index, whose leading
+  /// column is `series_id`.
+  Future<List<AuthorRecord>> projectsInSeries(String seriesId) async {
+    final rows = await (database.select(database.authorRecordRows)
+          ..where(
+            (table) =>
+                table.typeId.equals('project') &
+                table.seriesId.equals(seriesId),
+          )
+          ..orderBy([(table) => OrderingTerm.asc(table.title)]))
+        .get();
+    return rows.map(_recordFromRow).toList();
+  }
+
+  /// The records a project may read: its own, plus anything owned by a scope
+  /// the project inherits from.
+  ///
+  /// [inheritedScopeIds] carries the shared scope ids the caller resolved.
+  /// Passing none is exactly [recordsByProject], so a project that belongs to
+  /// no series reads precisely what it read before this method existed.
+  Future<List<AuthorRecord>> recordsVisibleToProject(
+    String projectId, {
+    Iterable<String> inheritedScopeIds = const [],
+  }) async {
+    final inherited = inheritedScopeIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty && id != projectId)
+        .toSet();
+    if (inherited.isEmpty) return recordsByProject(projectId);
+    final rows = await (database.select(database.authorRecordRows)
+          ..where(
+            (table) =>
+                table.projectId.equals(projectId) |
+                table.scopeId.equals(projectId) |
+                (table.scopeId.isIn(inherited) &
+                    table.scopeType.isIn(_sharedScopeNames)),
           )
           ..orderBy([(table) => OrderingTerm.asc(table.title)]))
         .get();

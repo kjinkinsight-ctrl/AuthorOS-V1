@@ -29,12 +29,21 @@ class ManuscriptStudioView extends StatefulWidget {
     this.sessionRecorder,
     this.syncRecorder,
     this.revisionService,
+    this.focusNodeId,
   });
 
   final StarterProject project;
   final bool startSprint;
   final bool minimalMode;
   final ManuscriptStore store;
+
+  /// A chapter or scene to open on, when the author arrived here by following
+  /// a connection from another Studio.
+  ///
+  /// A request, not a guarantee: an id that no longer exists, or belongs to
+  /// another project, falls through to the manuscript's own stored selection
+  /// rather than leaving the editor blank.
+  final String? focusNodeId;
 
   /// The shared connected-domain repository. Defaults to the app-wide one so
   /// the Studio reads and writes the same records as every other Studio.
@@ -444,7 +453,44 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     });
   }
 
+  /// The selection [nodeId] asks for, or null when it names nothing here.
+  _ManuscriptSelection? _selectionForFocus(
+    ManuscriptProjectSummary? data,
+    String? nodeId,
+  ) {
+    if (data == null) return null;
+    if (nodeId == null || nodeId.trim().isEmpty) return null;
+    final scene = data.sceneById(nodeId);
+    if (scene != null) {
+      return _ManuscriptSelection.scene(scene.chapterId, scene.id);
+    }
+    if (data.chapterById(nodeId) != null) {
+      return _ManuscriptSelection.chapter(nodeId);
+    }
+    return null;
+  }
+
+  @override
+  void didUpdateWidget(ManuscriptStudioView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Following a connection while already in Manuscript Studio does not
+    // rebuild this widget, so the new target arrives here rather than through
+    // _load. Without this, the second scene an author clicks is ignored.
+    if (widget.focusNodeId != oldWidget.focusNodeId) {
+      final focused = _selectionForFocus(_manuscript, widget.focusNodeId);
+      if (focused != null) {
+        setState(() {
+          _selection = focused;
+          _showSearchResults = false;
+        });
+        _syncEditorWithSelection();
+      }
+    }
+  }
+
   _ManuscriptSelection _resolveInitialSelection(ManuscriptProjectSummary data) {
+    final focused = _selectionForFocus(data, widget.focusNodeId);
+    if (focused != null) return focused;
     if (data.currentSceneId.trim().isNotEmpty &&
         data.sceneById(data.currentSceneId) != null) {
       final scene = data.sceneById(data.currentSceneId)!;
@@ -2501,16 +2547,23 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   }
 
   Widget _buildChapterOverview(ManuscriptChapter chapter) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+    // Material rather than a decorated Container: the scene rows below are
+    // ListTiles, which paint their background and ink splash onto the nearest
+    // Material ancestor. Inside a plain Container the framework asserts and
+    // the tap feedback is invisible — which nobody had hit until a connection
+    // could open Manuscript Studio directly on a chapter.
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
+        side: BorderSide(
           color: Theme.of(context).colorScheme.outlineVariant,
         ),
       ),
-      child: Column(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(chapter.title,
@@ -2548,7 +2601,8 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                 onTap: () => _selectScene(chapter.id, scene.id),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }

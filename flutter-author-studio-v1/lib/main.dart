@@ -798,6 +798,9 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   /// state and never reaches a record.
   String? graphFocusId;
 
+  /// The record or manuscript node the next Studio build should open on.
+  String? studioFocusId;
+
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
     StudioSection.worldBoard,
@@ -847,6 +850,11 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
         // somebody jumped to.
         graphFocusId =
             section == StudioSection.knowledgeGraph ? focusRecordId : null;
+        // Every other Studio gets the same treatment. Without this the target
+        // reached the graph and nowhere else, so following a connection into
+        // Manuscript Studio opened it on whatever was last selected there.
+        studioFocusId =
+            section == StudioSection.knowledgeGraph ? null : focusRecordId;
       });
     }
   }
@@ -920,6 +928,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
             onProjectChanged: widget.onProjectChanged,
             rosterStore: widget.rosterStore,
             graphFocusId: graphFocusId,
+            studioFocusId: studioFocusId,
             minimalFocusMode:
                 focusModeEnabled && currentSection == StudioSection.manuscript,
           ),
@@ -1594,6 +1603,7 @@ class _SectionView extends StatelessWidget {
     this.onProjectChanged,
     this.rosterStore,
     this.graphFocusId,
+    this.studioFocusId,
   });
 
   final StudioSection section;
@@ -1622,6 +1632,9 @@ class _SectionView extends StatelessWidget {
 
   /// The record the Knowledge Graph should open on, when a Studio asked for it.
   final String? graphFocusId;
+
+  /// The record or manuscript node this section should open on, if any.
+  final String? studioFocusId;
 
   @override
   Widget build(BuildContext context) {
@@ -1672,6 +1685,7 @@ class _SectionView extends StatelessWidget {
           builder: (context, constraints) {
             final manuscript = ManuscriptStudioView(
               project: project,
+              focusNodeId: studioFocusId,
               startSprint: startSprint,
               minimalMode: minimalFocusMode,
               store: manuscriptStore,
@@ -1787,16 +1801,20 @@ class _SectionView extends StatelessWidget {
         StudioSection.chapters => ChapterStudioView(project: project),
         StudioSection.characters => CharacterBoardView(
             project: project,
-            onNavigate: (destination) => onNavigate(
-              switch (destination) {
+            focusRecordId: studioFocusId,
+            onNavigate: (request) => onNavigate(
+              switch (request.destination) {
                 CharacterWorkspaceDestination.manuscript =>
                   StudioSection.manuscript,
                 CharacterWorkspaceDestination.timeline =>
                   StudioSection.timeline,
-                CharacterWorkspaceDestination.codex => StudioSection.world,
+                // Was StudioSection.world: following a Codex reference from
+                // Character Studio opened World Studio.
+                CharacterWorkspaceDestination.codex => StudioSection.codex,
                 CharacterWorkspaceDestination.world => StudioSection.world,
                 CharacterWorkspaceDestination.plot => StudioSection.plot,
               },
+              focusRecordId: request.recordId,
             ),
             onOpenInGraph: (target) => onNavigate(
               StudioSection.knowledgeGraph,
@@ -1805,6 +1823,7 @@ class _SectionView extends StatelessWidget {
           ),
         StudioSection.codex => StoryCodexWorkspace(
             projectId: project.id,
+            focusRecordId: studioFocusId,
             onNavigate: (request) => onNavigate(
               switch (request.destination) {
                 SearchDestination.characterStudio => StudioSection.characters,
@@ -1824,6 +1843,7 @@ class _SectionView extends StatelessWidget {
           ),
         StudioSection.world => WorldWorkspace(
             projectId: project.id,
+            focusRecordId: studioFocusId,
             onNavigate: (request) => onNavigate(
               switch (request.destination) {
                 SearchDestination.characterStudio => StudioSection.characters,
@@ -1864,6 +1884,7 @@ class _SectionView extends StatelessWidget {
         ),
         StudioSection.timeline => TimelineStudioView(
             project: project,
+            focusRecordId: studioFocusId,
             onNavigate: (request) => onNavigate(
               switch (request.destination) {
                 SearchDestination.characterStudio => StudioSection.characters,

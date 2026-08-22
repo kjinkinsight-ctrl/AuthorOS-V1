@@ -384,13 +384,20 @@ void main() {
       );
     });
 
-    test('the same read through AnalyticsService does seed — which is why '
-        'peekStudio exists', () async {
-      // The contrast that makes the guard above load-bearing. This is risk
-      // R-21: AnalyticsService goes through loadStudio, which seeds a starter
-      // manuscript for a project that has never been opened. That is
-      // acceptable for the one project the author just opened, and is exactly
-      // what must not happen once per book across a whole series.
+    test('the same read through AnalyticsService no longer seeds either',
+        () async {
+      // This test used to assert the opposite, and said so: "If this ever
+      // stops seeding, the peekStudio guard is no longer load-bearing and this
+      // whole pair of tests can go." It has stopped seeding, so this is the
+      // promised inversion rather than a deletion.
+      //
+      // Risk R-21 was that AnalyticsService went through loadStudio, which
+      // seeds a starter manuscript for a project nobody has opened — and
+      // because manuscript nodes carry version and audit rows, that
+      // manufactured history for prose that was never written. Reading a
+      // dashboard is a read. AnalyticsService now goes through peekStudio and
+      // reports an empty manuscript, leaving seeding to Manuscript Studio,
+      // where the author opening the manuscript is the act that creates it.
       await buildSeries([(id: 'book-2', goal: 1000)]);
       final preferences = await SharedPreferences.getInstance();
 
@@ -407,9 +414,9 @@ void main() {
 
       expect(
         preferences.getString('author_studio.manuscript_studio.book-2'),
-        isNotNull,
-        reason: 'If this ever stops seeding, the peekStudio guard is no '
-            'longer load-bearing and this whole pair of tests can go.',
+        isNull,
+        reason: 'Reading analytics for a book brought a manuscript into '
+            'existence for it.',
       );
     });
 

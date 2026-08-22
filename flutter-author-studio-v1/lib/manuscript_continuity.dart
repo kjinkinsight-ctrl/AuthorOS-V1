@@ -1,6 +1,7 @@
 import 'continuity.dart';
 import 'core/connected_domain.dart';
 import 'manuscript_store.dart';
+import 'core/entity_recognition.dart';
 
 /// One record the manuscript could be connected to, flattened so the
 /// intelligence stays free of repository access and easy to test.
@@ -184,7 +185,7 @@ class ManuscriptContinuityIntelligence {
       final mention = record.names
           .map((name) => name.trim())
           .where((name) => name.length >= minimumMentionLength)
-          .where((name) => _mentions(prose, name))
+          .where((name) => mentionsName(prose, name))
           .firstOrNull;
       if (mention == null) continue;
       findings.add(ManuscriptContinuityFinding(
@@ -372,7 +373,3 @@ class ManuscriptContinuityIntelligence {
   }
 }
 
-bool _mentions(String prose, String name) {
-  final escaped = RegExp.escape(name.toLowerCase());
-  return RegExp('(^|[^a-z0-9])$escaped([^a-z0-9]|\$)').hasMatch(prose);
-}

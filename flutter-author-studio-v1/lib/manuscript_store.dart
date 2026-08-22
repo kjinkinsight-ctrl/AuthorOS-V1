@@ -702,19 +702,16 @@ class ManuscriptStore {
     required List<ManuscriptChapterSeed> defaultChapters,
     String firstSceneTitle = 'Opening Scene',
   }) async {
-    final preferences = await SharedPreferences.getInstance();
-    final encoded = preferences.getString(_studioKey(projectId));
-    if (encoded != null && encoded.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(encoded) as Map<String, dynamic>;
-        await _ensureProseMigrated(preferences, projectId);
-        return await _withStoredProse(
-          ManuscriptProjectSummary.fromJson(decoded),
-        );
-      } catch (_) {
-        // Fallback to migration path if the structured blob is malformed.
-      }
-    }
+    // The one path that both reads and is allowed to write. [peekStudio] is
+    // not: it serves sync, where a read must never seed or migrate anything.
+    // So the one-time move of prose out of the blob happens here, before the
+    // read, and the peek below simply finds it already done.
+    await _ensureProseMigrated(
+      await SharedPreferences.getInstance(),
+      projectId,
+    );
+    final stored = await peekStudio(projectId);
+    if (stored != null) return stored;
 
     final migrated = await _migrateLegacyToStudio(
       projectId,

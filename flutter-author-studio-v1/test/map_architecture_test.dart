@@ -4,6 +4,7 @@ import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/world_record_types.dart';
 import 'package:author_studio_v1/map_overlay_service.dart';
+import 'package:author_studio_v1/map_presentation_service.dart';
 import 'package:author_studio_v1/map_world_service.dart';
 import 'package:author_studio_v1/map_service.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
@@ -36,6 +37,13 @@ void main() {
     // vocabulary of its own.
     'lib/map_world.dart',
     'lib/map_world_service.dart',
+    // Phase 6 presentation, reader maps and export. In the list from the day
+    // they were written, like every phase before them.
+    'lib/map_presentation.dart',
+    'lib/map_reader.dart',
+    'lib/map_presentation_service.dart',
+    'lib/map_export.dart',
+    'lib/map_presentation_view.dart',
   ];
 
   group('one persistence system', () {
@@ -589,10 +597,14 @@ void main() {
     test('Phase 3 introduces no image generation and no asset fetching', () {
       for (final path in mapFiles) {
         final source = read(path);
+        // The ban is on *fetching*, not on the four letters: Phase 6 writes
+        // SVG, whose namespace is a URL. Named clients rather than a substring.
         for (final banned in const [
           'Image.network',
           'Image.file',
-          'http',
+          'package:http',
+          'HttpClient',
+          'NetworkImage',
           'generateImage',
           'aiAsset',
           'promptFor',
@@ -733,18 +745,22 @@ void main() {
       }
     });
 
-    test('the Studio names a destination and routes nothing itself', () {
+    test('the Studio names a destination and routes to no other Studio', () {
       final view = read('lib/map_studio_view.dart');
       expect(view, contains('enum MapStudioDestination'));
-      for (final banned in const [
-        'Navigator.push',
-        'Navigator.of(context).push',
-        'MaterialPageRoute',
-        'StudioSection',
-      ]) {
-        expect(view, isNot(contains(banned)),
-            reason: 'Map Studio routes with $banned instead of asking the shell');
-      }
+
+      // The invariant is about *leaving* Map Studio: that is the shell's
+      // decision, and the Studio only names where it would like to go. Phase 6
+      // pushes a route of its own — presentation mode — which goes nowhere
+      // else, so a blanket ban on Navigator would have forbidden the right
+      // thing for the wrong reason.
+      expect(view, isNot(contains('StudioSection')),
+          reason: 'Map Studio names the shell own section enum');
+      final routes = RegExp('MaterialPageRoute<[^>]*>\\(').allMatches(view);
+      expect(routes, hasLength(1),
+          reason: 'the only route Map Studio pushes is its own presentation '
+              'mode');
+      expect(view, contains('MapPresentationPage'));
     });
 
     test('the view reads overlays and writes none of them', () {
@@ -910,6 +926,156 @@ void main() {
     });
   });
 
+  group('Phase 6 — presentation, export and reader maps', () {
+    test('presentation owns no model of the world', () {
+      for (final path in const [
+        'lib/map_presentation.dart',
+        'lib/map_reader.dart',
+        'lib/map_export.dart',
+      ]) {
+        final source = read(path);
+        for (final banned in const [
+          'class PresentationStore',
+          'class MapExportStore',
+          'class ReaderMapStore',
+          'class MapSnapshot',
+          'export_rows',
+          'reader_map_rows',
+          'Table',
+          'SharedPreferences',
+          'DriftConnectedDomainRepository',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '$path builds a second representation of the world');
+        }
+      }
+    });
+
+    test('the presentation service is read-only by construction', () {
+      final service = read('lib/map_presentation_service.dart');
+      for (final banned in const [
+        'createRecord',
+        'updateRecord',
+        'archiveRecord',
+        'deleteRecord',
+        'putRecord',
+        'putManuscriptNodes',
+        'RecordService',
+        'ConnectionEngine',
+        '.connect(',
+        'disconnect',
+      ]) {
+        expect(service, isNot(contains(banned)),
+            reason: 'the presentation service performs $banned');
+      }
+      expect(service, contains('repository.backlinks'));
+    });
+
+    test('spoiler filtering is enforced in the model, not the widgets', () {
+      // The reader projection returns smaller canonical projections. A renderer
+      // handed one cannot leak a hidden city because the city is not there.
+      final reader = read('lib/map_reader.dart');
+      expect(reader, contains('class MapReaderView'));
+      expect(reader, contains('MapReaderProjection'));
+      expect(reader, isNot(contains('Widget')));
+      expect(reader, isNot(contains('Visibility(')));
+      expect(reader, isNot(contains('package:flutter/')));
+    });
+
+    test('a reveal is the canonical relationship, and Phase 6 never writes it',
+        () {
+      final registry = BuiltInConnectionTypes.registry();
+      expect(
+        () => registry.resolve(MapPresentationLinks.revealedIn),
+        returnsNormally,
+      );
+      for (final path in const [
+        'lib/map_presentation.dart',
+        'lib/map_reader.dart',
+        'lib/map_presentation_service.dart',
+        'lib/map_export.dart',
+        'lib/map_presentation_view.dart',
+        'lib/map_studio_view.dart',
+      ]) {
+        expect(read(path), isNot(contains("typeId: 'revealedIn'")),
+            reason: '$path writes a reveal; Phase 6 only reads them');
+      }
+    });
+
+    test('one drawing feeds every renderer', () {
+      final export = read('lib/map_export.dart');
+      // Each backend takes a MapDrawing. None of them reads the projections
+      // directly, so none of them can disagree about what the map looks like.
+      expect(export, contains('String render(MapDrawing drawing)'));
+      expect(export, contains('Future<Uint8List> render(MapDrawing drawing'));
+      expect(read('lib/map_presentation_view.dart'),
+          contains('MapDrawingPainter'));
+      for (final banned in const ['MapCanvasData canvas', 'MapWorldState world']) {
+        expect(
+          export.split('class MapSvgRenderer').last,
+          isNot(contains(banned)),
+          reason: 'a renderer reads the projections instead of the drawing',
+        );
+      }
+    });
+
+    test('export goes through the one saving abstraction', () {
+      for (final path in const [
+        'lib/map_export.dart',
+        'lib/map_presentation_view.dart',
+        'lib/map_studio_view.dart',
+      ]) {
+        final source = read(path);
+        for (final banned in const [
+          'dart:html',
+          'File(',
+          'getSaveLocation',
+          'path_provider',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '$path saves files itself instead of using '
+                  'ExportFileSaver');
+        }
+      }
+      expect(read('lib/map_presentation_view.dart'),
+          contains('ExportFileSaver'));
+    });
+
+    test('the export domain stays free of Flutter', () {
+      for (final path in const [
+        'lib/map_presentation.dart',
+        'lib/map_reader.dart',
+        'lib/map_export.dart',
+      ]) {
+        expect(read(path), isNot(contains('package:flutter/')), reason: path);
+      }
+      // Rasterising needs dart:ui, which is why PNG lives in the view file and
+      // nowhere else.
+      expect(read('lib/map_export.dart'), isNot(contains('dart:ui')));
+      expect(read('lib/map_presentation_view.dart'), contains('dart:ui'));
+    });
+
+    test('no preset claims a colour space the code cannot produce', () {
+      final export = read('lib/map_export.dart');
+      expect(export.toLowerCase(), isNot(contains('cmyk-compatible')));
+      expect(export, contains('sRGB'));
+    });
+
+    test('Phases 3, 4 and 5 are still standing underneath', () {
+      final view = read('lib/map_studio_view.dart');
+      for (final api in const [
+        '_TerrainPainter',
+        '_overlayIcon',
+        '_JourneyPainter',
+        'overlayService.loadOverlays',
+        'worldService.loadWorldState',
+        'presentationService.revealPoints',
+      ]) {
+        expect(view, contains(api), reason: 'an earlier phase lost $api');
+      }
+    });
+  });
+
   group('phase boundary', () {
     test('the service exposes no later-phase entry point', () {
       final service = read('lib/map_service.dart');
@@ -944,28 +1110,24 @@ void main() {
       }
     });
 
-    test('no Phase 6 or later API has been introduced anywhere', () {
-      // Phase 5 legitimately crossed the old line: world state, territories,
-      // routes and travel are in scope now, so the simulation names are gone
+    test('no Phase 7 or later API has been introduced anywhere', () {
+      // Phase 6 legitimately crossed the old line: presentation, export, reader
+      // maps and spoiler filtering are in scope now, so those names are gone
       // from this list rather than the list being deleted. What is banned is
-      // what is still ahead -- presentation, export, printing, reader maps,
-      // spoiler filtering, sharing and community.
+      // what is still ahead — a community, a marketplace, publishing to a
+      // platform Map Studio does not have.
       for (final path in mapFiles) {
         final source = read(path);
         for (final banned in const [
-          'exportMap',
-          'printMap',
-          'shareMap',
-          'publishMap',
+          'publishToCommunity',
           'communityMap',
           'marketplace',
-          'PresentationMode',
-          'ReaderMap',
-          'SpoilerLevel',
-          'MapExportPreset',
+          'MapSubscription',
+          'MapComment',
+          'collaborator',
         ]) {
           expect(source, isNot(contains(banned)),
-              reason: '\$path introduces the Phase 6+ API \$banned');
+              reason: '\$path introduces the Phase 7+ API \$banned');
         }
       }
     });

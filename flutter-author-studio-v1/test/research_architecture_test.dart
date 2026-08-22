@@ -278,9 +278,13 @@ void main() {
       // The whole point of the migration: research has one home. If the panel
       // could still write to the legacy store, unmigrated data would start
       // accumulating again the moment an author pinned a reference.
+      // Bounded by the next class in main.dart. That used to be
+      // `_ProjectRecord`, the Projects Studio's in-memory mock, which the
+      // project-roster milestone deleted; `_ProjectsStudioView` is the class
+      // that now follows the panel.
       final panel = main.substring(
         main.indexOf('class _ResearchSidePanel'),
-        main.indexOf('class _ProjectRecord'),
+        main.indexOf('class _ProjectsStudioView'),
       );
       expect(
         panel.contains('ProjectResearchStore'),

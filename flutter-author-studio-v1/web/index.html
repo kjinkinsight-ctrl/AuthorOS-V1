@@ -39,6 +39,15 @@
   <title>AuthorOS</title>
   <link rel="manifest" href="manifest.json">
 
+  <!--
+    Painted by the browser behind the page and by the OS around an installed
+    window, so opening AuthorOS never flashes a bright frame.
+  -->
+  <meta name="theme-color" content="#080808">
+
+  <!-- The first thing an author sees; fetched without waiting on the CSS. -->
+  <link rel="preload" as="image" href="loading-backdrop.jpg">
+
   <style>
     /*
       The application is several megabytes of engine and code. Until it has
@@ -55,6 +64,56 @@
       padding: 0;
       height: 100%;
       background-color: #080808;
+    }
+
+    /*
+      The doorway artwork the app itself opens on, behind the loading screen.
+      `StartupBackdrop` paints the same image the moment Flutter takes over, so
+      without it the load ends on a visible cut from flat black to artwork; with
+      it the handoff is a fade rather than a change of scene.
+
+      It sits under a scrim heavy enough that the gold mark and the grey tagline
+      above keep the contrast they were designed with.
+    */
+    .authoros-loading__art {
+      position: absolute;
+      inset: 0;
+      background-image: url('loading-backdrop.jpg');
+      background-size: cover;
+      background-position: center;
+    }
+
+    /*
+      Dark enough behind the centred text to hold its contrast, and clear
+      enough at the edges that the doorway is legibly the same room the app
+      opens into. Weighted to the middle, where the type sits.
+    */
+    .authoros-loading__scrim {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(
+        ellipse at center,
+        rgba(8, 8, 8, 0.88) 0%,
+        rgba(8, 8, 8, 0.66) 38%,
+        rgba(8, 8, 8, 0.34) 100%
+      );
+    }
+
+    /* Everything authored sits above the artwork. */
+    #authoros-loading > *:not(.authoros-loading__art):not(.authoros-loading__scrim) {
+      position: relative;
+    }
+
+    /*
+      Groups the two things the failure state replaces. It restates the parent's
+      column gap so the tagline and the bar keep the spacing they had as direct
+      flex children.
+    */
+    .authoros-loading__progress {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
     }
 
     #authoros-loading {
@@ -129,6 +188,83 @@
       100% { transform: translateX(250%); }
     }
 
+    /* ---- Failure surface ------------------------------------------------
+
+      An author whose app never arrives must get an AuthorOS page with a way
+      forward, not a still loading bar and an error only they cannot see. The
+      developer still gets the real exception: it goes to the console, and to
+      the collapsed panel below.
+    */
+    .authoros-loading__failure { display: none; }
+
+    #authoros-loading.authoros-loading--failed .authoros-loading__progress {
+      display: none;
+    }
+
+    #authoros-loading.authoros-loading--failed .authoros-loading__failure {
+      display: block;
+      max-width: 42ch;
+    }
+
+    .authoros-loading__message {
+      font-size: clamp(13px, 3.6vw, 15px);
+      line-height: 1.55;
+      color: rgba(255, 255, 255, 0.82);
+      margin: 0 0 20px;
+    }
+
+    .authoros-loading__actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .authoros-loading__button {
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 12px 20px;
+      border-radius: 12px;
+      cursor: pointer;
+      border: 1px solid #d4af37;
+      background-color: #d4af37;
+      color: #080808;
+    }
+
+    .authoros-loading__button--secondary {
+      background-color: transparent;
+      color: #d4af37;
+      border-color: rgba(212, 175, 55, 0.55);
+    }
+
+    .authoros-loading__button:hover { filter: brightness(1.08); }
+
+    .authoros-loading__button:focus-visible {
+      outline: 2px solid #d4af37;
+      outline-offset: 3px;
+    }
+
+    .authoros-loading__details {
+      margin-top: 22px;
+      text-align: left;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.45);
+    }
+
+    .authoros-loading__details summary { cursor: pointer; }
+
+    .authoros-loading__details pre {
+      margin: 8px 0 0;
+      padding: 10px;
+      max-height: 180px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background-color: #141414;
+      border: 1px solid #363636;
+      border-radius: 8px;
+    }
+
     /* Honour the reduced-motion preference the workspace also respects. */
     @media (prefers-reduced-motion: reduce) {
       #authoros-loading { transition: none; }
@@ -142,39 +278,45 @@
 </head>
 <body>
   <div id="authoros-loading" role="status" aria-live="polite">
+    <div class="authoros-loading__art" aria-hidden="true"></div>
+    <div class="authoros-loading__scrim" aria-hidden="true"></div>
+
     <div class="authoros-loading__mark">AuthorOS</div>
     <div class="authoros-loading__rule"></div>
-    <div class="authoros-loading__tagline">Opening your writing workspace</div>
-    <div class="authoros-loading__bar"><span></span></div>
+
+    <div class="authoros-loading__progress">
+      <div class="authoros-loading__tagline">Opening your writing workspace</div>
+      <div class="authoros-loading__bar"><span></span></div>
+    </div>
+
+    <div class="authoros-loading__failure" id="authoros-loading-failure">
+      <p class="authoros-loading__message">
+        We couldn&rsquo;t open your workspace. Your writing is safe &mdash; it
+        stays on this device.
+      </p>
+      <div class="authoros-loading__actions">
+        <button type="button" class="authoros-loading__button" id="authoros-retry">
+          Try Again
+        </button>
+        <button
+          type="button"
+          class="authoros-loading__button authoros-loading__button--secondary"
+          id="authoros-return"
+        >
+          Return to Start
+        </button>
+      </div>
+      <details class="authoros-loading__details">
+        <summary>Technical details</summary>
+        <pre id="authoros-loading-diagnostic"></pre>
+      </details>
+    </div>
   </div>
 
-  <script>
-    // Flutter fires this on the window once it has painted its first frame.
-    // Fade the loading screen out then take it out of the tree entirely so it
-    // can never sit above the app or trap pointer events.
-    (function () {
-      var screenEl = document.getElementById('authoros-loading');
-      if (!screenEl) {
-        return;
-      }
-      window.addEventListener('flutter-first-frame', function () {
-        screenEl.classList.add('authoros-loading--done');
-        window.setTimeout(function () {
-          if (screenEl.parentNode) {
-            screenEl.parentNode.removeChild(screenEl);
-          }
-        }, 300);
-      });
-    })();
-  </script>
-
   <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
+    Dismissing this screen and reporting a load that never finishes both live
+    in `web/flutter_bootstrap.js`, because only the loader knows whether the
+    engine and the application bundle actually arrived.
   -->
   <script src="flutter_bootstrap.js" async></script>
 </body>

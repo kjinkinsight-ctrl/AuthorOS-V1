@@ -372,7 +372,9 @@ class _ManuscriptExportDialogState extends State<ManuscriptExportDialog> {
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -436,7 +438,9 @@ class _ManuscriptExportDialogState extends State<ManuscriptExportDialog> {
                                   .textTheme
                                   .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white70,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                   ),
                             ),
                           const SizedBox(height: 4),
@@ -449,7 +453,9 @@ class _ManuscriptExportDialogState extends State<ManuscriptExportDialog> {
                                   .textTheme
                                   .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white60,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                   ),
                             ),
                         ],

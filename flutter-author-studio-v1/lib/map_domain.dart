@@ -834,9 +834,18 @@ enum MapLayer {
   /// Region fills and outlines.
   regions,
 
+  /// Political borders. Over the ground they divide, under the scenery and the
+  /// places they contain: a border is a claim about territory, not a thing that
+  /// stands on it.
+  borders,
+
   /// Placed scenery — trees, mountains, settlements. Above regions so a forest
   /// reads over the territory it grows in, below the pins that name places.
   assets,
+
+  /// Roads, rivers, passes and sea lanes. Above the ground and the scenery on
+  /// it, below the places they join.
+  worldRoutes,
 
   /// Location pins.
   locations,

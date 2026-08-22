@@ -85,9 +85,12 @@ bool hasEmphasis(String paragraph, BookInlineMarkup markup) =>
 /// afterwards, so the same prose stays selected and the author can see what
 /// changed.
 ///
-/// Lives here rather than in the editor widget because it is the same
-/// convention this library defines; a second place that knows what an
-/// underscore means is a second place that can be wrong about it.
+/// **Nothing calls this today.** Manuscript Studio grew a real formatting
+/// toolbar with real `ProseMark.italic` while this branch was open, and a
+/// second button writing underscores beside it would have been actively
+/// misleading. It is kept because it is the convention's own vocabulary and it
+/// is tested: whatever reconciles the convention with `ProseDocument`'s marks
+/// will want a way to produce one from a selection.
 ({String text, int start, int end}) toggleEmphasis(
   String text,
   int start,

@@ -1,7 +1,7 @@
 import 'continuity.dart';
 import 'core/connected_domain.dart';
-import 'manuscript_store.dart';
 import 'core/entity_recognition.dart';
+import 'manuscript_store.dart';
 
 /// One record the manuscript could be connected to, flattened so the
 /// intelligence stays free of repository access and easy to test.
@@ -185,7 +185,7 @@ class ManuscriptContinuityIntelligence {
       final mention = record.names
           .map((name) => name.trim())
           .where((name) => name.length >= minimumMentionLength)
-          .where((name) => mentionsName(prose, name))
+          .where((name) => _matcher.mentions(prose, name))
           .firstOrNull;
       if (mention == null) continue;
       findings.add(ManuscriptContinuityFinding(
@@ -354,22 +354,8 @@ class ManuscriptContinuityIntelligence {
           ),
       ];
 
-  static List<String> aliasesOf(AuthorRecord record) {
-    final raw = record.fields['aliases'] ?? record.fields['alternateNames'];
-    if (raw is String) {
-      return raw
-          .split(RegExp(r'[,;\n]'))
-          .map((item) => item.trim())
-          .where((item) => item.isNotEmpty)
-          .toList();
-    }
-    if (raw is List) {
-      return raw
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toList();
-    }
-    return const [];
-  }
+  static List<String> aliasesOf(AuthorRecord record) =>
+      EntityNames.aliasesOf(record);
 }
 
+const _matcher = EntityNameMatcher();

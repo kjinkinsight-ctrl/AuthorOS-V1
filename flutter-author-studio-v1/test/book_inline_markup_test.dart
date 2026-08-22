@@ -173,7 +173,10 @@ void main() {
       expect(parse(source), parse(source));
     });
   });
-  group('the editor’s italic button', () {
+  // `toggleEmphasis` has no caller since Manuscript Studio gained a real
+  // formatting toolbar. These stay: the function is the convention's own
+  // vocabulary, and whatever reconciles the two will start from it.
+  group('producing the convention from a selection', () {
     test('wraps a selection', () {
       const text = 'She read The Kestrel twice.';
       final result = toggleEmphasis(text, 9, 20);

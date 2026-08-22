@@ -2013,6 +2013,23 @@ class DriftConnectedDomainRepository {
     return row == null ? null : _nodeFromRow(row);
   }
 
+  /// Every manuscript node in [projectId], read straight from the table.
+  ///
+  /// Read-only and side-effect free, which is the whole point: the obvious way
+  /// to answer "which chapter is this scene in" is `ManuscriptStore.loadStudio`,
+  /// but that seeds a starter manuscript on a project nobody has opened yet.
+  /// Anything that only wants to *look* at manuscript structure reads here
+  /// instead, so a read can never create a chapter.
+  Future<List<ManuscriptNodeReference>> manuscriptNodesByProject(
+    String projectId,
+  ) async {
+    final rows = await (database.select(database.manuscriptNodeRows)
+          ..where((table) => table.projectId.equals(projectId))
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    return rows.map(_nodeFromRow).toList();
+  }
+
   Future<List<RecordLink>> backlinks(String entityId) async {
     final rows = await (database.select(database.recordLinkRows)
           ..where((table) =>

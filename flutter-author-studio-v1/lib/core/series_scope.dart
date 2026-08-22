@@ -187,7 +187,9 @@ class SeriesScopeService {
       project.id,
       scopeType: RecordScopeType.project,
       scopeId: project.scopeId,
-      seriesId: null,
+      // Same reason as `demoteToProject`: withdrawal has to name the column it
+      // drops, because an unnamed column is preserved.
+      clearSeriesId: true,
       bookId: project.bookId,
       branchId: project.branchId,
       timestamp: timestamp,
@@ -224,8 +226,9 @@ class SeriesScopeService {
       scopeId: target,
       seriesId: target,
       // A shared record is not a book's record, so the book id is cleared
-      // deliberately rather than by omission.
-      bookId: null,
+      // deliberately rather than by omission — and an omitted column is
+      // preserved, so saying so takes `clearBookId` rather than a null.
+      clearBookId: true,
       branchId: existing.branchId,
       timestamp: timestamp,
     );
@@ -257,7 +260,12 @@ class SeriesScopeService {
       recordId,
       scopeType: RecordScopeType.project,
       scopeId: home,
-      seriesId: null,
+      // `changeScope` preserves a scope column it is not told about, so
+      // returning a record to one book has to say that the series column goes,
+      // not merely decline to re-supply it. Passing `seriesId: null` reads as
+      // "leave it alone" and would leave a project-scoped record still
+      // claiming series membership.
+      clearSeriesId: true,
       bookId: existing.bookId,
       branchId: existing.branchId,
       timestamp: timestamp,

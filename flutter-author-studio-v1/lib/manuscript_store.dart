@@ -151,13 +151,33 @@ class ManuscriptScene {
     this.timeLabel = '',
     this.notes = '',
     this.relationships = const [],
+    this.document,
   });
 
   final String id;
   final String chapterId;
   final String title;
   final int order;
+
+  /// The scene's prose as plain text.
+  ///
+  /// Stays the scene's public shape and the one every other system reads:
+  /// sync payloads, revisions, export, continuity and word counts all take
+  /// this. Formatting rides alongside in [document] rather than through here,
+  /// so none of them had to learn about marks.
   final String content;
+
+  /// The formatted form of [content], when the scene has any formatting.
+  ///
+  /// Null means "plain", which is what almost every scene is and what every
+  /// scene was before the editor could format. Never persisted in the
+  /// manuscript blob: prose lives in `scene_prose_rows`, and this is hydrated
+  /// from there on load.
+  ///
+  /// Its [ProseDocument.plainText] is [content] by construction. [copyWith]
+  /// enforces that — see the note there.
+  final ProseDocument? document;
+
   final ManuscriptNodeStatus status;
   final String pov;
   final String location;
@@ -167,12 +187,21 @@ class ManuscriptScene {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// A copy with the given fields replaced.
+  ///
+  /// Passing [content] without [document] drops the formatting, deliberately.
+  /// Every caller that sets prose from somewhere plain — a restored revision,
+  /// an arriving sync payload, a legacy migration — is handing over text that
+  /// genuinely has no marks, and silently keeping the old scene's marks
+  /// anchored over new words would be worse than losing them. Only the editor
+  /// passes both, because only the editor knows both.
   ManuscriptScene copyWith({
     String? id,
     String? chapterId,
     String? title,
     int? order,
     String? content,
+    ProseDocument? document,
     ManuscriptNodeStatus? status,
     String? pov,
     String? location,
@@ -188,6 +217,7 @@ class ManuscriptScene {
         title: title ?? this.title,
         order: order ?? this.order,
         content: content ?? this.content,
+        document: document ?? (content == null ? this.document : null),
         status: status ?? this.status,
         pov: pov ?? this.pov,
         location: location ?? this.location,
@@ -262,6 +292,7 @@ class ManuscriptChapter {
     this.summary = '',
     this.prompt = '',
     this.pov = '',
+    this.bookId,
     this.linkedChapterIds = const [],
     this.scenes = const [],
   });
@@ -273,6 +304,16 @@ class ManuscriptChapter {
   final String summary;
   final String prompt;
   final String pov;
+
+  /// The `book` record this chapter belongs to, or null when the project has
+  /// no books yet.
+  ///
+  /// Book membership is manuscript structure, so it lives here beside chapter
+  /// order rather than becoming an edge — the same choice already made for a
+  /// scene's `chapterId`. Nullable so every manuscript written before books
+  /// existed keeps loading unchanged.
+  final String? bookId;
+
   final List<String> linkedChapterIds;
   final List<ManuscriptScene> scenes;
   final DateTime createdAt;
@@ -286,6 +327,8 @@ class ManuscriptChapter {
     String? summary,
     String? prompt,
     String? pov,
+    String? bookId,
+    bool clearBookId = false,
     List<String>? linkedChapterIds,
     List<ManuscriptScene>? scenes,
     DateTime? createdAt,
@@ -299,6 +342,7 @@ class ManuscriptChapter {
         summary: summary ?? this.summary,
         prompt: prompt ?? this.prompt,
         pov: pov ?? this.pov,
+        bookId: clearBookId ? null : (bookId ?? this.bookId),
         linkedChapterIds: linkedChapterIds ?? this.linkedChapterIds,
         scenes: scenes ?? this.scenes,
         createdAt: createdAt ?? this.createdAt,
@@ -316,6 +360,7 @@ class ManuscriptChapter {
         'summary': summary,
         'prompt': prompt,
         'pov': pov,
+        if (bookId != null) 'bookId': bookId!,
         'linkedChapterIds': linkedChapterIds,
         'scenes': scenes
             .map((scene) => scene.toJson(includeProse: includeProse))
@@ -340,6 +385,7 @@ class ManuscriptChapter {
       summary: (json['summary'] as String?) ?? '',
       prompt: (json['prompt'] as String?) ?? '',
       pov: (json['pov'] as String?) ?? '',
+      bookId: _optionalId(json['bookId']),
       linkedChapterIds: (json['linkedChapterIds'] as List? ?? const [])
           .map((value) => value.toString())
           .toList(),
@@ -873,7 +919,12 @@ class ManuscriptStore {
             scenes: [
               for (final scene in chapter.scenes)
                 if (stored[scene.id] case final SceneProse prose)
-                  scene.copyWith(content: prose.plainText)
+                  scene.copyWith(
+                    content: prose.plainText,
+                    // Only when it carries something the text does not, so a
+                    // plain scene stays plain all the way up.
+                    document: prose.document.isPlainText ? null : prose.document,
+                  )
                 else
                   scene,
             ],
@@ -974,14 +1025,19 @@ class ManuscriptStore {
               sceneId: scene.id,
               projectId: manuscript.projectId,
               chapterId: chapter.id,
-              document: ProseDocument.fromPlainText(scene.content),
+              document: _documentFor(scene),
               updatedAt: now,
             ),
           );
           continue;
         }
 
-        if (digest.matchesPlainText(scene.content)) {
+        // The scene carrying a document is itself a change worth writing: its
+        // text may be identical while its marks are not, and the digest's
+        // plain-text comparison cannot see the difference. Skipping here on a
+        // text match alone would silently swallow every formatting edit that
+        // did not also change a character.
+        if (scene.document == null && digest.matchesPlainText(scene.content)) {
           // Unchanged, and this comparison cost no JSON and no allocation --
           // which is what keeps an autosave proportional to the edit rather
           // than to the manuscript. A scene that moved between chapters still
@@ -998,7 +1054,7 @@ class ManuscriptStore {
 
         // Only now is the stored document worth reading: this is the scene the
         // author is actually typing in.
-        final incoming = ProseDocument.fromPlainText(scene.content);
+        final incoming = _documentFor(scene);
         final existing = await _repository.sceneProseById(scene.id);
         if (existing == null) {
           // The digest said there was a row and the document says there is
@@ -1051,6 +1107,21 @@ class ManuscriptStore {
     }
   }
 
+  /// The document to store for [scene].
+  ///
+  /// The editor hands back a formatted document; everything else hands back
+  /// plain text. A document whose plain text has drifted from the scene's is
+  /// not trusted: [ManuscriptScene.content] is what every other system reads,
+  /// so it wins, and the marks are dropped rather than left describing words
+  /// that are no longer there.
+  static ProseDocument _documentFor(ManuscriptScene scene) {
+    final document = scene.document;
+    if (document == null || document.plainText != scene.content) {
+      return ProseDocument.fromPlainText(scene.content);
+    }
+    return document;
+  }
+
   /// The prose currently stored for [sceneId], or `null` when it has none.
   Future<SceneProse?> sceneProse(String sceneId) =>
       _repository.sceneProseById(sceneId);
@@ -1091,6 +1162,7 @@ class ManuscriptStore {
           'sceneCount': chapter.scenes.length,
           'wordCount': chapter.wordCount,
           'linkedChapterIds': chapter.linkedChapterIds,
+          if (chapter.bookId != null) 'bookId': chapter.bookId,
         },
       );
 
@@ -1214,4 +1286,13 @@ class ManuscriptStore {
     }
     return ManuscriptNodeStatusX.fromId(normalized);
   }
+}
+
+/// Reads an optional id, treating an absent key and a blank string alike.
+///
+/// A manuscript saved before books existed simply has no `bookId` key, and a
+/// chapter released back to "no book" writes none, so both must read as null.
+String? _optionalId(Object? value) {
+  final normalized = value is String ? value.trim() : '';
+  return normalized.isEmpty ? null : normalized;
 }

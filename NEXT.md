@@ -787,4 +787,11 @@ The proposed implementation architecture, migration strategy, milestone gates, a
 
 - [AuthorOS 2.0 Master Feature and Architecture Plan](flutter-author-studio-v1/docs/authoros-2-master-plan.md)
 
+The Codex / Universal Knowledge System — cross-book entities, entity
+recognition, entity suggestions, canon management and the usage explorer — is
+implemented and recorded in
+[Codex — Universal Knowledge System Implementation Map](flutter-author-studio-v1/docs/codex-universal-knowledge-implementation-map.md).
+A project is a series and a book is a record inside it, so one canonical Kali
+can appear across Books 1-4 without being recreated four times.
+
 This vision remains the product direction. The master plan is the controlling implementation document and keeps 2.0 expansion separate from the current 1.x release work.

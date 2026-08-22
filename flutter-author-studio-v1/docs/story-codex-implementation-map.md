@@ -14,6 +14,13 @@ branches, validation, and Safe Delete are composed by `StoryCodexService`.
 The detailed current map, fixture coverage, limitations, and future UI boundary
 are recorded in `docs/story-codex-phase-1-implementation-map.md`.
 
+Cross-book entities, entity recognition over manuscript prose, entity
+suggestions, canon conflict detection, the universal entity profile, and the
+usage explorer are recorded in
+`docs/codex-universal-knowledge-implementation-map.md`. That work builds on this
+same shared domain layer and adds no table, no second search index, and no
+relaxation of project isolation.
+
 The historical audit and batch plan below remain as provenance. Statements in
 the original gap analysis describe the August 18 checkpoint and are superseded
 where the Phase 1 map records an implemented capability.

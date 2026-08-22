@@ -14,20 +14,39 @@ library;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'map_overlay_service.dart';
 import 'map_service.dart';
 import 'onboarding.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/theme_tokens.dart';
 
 /// The Map Studio workspace.
+/// Where an overlay can send the author next.
+///
+/// Map Studio names a destination; the application shell decides what that
+/// means. Keeping the shell's own section enum out of here leaves Map Studio
+/// independent of the navigation surface hosting it, exactly as the other
+/// Studios do with their own destination enums.
+enum MapStudioDestination { characters, timeline, manuscript, world }
+
 class MapStudioView extends StatefulWidget {
   const MapStudioView({
     super.key,
     required this.project,
     this.service,
+    this.overlays,
+    this.onNavigate,
   });
 
   final StarterProject project;
+
+  /// The overlay projection. Read-only, and injectable for tests exactly like
+  /// [service].
+  final MapOverlayService? overlays;
+
+  /// Opens another Studio, using the shell's own navigation. Map Studio adds no
+  /// routing of its own.
+  final ValueChanged<MapStudioDestination>? onNavigate;
 
   /// An explicit service, for tests that drive the Studio against a fixture
   /// database. When absent the Studio binds to the application database.
@@ -39,6 +58,7 @@ class MapStudioView extends StatefulWidget {
 
 class _MapStudioViewState extends State<MapStudioView> {
   late final MapService service;
+  late final MapOverlayService overlayService;
 
   bool loading = true;
   bool busy = false;
@@ -70,11 +90,31 @@ class _MapStudioViewState extends State<MapStudioView> {
   /// never appears in a marquee.
   String? selectedAssetId;
 
+  /// Phase 4 overlay state. All of it is view state: the projection is
+  /// recomputed on load and nothing about it is ever written back.
+  MapOverlayData? overlayData;
+  MapOverlayFilter overlayFilter = const MapOverlayFilter();
+  String? selectedOverlayId;
+  bool overlaysVisible = true;
+  final TextEditingController overlaySearch = TextEditingController();
+  String overlayQuery = '';
+
   @override
   void initState() {
     super.initState();
     service = widget.service ?? MapService.forProject(widget.project.id);
+    overlayService = widget.overlays ??
+        MapOverlayService(
+          projectId: widget.project.id,
+          repository: service.repository,
+        );
     _load();
+  }
+
+  @override
+  void dispose() {
+    overlaySearch.dispose();
+    super.dispose();
   }
 
   MapSummary? get selectedMap =>
@@ -98,11 +138,19 @@ class _MapStudioViewState extends State<MapStudioView> {
           ? wanted
           : (loaded.isEmpty ? null : loaded.first.id);
       final data = active == null ? null : await service.loadCanvas(active);
+      final overlays =
+          active == null ? null : await overlayService.loadOverlays(active);
       if (!mounted) return;
       setState(() {
         maps = loaded;
         selectedMapId = active;
         canvas = data;
+        overlayData = overlays;
+        if (selectedOverlayId != null &&
+            !(overlays?.items.any((item) => item.id == selectedOverlayId) ??
+                false)) {
+          selectedOverlayId = null;
+        }
         selections.removeWhere((value) => !_stillPresent(data, value));
         if (primarySelection != null &&
             !selections.contains(primarySelection)) {
@@ -619,6 +667,114 @@ class _MapStudioViewState extends State<MapStudioView> {
     return selectedMap?.assets.where((asset) => asset.id == id).firstOrNull;
   }
 
+  // --------------------------------------------------------- story overlays -
+  //
+  // Every action here changes what is drawn. None of them writes: the overlay
+  // layer reads canonical data and shows it, and a filter is a question about
+  // the view, never a change to the story.
+
+  MapOverlayItem? get selectedOverlay {
+    final id = selectedOverlayId;
+    final data = overlayData;
+    if (id == null || data == null) return null;
+    return data.items.where((item) => item.id == id).firstOrNull;
+  }
+
+  void _toggleOverlayKind(MapOverlayKind kind) => setState(
+        () => overlayFilter = overlayFilter.toggling(kind),
+      );
+
+  void _selectOverlay(String? id) => setState(() => selectedOverlayId = id);
+
+  void _toggleJourney(String characterId) => setState(
+        () => overlayFilter = overlayFilter.togglingJourney(characterId),
+      );
+
+  /// Moves the story clock. `null` means the whole story.
+  void _setMoment(int? sortKey) => setState(() {
+        overlayFilter = sortKey == null
+            ? overlayFilter.copyWith(clearMoment: true)
+            : overlayFilter.copyWith(moment: sortKey);
+      });
+
+  void _stepMoment(int direction) {
+    final data = overlayData;
+    if (data == null || data.moments.isEmpty) return;
+    final keys = [for (final moment in data.moments) moment.sortKey];
+    final current = overlayFilter.moment;
+    if (current == null) {
+      // Entering the clock from the whole story starts at the beginning of the
+      // story, whichever way the author stepped.
+      _setMoment(keys.first);
+      return;
+    }
+    final index = keys.indexOf(current);
+    final next = (index < 0 ? 0 : index) + direction;
+    if (next < 0 || next >= keys.length) return;
+    _setMoment(keys[next]);
+  }
+
+  /// Story moment mode: stand at one point in the story and hide the rest.
+  void _enterStoryMoment() {
+    final data = overlayData;
+    if (data == null || data.moments.isEmpty) return;
+    setState(() {
+      overlayFilter = overlayFilter.copyWith(
+        moment: overlayFilter.moment ?? data.moments.first.sortKey,
+        showPast: false,
+        showFuture: false,
+      );
+    });
+  }
+
+  void _showWholeStory() => setState(() {
+        overlayFilter = overlayFilter.copyWith(
+          clearMoment: true,
+          showPast: true,
+          showFuture: true,
+        );
+      });
+
+  /// Finds an entity, centres the map on it and selects it.
+  ///
+  /// An entity with no mapped position is reported as exactly that. The map
+  /// never invents coordinates to make a search result land somewhere.
+  void _focusOverlay(MapOverlayItem item) {
+    setState(() {
+      selectedOverlayId = item.id;
+      final extent = selectedMap?.extent ?? MapExtent.standard;
+      // Focusing means going there, so it closes in as well as centres: at the
+      // default scale the whole map is already in frame and centring alone
+      // would move nothing. Nothing here reaches a record — the camera is
+      // presentation state and stays that way.
+      final scale = camera.scale < _focusScale
+          ? _focusScale
+          : camera.scale;
+      camera = MapCamera(
+        scale: scale,
+        offset: MapPosition(
+          item.position.x - extent.width / (2 * scale),
+          item.position.y - extent.height / (2 * scale),
+        ),
+      ).clampedTo(extent);
+    });
+  }
+
+  /// How close the map comes when the author focuses something.
+  static const _focusScale = 2.0;
+
+  /// Hands the author to the Studio that owns the entity behind an overlay.
+  void _openOwningStudio(MapOverlayItem item) {
+    final navigate = widget.onNavigate;
+    if (navigate == null) return;
+    navigate(switch (item.kind) {
+      MapOverlayKind.character => MapStudioDestination.characters,
+      MapOverlayKind.event => MapStudioDestination.timeline,
+      MapOverlayKind.scene => MapStudioDestination.manuscript,
+      MapOverlayKind.location => MapStudioDestination.world,
+    });
+  }
+
   // ------------------------------------------------------- inline editing ---
 
   void _openInlineEditor(MapSelection value) => setState(() {
@@ -833,6 +989,11 @@ class _MapStudioViewState extends State<MapStudioView> {
           onAssetSelected: (id) => setState(() => selectedAssetId = id),
           brush: brush,
           selectedAssetId: selectedAssetId,
+          overlayData: overlayData,
+          overlayFilter: overlayFilter,
+          selectedOverlayId: selectedOverlayId,
+          overlaysVisible: overlaysVisible,
+          onOverlaySelected: _selectOverlay,
         ),
         if (data.map.visualStyle.showLegend && data.map.legend.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -842,6 +1003,24 @@ class _MapStudioViewState extends State<MapStudioView> {
             style: data.map.visualStyle,
           ),
         ],
+        if (overlayData != null) ...[
+          const SizedBox(height: 12),
+          _buildOverlayPanel(palette, overlayData!),
+          const SizedBox(height: 12),
+          _OverlayLegend(palette: palette, filter: overlayFilter),
+          if (selectedOverlay != null) ...[
+            const SizedBox(height: 12),
+            _OverlayDetail(
+              palette: palette,
+              item: selectedOverlay!,
+              onFocus: () => _focusOverlay(selectedOverlay!),
+              onOpen: widget.onNavigate == null
+                  ? null
+                  : () => _openOwningStudio(selectedOverlay!),
+              onClear: () => _selectOverlay(null),
+            ),
+          ],
+        ],
         const SizedBox(height: 12),
         _SelectionDetail(
           palette: palette,
@@ -849,6 +1028,278 @@ class _MapStudioViewState extends State<MapStudioView> {
           selection: selection,
           selectionCount: selections.length,
           onEdit: busy ? null : _openInlineEditor,
+        ),
+      ],
+    );
+  }
+
+  /// The Phase 4 overlay controls.
+  ///
+  /// Everything in here asks a question about the view — which kinds are drawn,
+  /// where the story clock is standing, whose journey is traced, what the author
+  /// is looking for. Nothing in here writes: the overlay layer is a reading of
+  /// canonical data and stays one.
+  Widget _buildOverlayPanel(_MapPalette palette, MapOverlayData data) {
+    final results = data.search(overlayQuery);
+    return _Panel(
+      key: const Key('map-overlay-panel'),
+      palette: palette,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Story overlays',
+                  style: palette.ui.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              _ToolButton(
+                key: const Key('map-overlays-toggle'),
+                palette: palette,
+                icon: overlaysVisible
+                    ? Icons.layers_outlined
+                    : Icons.layers_clear_outlined,
+                label: overlaysVisible ? 'Hide overlays' : 'Show overlays',
+                selected: overlaysVisible,
+                onPressed: () =>
+                    setState(() => overlaysVisible = !overlaysVisible),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final kind in MapOverlayKind.values)
+                _ToolButton(
+                  key: Key('map-overlay-filter-${kind.name}'),
+                  palette: palette,
+                  icon: _overlayIcon(kind),
+                  label: '${kind.label} (${data.ofKind(kind).length})',
+                  selected: overlayFilter.shows(kind),
+                  onPressed: () => _toggleOverlayKind(kind),
+                ),
+            ],
+          ),
+          // Story entities that exist but have nowhere to be drawn are counted,
+          // never silently dropped.
+          for (final kind in MapOverlayKind.values)
+            if (data.unmappedOf(kind) > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  '${data.unmappedOf(kind)} ${kind.label.toLowerCase()} '
+                  'have no mapped location',
+                  key: Key('map-overlay-unmapped-${kind.name}'),
+                  style: palette.label,
+                ),
+              ),
+          if (data.moments.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _buildTimelineControl(palette, data),
+          ],
+          if (data.journeys.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('Journeys',
+                style: palette.ui.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final journey in data.journeys)
+                  _ToolButton(
+                    key: Key('map-journey-${journey.characterId}'),
+                    palette: palette,
+                    icon: Icons.timeline_outlined,
+                    label: journey.isDrawable
+                        ? '${journey.characterName} (${journey.stops.length})'
+                        : '${journey.characterName} (no path)',
+                    selected: overlayFilter.journeyCharacterIds
+                        .contains(journey.characterId),
+                    onPressed: journey.isDrawable
+                        ? () => _toggleJourney(journey.characterId)
+                        : null,
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('map-overlay-search'),
+            controller: overlaySearch,
+            onChanged: (value) => setState(() => overlayQuery = value),
+            decoration: const InputDecoration(
+              labelText: 'Find a character, event, scene or place',
+              prefixIcon: Icon(Icons.search_outlined),
+              isDense: true,
+            ),
+          ),
+          if (overlayQuery.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            if (results.isEmpty)
+              Text(
+                'Nothing on this map matches that.',
+                key: const Key('map-overlay-no-results'),
+                style: palette.label,
+              )
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final item in results.take(8))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Semantics(
+                        button: true,
+                        label: 'Focus ${item.semanticLabel}',
+                        child: InkWell(
+                          key: Key('map-overlay-result-${item.id}'),
+                          onTap: () => _focusOverlay(item),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _overlayIcon(item.kind),
+                                size: 16,
+                                color: palette.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  item.locationName.isEmpty
+                                      ? item.label
+                                      : '${item.label} — ${item.locationName}',
+                                  style: palette.body,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The story clock.
+  ///
+  /// Scrubbing it changes which overlays are drawn and nothing else. Story
+  /// moment mode narrows the map to a single point in the story; the whole
+  /// story is always one button away.
+  Widget _buildTimelineControl(_MapPalette palette, MapOverlayData data) {
+    final keys = [for (final moment in data.moments) moment.sortKey];
+    final current = overlayFilter.moment;
+    final index = current == null ? -1 : keys.indexOf(current);
+    final label = index < 0
+        ? 'Whole story'
+        : data.moments[index].label +
+            (data.moments[index].approximate ? ' (approximate)' : '');
+    return Column(
+      key: const Key('map-overlay-timeline'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                key: const Key('map-overlay-moment-label'),
+                style: palette.ui.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Text(
+              index < 0
+                  ? '${data.moments.length} moments'
+                  : '${index + 1} of ${data.moments.length}',
+              key: const Key('map-overlay-moment-position'),
+              style: palette.label,
+            ),
+          ],
+        ),
+        if (keys.length > 1)
+          Slider(
+            key: const Key('map-overlay-moment-slider'),
+            value: (index < 0 ? 0 : index).toDouble(),
+            min: 0,
+            max: (keys.length - 1).toDouble(),
+            divisions: keys.length - 1,
+            label: data.moments[index < 0 ? 0 : index].label,
+            activeColor: palette.primary,
+            inactiveColor: palette.outline,
+            onChanged: (value) => _setMoment(keys[value.round()]),
+          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _ToolButton(
+              key: const Key('map-overlay-moment-prev'),
+              palette: palette,
+              icon: Icons.chevron_left,
+              label: 'Earlier',
+              selected: false,
+              onPressed: () => _stepMoment(-1),
+            ),
+            _ToolButton(
+              key: const Key('map-overlay-moment-next'),
+              palette: palette,
+              icon: Icons.chevron_right,
+              label: 'Later',
+              selected: false,
+              onPressed: () => _stepMoment(1),
+            ),
+            _ToolButton(
+              key: const Key('map-overlay-story-moment'),
+              palette: palette,
+              icon: Icons.hourglass_bottom_outlined,
+              label: 'Story moment',
+              selected: !overlayFilter.isWholeStory &&
+                  !overlayFilter.showPast &&
+                  !overlayFilter.showFuture,
+              onPressed: _enterStoryMoment,
+            ),
+            _ToolButton(
+              key: const Key('map-overlay-whole-story'),
+              palette: palette,
+              icon: Icons.all_inclusive_outlined,
+              label: 'Whole story',
+              selected: overlayFilter.isWholeStory,
+              onPressed: _showWholeStory,
+            ),
+            _ToolButton(
+              key: const Key('map-overlay-show-past'),
+              palette: palette,
+              icon: Icons.history_outlined,
+              label: 'Keep past',
+              selected: overlayFilter.showPast,
+              onPressed: () => setState(() {
+                overlayFilter = overlayFilter.copyWith(
+                  showPast: !overlayFilter.showPast,
+                );
+              }),
+            ),
+            _ToolButton(
+              key: const Key('map-overlay-show-future'),
+              palette: palette,
+              icon: Icons.update_outlined,
+              label: 'Reveal future',
+              selected: overlayFilter.showFuture,
+              onPressed: () => setState(() {
+                overlayFilter = overlayFilter.copyWith(
+                  showFuture: !overlayFilter.showFuture,
+                );
+              }),
+            ),
+          ],
         ),
       ],
     );
@@ -1360,6 +1811,11 @@ class _MapCanvas extends StatefulWidget {
     required this.onAssetSelected,
     required this.brush,
     required this.selectedAssetId,
+    required this.overlayData,
+    required this.overlayFilter,
+    required this.selectedOverlayId,
+    required this.overlaysVisible,
+    required this.onOverlaySelected,
   });
 
   final MapCanvasData data;
@@ -1392,6 +1848,12 @@ class _MapCanvas extends StatefulWidget {
   final ValueChanged<String?> onAssetSelected;
   final MapTerrainBrush brush;
   final String? selectedAssetId;
+
+  final MapOverlayData? overlayData;
+  final MapOverlayFilter overlayFilter;
+  final String? selectedOverlayId;
+  final bool overlaysVisible;
+  final ValueChanged<String?> onOverlaySelected;
 
   @override
   State<_MapCanvas> createState() => _MapCanvasState();
@@ -1748,6 +2210,8 @@ class _MapCanvasState extends State<_MapCanvas> {
                 icon: Icons.push_pin,
               ),
           ],
+        MapLayer.storyPaths => _storyPathLayer(projection),
+        MapLayer.storyOverlays => _storyOverlayLayer(projection),
         MapLayer.selection => _selectionLayer(projection),
         MapLayer.interaction => _interactionLayer(projection),
       };
@@ -1784,13 +2248,9 @@ class _MapCanvasState extends State<_MapCanvas> {
       // marquee, pan, region drawing and placement. It sits at the bottom of
       // the stack so pins and regions above it answer for themselves first.
       Positioned.fill(
-        child: GestureDetector(
+        child: _MapGestureArea(
           key: const Key('map-canvas-surface'),
           behavior: HitTestBehavior.translucent,
-          // The pointer's own travel is the edit, so the drag starts where the
-          // finger went down rather than where the slop was crossed: what the
-          // writer moves by is what the record moves by.
-          dragStartBehavior: DragStartBehavior.down,
           onTapUp: _onBackgroundTapUp,
           onPanStart: _onBackgroundPanStart,
           onPanUpdate: _onBackgroundPanUpdate,
@@ -1860,10 +2320,9 @@ class _MapCanvasState extends State<_MapCanvas> {
             top: point.y - size,
             width: size * 2,
             height: size * 2,
-            child: GestureDetector(
+            child: _MapGestureArea(
               key: Key('map-asset-${asset.id}'),
               behavior: HitTestBehavior.opaque,
-              dragStartBehavior: DragStartBehavior.down,
               onTap: widget.interactive
                   ? () => widget.onAssetSelected(selected ? null : asset.id)
                   : null,
@@ -1920,6 +2379,97 @@ class _MapCanvasState extends State<_MapCanvas> {
     widget.onMoveAsset(assetId, position);
   }
 
+  /// Journeys, drawn as lines between the stops the story actually names.
+  List<Widget> _storyPathLayer(MapProjection projection) {
+    final data = widget.overlayData;
+    if (!widget.overlaysVisible || data == null) return const [];
+    final journeys = data.journeysUnder(widget.overlayFilter);
+    if (journeys.isEmpty) return const [];
+    return [
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            key: const Key('map-story-paths'),
+            painter: _JourneyPainter(
+              journeys: journeys,
+              projection: projection,
+              color: widget.palette.primary,
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Characters, events, scenes and story locations, clustered where they
+  /// share a position so none of them can hide behind another.
+  List<Widget> _storyOverlayLayer(MapProjection projection) {
+    final data = widget.overlayData;
+    if (!widget.overlaysVisible || data == null) return const [];
+    final palette = widget.palette;
+    final visible = data.visibleUnder(widget.overlayFilter);
+    // Location overlays would sit exactly on the Phase 1 pins that already
+    // draw them, so they contribute context to the panels rather than a second
+    // marker on the canvas.
+    final drawn = [
+      for (final item in visible)
+        if (item.kind != MapOverlayKind.location) item,
+    ];
+    return [
+      for (final cluster in MapOverlayCluster.clusterAll(drawn))
+        () {
+          final point = projection.toCanvas(cluster.position);
+          final selected = cluster.items
+              .any((item) => item.id == widget.selectedOverlayId);
+          return Positioned(
+            left: point.x - 16,
+            top: point.y - 40,
+            width: 32,
+            height: 32,
+            child: Semantics(
+              button: true,
+              selected: selected,
+              label: cluster.semanticLabel,
+              child: Tooltip(
+                message: cluster.semanticLabel,
+                child: GestureDetector(
+                  key: Key('map-overlay-${cluster.primary.id}'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => widget.onOverlaySelected(
+                    selected ? null : cluster.primary.id,
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: selected ? palette.selection : palette.surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected ? palette.primary : palette.outline,
+                        width: selected ? 2 : 1,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: cluster.isSingle
+                        ? Icon(
+                            _overlayIcon(cluster.primary.kind),
+                            size: 16,
+                            color: selected
+                                ? palette.primary
+                                : palette.onSurfaceVariant,
+                          )
+                        : Text(
+                            '${cluster.count}',
+                            key: Key('map-overlay-count-${cluster.id}'),
+                            style: palette.label,
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }(),
+    ];
+  }
+
   List<Widget> _selectionLayer(MapProjection projection) {
     final palette = widget.palette;
     final primary = widget.primarySelection;
@@ -1938,10 +2488,9 @@ class _MapCanvasState extends State<_MapCanvas> {
             Positioned(
               left: point.x - 9,
               top: point.y - 9,
-              child: GestureDetector(
+              child: _MapGestureArea(
                 key: Key('map-geometry-handle-$index'),
                 behavior: HitTestBehavior.opaque,
-                dragStartBehavior: DragStartBehavior.down,
                 onPanStart: canEdit
                     ? (details) {
                         dragItem = primary;
@@ -2107,10 +2656,9 @@ class _MapCanvasState extends State<_MapCanvas> {
       top: topLeft.y,
       width: width,
       height: height,
-      child: GestureDetector(
+      child: _MapGestureArea(
         key: Key('map-region-${region.id}'),
         behavior: HitTestBehavior.opaque,
-        dragStartBehavior: DragStartBehavior.down,
         onTap: () => widget.onSelected(item),
         onPanStart: canDragItems
             ? (details) => _onItemPanStart(
@@ -2178,9 +2726,8 @@ class _MapCanvasState extends State<_MapCanvas> {
       child: Semantics(
         button: true,
         label: label,
-        child: GestureDetector(
+        child: _MapGestureArea(
           key: key,
-          dragStartBehavior: DragStartBehavior.down,
           onTap: () => widget.onSelected(item),
           onPanStart: canDragItems
               ? (details) => _onItemPanStart(
@@ -2230,6 +2777,85 @@ class _MapCanvasState extends State<_MapCanvas> {
 /// Rendering order and rendering only: the shape comes from the record, the
 /// colours come from the engine, and how a region is *styled* beyond this is
 /// deliberately not a Phase 2 concern.
+/// A pan recognizer that keeps a map drag on the map.
+///
+/// Map Studio is a page, and a page scrolls. A scroll view accepts a vertical
+/// drag as soon as the pointer passes the touch slop, while an ordinary pan
+/// waits for the larger pan slop, so a mostly-vertical drag over the canvas is
+/// taken by the page and the pin the author grabbed never moves. Accepting at
+/// the same distance the page does settles it in favour of the pointer's own
+/// target: the deeper recognizer is offered the movement first.
+class _MapPanRecognizer extends PanGestureRecognizer {
+  @override
+  bool hasSufficientGlobalDistanceToAccept(
+    PointerDeviceKind pointerDeviceKind,
+    double? deviceTouchSlop,
+  ) =>
+      globalDistanceMoved.abs() >
+      computeHitSlop(pointerDeviceKind, gestureSettings);
+}
+
+/// The canvas's tap and drag surface.
+///
+/// A thin stand-in for `GestureDetector` that uses [_MapPanRecognizer], so
+/// every draggable thing on the map — ground, pins, regions, scenery, geometry
+/// handles — answers to the pointer rather than to the page behind it.
+class _MapGestureArea extends StatelessWidget {
+  const _MapGestureArea({
+    super.key,
+    this.behavior = HitTestBehavior.deferToChild,
+    this.onTap,
+    this.onTapUp,
+    this.onPanStart,
+    this.onPanUpdate,
+    this.onPanEnd,
+    this.child,
+  });
+
+  final HitTestBehavior behavior;
+  final VoidCallback? onTap;
+  final GestureTapUpCallback? onTapUp;
+  final GestureDragStartCallback? onPanStart;
+  final GestureDragUpdateCallback? onPanUpdate;
+  final GestureDragEndCallback? onPanEnd;
+
+  /// Optional: the background surface is a bare pointer area with nothing in
+  /// it, exactly as it was before.
+  final Widget? child;
+
+  bool get _drags =>
+      onPanStart != null || onPanUpdate != null || onPanEnd != null;
+
+  @override
+  Widget build(BuildContext context) => RawGestureDetector(
+        behavior: behavior,
+        gestures: <Type, GestureRecognizerFactory>{
+          if (onTap != null || onTapUp != null)
+            TapGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+              TapGestureRecognizer.new,
+              (recognizer) => recognizer
+                ..onTap = onTap
+                ..onTapUp = onTapUp,
+            ),
+          if (_drags)
+            _MapPanRecognizer:
+                GestureRecognizerFactoryWithHandlers<_MapPanRecognizer>(
+              _MapPanRecognizer.new,
+              // The pointer's own travel is the edit, so the drag starts where
+              // the finger went down rather than where the slop was crossed:
+              // what the writer moves by is what the record moves by.
+              (recognizer) => recognizer
+                ..dragStartBehavior = DragStartBehavior.down
+                ..onStart = onPanStart
+                ..onUpdate = onPanUpdate
+                ..onEnd = onPanEnd,
+            ),
+        },
+        child: child,
+      );
+}
+
 class _RegionShapePainter extends CustomPainter {
   const _RegionShapePainter({
     required this.points,
@@ -2364,6 +2990,105 @@ IconData _assetIcon(String definitionId) =>
       'temple_buddhist' => Icons.temple_buddhist_outlined,
       'monument' => Icons.hardware_outlined,
       'anchor' => Icons.anchor_outlined,
+      _ => Icons.circle_outlined,
+    };
+
+/// Draws character journeys as lines between consecutive stops.
+///
+/// The line is derived, never stored: every point comes from a
+/// [MapJourneyStop.position] that a placed location already owns, converted
+/// through [MapProjection] like every other drawn thing, so journeys zoom and
+/// pan with the map and no pixel is ever written back.
+class _JourneyPainter extends CustomPainter {
+  const _JourneyPainter({
+    required this.journeys,
+    required this.projection,
+    required this.color,
+  });
+
+  final List<MapJourney> journeys;
+  final MapProjection projection;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = color.withValues(alpha: 0.7);
+    final head = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color.withValues(alpha: 0.85);
+    final dot = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color.withValues(alpha: 0.9);
+
+    for (final journey in journeys) {
+      if (!journey.isDrawable) continue;
+      for (final (from, to) in journey.legs) {
+        final start = projection.toCanvas(from.position);
+        final end = projection.toCanvas(to.position);
+        final a = Offset(start.x, start.y);
+        final b = Offset(end.x, end.y);
+        canvas.drawLine(a, b, line);
+        _drawArrowHead(canvas, a, b, head);
+      }
+      for (final stop in journey.stops) {
+        final point = projection.toCanvas(stop.position);
+        canvas.drawCircle(Offset(point.x, point.y), 3, dot);
+      }
+    }
+  }
+
+  /// Marks the direction of travel halfway along a leg.
+  ///
+  /// Direction matters more than decoration here: a journey read backwards is
+  /// a different story, so the cue is drawn even at small zoom levels.
+  void _drawArrowHead(Canvas canvas, Offset from, Offset to, Paint paint) {
+    final delta = to - from;
+    final length = delta.distance;
+    if (length < 12) return;
+    final direction = delta / length;
+    final normal = Offset(-direction.dy, direction.dx);
+    final centre = from + delta / 2;
+    const reach = 6.0;
+    const spread = 3.5;
+    final path = Path()
+      ..moveTo(centre.dx + direction.dx * reach, centre.dy + direction.dy * reach)
+      ..lineTo(
+        centre.dx - direction.dx * reach + normal.dx * spread,
+        centre.dy - direction.dy * reach + normal.dy * spread,
+      )
+      ..lineTo(
+        centre.dx - direction.dx * reach - normal.dx * spread,
+        centre.dy - direction.dy * reach - normal.dy * spread,
+      )
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_JourneyPainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.journeys != journeys ||
+      oldDelegate.projection.camera != projection.camera ||
+      oldDelegate.projection.canvasWidth != projection.canvasWidth ||
+      oldDelegate.projection.canvasHeight != projection.canvasHeight;
+}
+
+/// Resolves an overlay category's [MapOverlayKindLabel.shapeId] to a glyph.
+///
+/// Shape carries the category, not colour: the four overlay kinds stay
+/// distinguishable in greyscale and to a reader who cannot separate the theme's
+/// hues. Like [_assetIcon], the mapping lives in the view so the overlay domain
+/// stays free of Flutter.
+IconData _overlayIcon(MapOverlayKind kind) => switch (kind.shapeId) {
+      'square' => Icons.square_outlined,
+      'circle' => Icons.person_outline,
+      'diamond' => Icons.change_history_outlined,
+      'book' => Icons.menu_book_outlined,
       _ => Icons.circle_outlined,
     };
 
@@ -2585,6 +3310,144 @@ class _MapLegend extends StatelessWidget {
                     ),
                   ],
                 ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The overlay key: what each shape on the map means.
+///
+/// Shape and text carry the category. Colour is a reinforcement, never the only
+/// signal, so the map stays readable in greyscale and to a reader who cannot
+/// separate the theme's hues.
+class _OverlayLegend extends StatelessWidget {
+  const _OverlayLegend({required this.palette, required this.filter});
+
+  final _MapPalette palette;
+  final MapOverlayFilter filter;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      key: const Key('map-overlay-legend'),
+      palette: palette,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Overlay key',
+              style: palette.ui.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              for (final kind in MapOverlayKind.values)
+                Row(
+                  key: Key('map-overlay-legend-${kind.name}'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _overlayIcon(kind),
+                      size: 16,
+                      color: filter.shows(kind)
+                          ? palette.primary
+                          : palette.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      filter.shows(kind) ? kind.label : '${kind.label} (hidden)',
+                      style: palette.label,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What a selected overlay stands for, and the way back to the Studio that owns
+/// it.
+///
+/// The panel shows a reading of a record; it never edits one. Editing happens
+/// in the owning Studio, which is exactly what [onOpen] is for.
+class _OverlayDetail extends StatelessWidget {
+  const _OverlayDetail({
+    required this.palette,
+    required this.item,
+    required this.onFocus,
+    required this.onOpen,
+    required this.onClear,
+  });
+
+  final _MapPalette palette;
+  final MapOverlayItem item;
+  final VoidCallback onFocus;
+  final VoidCallback? onOpen;
+  final VoidCallback onClear;
+
+  String get _openLabel => switch (item.kind) {
+        MapOverlayKind.character => 'Open in Character Studio',
+        MapOverlayKind.event => 'Open in Timeline Studio',
+        MapOverlayKind.scene => 'Open in Manuscript',
+        MapOverlayKind.location => 'Open in World Board',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      key: const Key('map-overlay-detail'),
+      palette: palette,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_overlayIcon(item.kind),
+                  size: 18, color: palette.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  item.label,
+                  key: const Key('map-overlay-detail-title'),
+                  style: palette.ui.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton(
+                key: const Key('map-overlay-detail-close'),
+                tooltip: 'Clear overlay selection',
+                onPressed: onClear,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          Text(
+            item.semanticLabel,
+            key: const Key('map-overlay-detail-summary'),
+            style: palette.body,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                key: const Key('map-overlay-focus-button'),
+                onPressed: onFocus,
+                icon: const Icon(Icons.my_location_outlined),
+                label: const Text('Centre on map'),
+              ),
+              FilledButton.icon(
+                key: const Key('map-overlay-open-button'),
+                onPressed: onOpen,
+                icon: const Icon(Icons.open_in_new),
+                label: Text(_openLabel),
+              ),
             ],
           ),
         ],

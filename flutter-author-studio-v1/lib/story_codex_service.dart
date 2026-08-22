@@ -1214,6 +1214,13 @@ class StoryCodexService {
         .where((record) => record.status == AuthorRecordStatus.active)
         .where((record) =>
             record.fields['kind'] == CodexCollectionKind.savedView.name)
+        // Saved views are a shared record type, so another Studio may store
+        // its own filter here. A record stamped for a different Studio is not
+        // a Codex view and its filter would not decode as one; only unstamped
+        // records — every view the Codex has ever written — belong to it.
+        .where((record) =>
+            record.fields['studioId'] == null ||
+            record.fields['studioId'] == 'story_codex')
         .map((record) => CodexSavedView.fromCollection(
               _collectionFromRecord(record),
             ))

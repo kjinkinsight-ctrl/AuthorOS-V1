@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'core/connected_domain.dart';
 import 'core/record_validation.dart';
 import 'core/research_record_types.dart';
+import 'core/story_codex_domain.dart';
 import 'onboarding.dart';
 import 'research_service.dart';
 import 'theme/flutter/authoros_theme.dart';
@@ -42,6 +43,8 @@ class _ResearchStudioViewState extends State<ResearchStudioView> {
   ResearchSort _sort = ResearchSort.recentlyUpdated;
   String? _selectedId;
   List<ResearchConnection> _selectedConnections = const [];
+  ResearchDashboard? _dashboard;
+  List<ResearchSavedView> _savedViews = const [];
 
   static const _anyCategory = '__all_categories__';
   static const _anyStatus = '__all_statuses__';
@@ -83,9 +86,15 @@ class _ResearchStudioViewState extends State<ResearchStudioView> {
       final records = _searchTerm.isEmpty
           ? await widget.service.query.all()
           : await widget.service.searchResearch(_searchTerm);
+      // The dashboard is a read-model over the same canonical records, so it
+      // is recomputed with every load rather than cached and invalidated.
+      final dashboard = await widget.service.dashboard();
+      final savedViews = await widget.service.savedViews();
       if (!mounted) return;
       setState(() {
         _records = records;
+        _dashboard = dashboard;
+        _savedViews = savedViews;
         _loading = false;
         if (_selectedId != null &&
             !records.any((record) => record.id == _selectedId)) {
@@ -329,7 +338,17 @@ class _ResearchStudioViewState extends State<ResearchStudioView> {
         children: [
           _buildHeader(palette),
           const SizedBox(height: 16),
+          if (_dashboard != null)
+            _ResearchDashboardBand(
+              palette: palette,
+              dashboard: _dashboard!,
+              onShowUnresolved: () =>
+                  setState(() => _shelf = ResearchShelf.unresolved),
+            ),
+          if (_dashboard != null) const SizedBox(height: 16),
           _buildSearchBar(palette),
+          const SizedBox(height: 12),
+          _buildSavedViewBar(palette),
           const SizedBox(height: 16),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -366,6 +385,281 @@ class _ResearchStudioViewState extends State<ResearchStudioView> {
       ),
     );
   }
+
+  // --- Saved views -------------------------------------------------------
+
+  ResearchViewFilter get _currentFilter => ResearchViewFilter(
+        query: _searchTerm,
+        shelf: _shelf,
+        category: _categoryFilter == _anyCategory ? '' : _categoryFilter,
+        status: _statusFilter == _anyStatus ? '' : _statusFilter,
+        tag: _tagFilter == _anyTag ? '' : _tagFilter,
+        sort: _sort,
+      );
+
+  void _applySavedView(ResearchSavedView view) {
+    setState(() {
+      _shelf = view.filter.shelf;
+      _categoryFilter =
+          view.filter.category.isEmpty ? _anyCategory : view.filter.category;
+      _statusFilter =
+          view.filter.status.isEmpty ? _anyStatus : view.filter.status;
+      _tagFilter = view.filter.tag.isEmpty ? _anyTag : view.filter.tag;
+      _sort = view.filter.sort;
+      _searchController.text = view.filter.query;
+    });
+    _load();
+  }
+
+  Future<void> _saveCurrentView() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Save this view'),
+        content: TextField(
+          key: const Key('research-save-view-name'),
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'View name'),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('research-save-view-confirm'),
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    await _runBusy(() async {
+      await widget.service.saveView(
+        id: 'research-view-${_slug(name)}',
+        name: name,
+        filter: _currentFilter,
+      );
+      await _load();
+    });
+  }
+
+  Future<void> _deleteSavedView(ResearchSavedView view) => _runBusy(() async {
+        await widget.service.deleteSavedView(view.id);
+        await _load();
+      });
+
+  Widget _buildSavedViewBar(_ResearchPalette palette) => Wrap(
+        key: const Key('research-saved-views'),
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            'Saved views',
+            style: palette.label.copyWith(
+              color: palette.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (_savedViews.isEmpty)
+            Text(
+              'None yet',
+              style: palette.body.copyWith(color: palette.onSurfaceVariant),
+            ),
+          for (final view in _savedViews)
+            InputChip(
+              key: Key('research-saved-view-${view.id}'),
+              label: Text(view.name),
+              onPressed: _busy ? null : () => _applySavedView(view),
+              onDeleted: _busy ? null : () => _deleteSavedView(view),
+              deleteIcon: const Icon(Icons.close, size: 16),
+            ),
+          TextButton.icon(
+            key: const Key('research-save-view'),
+            onPressed: _busy || _loading ? null : _saveCurrentView,
+            icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+            label: const Text('Save view'),
+          ),
+        ],
+      );
+
+  // --- Sources -----------------------------------------------------------
+
+  Future<void> _addSource(AuthorRecord record) async {
+    final labelController = TextEditingController();
+    final locationController = TextEditingController();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add source'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const Key('research-source-label'),
+              controller: labelController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Source',
+                hintText: 'Book, article, interview...',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const Key('research-source-location'),
+              controller: locationController,
+              decoration: const InputDecoration(
+                labelText: 'Location',
+                hintText: 'Page, chapter, timestamp...',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('research-source-confirm'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    if (saved != true || labelController.text.trim().isEmpty) return;
+    await _runBusy(() async {
+      await widget.service.addSource(
+        record.id,
+        CodexSourceReference(
+          recordId: '',
+          kind: 'external',
+          label: labelController.text.trim(),
+          location: locationController.text.trim(),
+        ),
+      );
+      await _load();
+    });
+  }
+
+  Future<void> _removeSource(AuthorRecord record, String stableId) =>
+      _runBusy(() async {
+        await widget.service.removeSource(record.id, stableId);
+        await _load();
+      });
+
+  // --- Connections -------------------------------------------------------
+
+  Future<void> _connect(AuthorRecord record) async {
+    final candidates =
+        await widget.service.connectableRecords(excludeId: record.id);
+    if (!mounted) return;
+    if (candidates.isEmpty) {
+      _showMessage('There is nothing else in this project to connect to yet.');
+      return;
+    }
+    var targetId = candidates.first.id;
+    var types = await widget.service.connectionTypesBetween(
+      sourceTypeId: record.typeId,
+      targetTypeId: candidates.first.typeId,
+    );
+    if (!mounted) return;
+    if (types.isEmpty) {
+      _showMessage('No connection type accepts these two records.');
+      return;
+    }
+    var typeId = types.first.id;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Connect research'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                key: const Key('research-connect-target'),
+                initialValue: targetId,
+                decoration: const InputDecoration(labelText: 'Connect to'),
+                items: [
+                  for (final candidate in candidates)
+                    DropdownMenuItem(
+                      value: candidate.id,
+                      child: Text(candidate.title),
+                    ),
+                ],
+                onChanged: (value) async {
+                  if (value == null) return;
+                  final target = candidates.firstWhere(
+                    (candidate) => candidate.id == value,
+                  );
+                  final allowed =
+                      await widget.service.connectionTypesBetween(
+                    sourceTypeId: record.typeId,
+                    targetTypeId: target.typeId,
+                  );
+                  setDialogState(() {
+                    targetId = value;
+                    types = allowed;
+                    typeId = allowed.isEmpty ? '' : allowed.first.id;
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                key: const Key('research-connect-type'),
+                initialValue: typeId.isEmpty ? null : typeId,
+                decoration: const InputDecoration(labelText: 'Relationship'),
+                items: [
+                  for (final type in types)
+                    DropdownMenuItem(
+                      value: type.id,
+                      child: Text(type.displayName),
+                    ),
+                ],
+                onChanged: (value) =>
+                    setDialogState(() => typeId = value ?? ''),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('research-connect-confirm'),
+              onPressed: typeId.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text('Connect'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || typeId.isEmpty) return;
+    await _runBusy(() async {
+      await widget.service.connect(
+        sourceId: record.id,
+        targetId: targetId,
+        typeId: typeId,
+      );
+      await _load();
+    });
+  }
+
+  Future<void> _disconnect(String linkId) => _runBusy(() async {
+        await widget.service.disconnect(linkId);
+        await _load();
+      });
 
   Map<ResearchShelf, int> get _shelfCounts => {
         for (final shelf in ResearchShelf.values)
@@ -531,6 +825,10 @@ class _ResearchStudioViewState extends State<ResearchStudioView> {
           onToggleImportant: () => _toggleImportant(selected),
           onToggleArchived: () => _toggleArchived(selected),
           onDelete: () => _delete(selected),
+          onAddSource: () => _addSource(selected),
+          onRemoveSource: (stableId) => _removeSource(selected, stableId),
+          onConnect: () => _connect(selected),
+          onDisconnect: _disconnect,
           onClose: () => setState(() {
             _selectedId = null;
             _selectedConnections = const [];
@@ -600,6 +898,7 @@ class _ResearchLibraryRail extends StatelessWidget {
     (ResearchShelf.notes, 'Notes', Icons.sticky_note_2_outlined),
     (ResearchShelf.references, 'References', Icons.link_outlined),
     (ResearchShelf.important, 'Important', Icons.star_outline),
+    (ResearchShelf.unresolved, 'Unresolved', Icons.error_outline),
     (ResearchShelf.recent, 'Recently updated', Icons.history_outlined),
   ];
 
@@ -878,6 +1177,10 @@ class _ResearchDetailPane extends StatelessWidget {
     required this.onToggleImportant,
     required this.onToggleArchived,
     required this.onDelete,
+    required this.onAddSource,
+    required this.onRemoveSource,
+    required this.onConnect,
+    required this.onDisconnect,
     required this.onClose,
   });
 
@@ -889,6 +1192,10 @@ class _ResearchDetailPane extends StatelessWidget {
   final VoidCallback onToggleImportant;
   final VoidCallback onToggleArchived;
   final VoidCallback onDelete;
+  final VoidCallback onAddSource;
+  final ValueChanged<String> onRemoveSource;
+  final VoidCallback onConnect;
+  final ValueChanged<String> onDisconnect;
   final VoidCallback onClose;
 
   @override
@@ -900,6 +1207,7 @@ class _ResearchDetailPane extends StatelessWidget {
     final citation =
         '${record.fields[ResearchRecordTypes.citationFieldId] ?? ''}';
     final archived = record.status == AuthorRecordStatus.archived;
+    final sources = ResearchService.sourcesOf(record);
     return Container(
       key: const Key('research-detail-pane'),
       padding: const EdgeInsets.all(16),
@@ -972,12 +1280,79 @@ class _ResearchDetailPane extends StatelessWidget {
                 'Updated ${_formatDate(record.updatedAt)}',
           ),
           const SizedBox(height: 12),
-          Text(
-            'Connections',
-            style: palette.label.copyWith(
-              color: palette.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Sources',
+                  style: palette.label.copyWith(
+                    color: palette.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                key: const Key('research-add-source'),
+                onPressed: busy ? null : onAddSource,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          if (sources.isEmpty)
+            Text(
+              'No sources recorded yet.',
+              key: const Key('research-detail-no-sources'),
+              style: palette.body.copyWith(color: palette.onSurfaceVariant),
+            )
+          else
+            for (final source in sources)
+              Padding(
+                key: Key('research-source-${source.stableId}'),
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        source.location.isEmpty
+                            ? source.displayLabel
+                            : '${source.displayLabel} · ${source.location}',
+                        style:
+                            palette.body.copyWith(color: palette.onSurface),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove source',
+                      onPressed:
+                          busy ? null : () => onRemoveSource(source.stableId),
+                      icon: Icon(
+                        Icons.close,
+                        size: 16,
+                        color: palette.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Connections',
+                  style: palette.label.copyWith(
+                    color: palette.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                key: const Key('research-add-connection'),
+                onPressed: busy ? null : onConnect,
+                icon: const Icon(Icons.add_link, size: 18),
+                label: const Text('Connect'),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           if (connections.isEmpty)
@@ -991,9 +1366,28 @@ class _ResearchDetailPane extends StatelessWidget {
               Padding(
                 key: Key('research-connection-${connection.link.id}'),
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  '${connection.link.typeId} → ${connection.record.title}',
-                  style: palette.body.copyWith(color: palette.onSurface),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${connection.link.typeId} → '
+                        '${connection.record.title}',
+                        style:
+                            palette.body.copyWith(color: palette.onSurface),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove connection',
+                      onPressed: busy
+                          ? null
+                          : () => onDisconnect(connection.link.id),
+                      icon: Icon(
+                        Icons.link_off,
+                        size: 16,
+                        color: palette.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
           const SizedBox(height: 14),
@@ -1404,6 +1798,129 @@ class _ResearchEditorDialogState extends State<_ResearchEditorDialog> {
 /// Tokens come from the Theme Engine through [StudioThemeScope]; when the
 /// Studio is pumped without a scope, Material's [Theme] supplies the fallback.
 /// Nothing here names a colour literally.
+/// The dashboard strip above the library.
+///
+/// Every number here comes from [ResearchDashboard], which is derived from the
+/// canonical records on each load. The band stores nothing and decides
+/// nothing — it renders what the read-model computed.
+class _ResearchDashboardBand extends StatelessWidget {
+  const _ResearchDashboardBand({
+    required this.palette,
+    required this.dashboard,
+    required this.onShowUnresolved,
+  });
+
+  final _ResearchPalette palette;
+  final ResearchDashboard dashboard;
+  final VoidCallback onShowUnresolved;
+
+  @override
+  Widget build(BuildContext context) {
+    final metrics = <(String, String, VoidCallback?)>[
+      ('Items', '${dashboard.total}', null),
+      ('Sources', '${dashboard.sources}', null),
+      ('Notes', '${dashboard.notes}', null),
+      ('References', '${dashboard.references}', null),
+      ('Categories', '${dashboard.categories.length}', null),
+      ('Tags', '${dashboard.tags.length}', null),
+      ('Cited', '${dashboard.sourceReferences}', null),
+      (
+        'Unresolved',
+        '${dashboard.unresolved.length}',
+        dashboard.unresolved.isEmpty ? null : onShowUnresolved,
+      ),
+      ('Archived', '${dashboard.archived}', null),
+    ];
+    return Container(
+      key: const Key('research-dashboard'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: palette.surfaceContainer,
+        borderRadius: BorderRadius.circular(palette.cardRadius),
+        border: Border.all(color: palette.outline),
+      ),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (final metric in metrics)
+            _MetricTile(
+              palette: palette,
+              label: metric.$1,
+              value: metric.$2,
+              onTap: metric.$3,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({
+    required this.palette,
+    required this.label,
+    required this.value,
+    this.onTap,
+  });
+
+  final _ResearchPalette palette;
+  final String label;
+  final String value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tile = Container(
+      key: Key('research-metric-${label.toLowerCase()}'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(palette.chipRadius),
+        border: Border.all(color: palette.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: palette.label.copyWith(color: palette.onSurfaceVariant),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: palette.ui.copyWith(
+              color: palette.onSurface,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+    if (onTap == null) return tile;
+    return Semantics(
+      button: true,
+      label: 'Show $label research',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(palette.chipRadius),
+        child: tile,
+      ),
+    );
+  }
+}
+
+/// A stable, filename-safe id fragment for a saved view name.
+String _slug(String value) {
+  final normalized = value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  return normalized.isEmpty ? 'view' : normalized;
+}
+
 class _ResearchPalette {
   const _ResearchPalette({
     required this.surface,

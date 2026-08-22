@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:archive/archive.dart';
 import 'package:author_studio_v1/book/book_export_targets.dart';
 import 'package:author_studio_v1/book_studio_view.dart';
 import 'package:author_studio_v1/book/book_preview_painter.dart';
@@ -200,7 +201,7 @@ void main() {
     expect(String.fromCharCodes(saver.bytes!.take(5)), '%PDF-');
   });
 
-  testWidgets('the export stage marks unbuilt targets rather than hiding them',
+  testWidgets('every export target is offered, and all of them are built now',
       (tester) async {
     await pumpStudio(tester);
 
@@ -210,7 +211,8 @@ void main() {
     for (final format in BookExportFormat.values) {
       expect(find.byKey(Key('book-export-${format.name}')), findsOneWidget);
     }
-    expect(find.text('later'), findsWidgets);
+    // Phase 4 was the last of them; nothing is marked as still to come.
+    expect(find.text('later'), findsNothing);
   });
 
   testWidgets('a project with no manuscript still opens', (tester) async {
@@ -238,6 +240,76 @@ void main() {
     // A zip, and the mimetype right where the specification wants it.
     expect(saver.bytes!.take(2), orderedEquals([0x50, 0x4B]));
     expect(String.fromCharCodes(saver.bytes!.sublist(30, 38)), 'mimetype');
+  });
+
+  testWidgets('Word exports a real package, in the flavour that was chosen',
+      (tester) async {
+    final saver = _MemoryBookFileSaver();
+    await pumpStudio(tester, saver: saver);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-export-docx')));
+    await tester.pumpAndSettle();
+
+    // The flavours only appear once Word is the chosen format: they are a
+    // property of that choice, not a sixth format.
+    expect(find.byKey(const Key('book-docx-submission')), findsOneWidget);
+    expect(find.byKey(const Key('book-docx-typeset')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('book-docx-typeset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-export-button')));
+    await tester.pumpAndSettle();
+
+    expect(saver.calls, 1);
+    expect(saver.name, 'the-widow-knife.docx');
+    expect(saver.bytes!.take(2), orderedEquals([0x50, 0x4B]));
+
+    final archive = ZipDecoder().decodeBytes(saver.bytes!);
+    expect(archive.find('word/document.xml'), isNotNull);
+    // Typeset carries no running header; submission would.
+    expect(archive.find('word/header1.xml'), isNull);
+  });
+
+  testWidgets('plain text exports the prose the author actually wrote',
+      (tester) async {
+    final saver = _MemoryBookFileSaver();
+    await pumpStudio(tester, saver: saver);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-export-txt')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('book-txt-readable')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('book-txt-manuscriptOnly')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-export-button')));
+    await tester.pumpAndSettle();
+
+    expect(saver.calls, 1);
+    expect(saver.name, 'the-widow-knife.txt');
+
+    final text = utf8.decode(saver.bytes!);
+    expect(text, contains('abcd'));
+    expect(text, isNot(contains('The Arrival')),
+        reason: 'prose only carries no headings');
+  });
+
+  testWidgets('a reflowable export never promises a page count', (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('pages at'), findsOneWidget);
+
+    // Word repaginates on whatever paper it is opened with, so a page count
+    // here would simply be untrue.
+    await tester.tap(find.byKey(const Key('book-export-docx')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('pages at'), findsNothing);
+    expect(find.textContaining('repaginates'), findsOneWidget);
   });
 
   testWidgets('the ebook has its own settings, kept apart from print',

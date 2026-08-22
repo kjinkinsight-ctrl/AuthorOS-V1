@@ -305,6 +305,38 @@ List<int> _testZlibStore(List<int> data) {
 /// Deliberately the kind of mess a real draft accumulates: an indent typed by
 /// hand, a double space, a space before a comma, straight quotes and a doubled
 /// word.
+/// A one-scene manuscript whose prose is exactly [prose].
+///
+/// For the exporters, where what matters is that the author's own characters —
+/// ampersands, angle brackets, curly quotes — survive being written into XML
+/// and read back out again.
+ManuscriptProjectSummary manuscriptFixtureWithProse(String prose) =>
+    ManuscriptProjectSummary(
+      projectId: 'project-book',
+      manuscriptTitle: 'The Widow Knife',
+      currentChapterId: 'ch-1',
+      currentSceneId: 'sc-1',
+      createdAt: fixtureTimestamp,
+      updatedAt: fixtureTimestamp,
+      version: 1,
+      chapters: [
+        chapter(
+          id: 'ch-1',
+          title: 'The Arrival',
+          order: 1,
+          scenes: [
+            scene(
+              id: 'sc-1',
+              chapterId: 'ch-1',
+              title: 'Opening',
+              order: 1,
+              content: prose,
+            ),
+          ],
+        ),
+      ],
+    );
+
 ManuscriptProjectSummary messyManuscriptFixture() => ManuscriptProjectSummary(
       projectId: 'project-book',
       manuscriptTitle: 'The Widow Knife',

@@ -7,12 +7,15 @@
 /// rather than promising something the PDF may not honour.
 library;
 
+import 'dart:convert';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 
 import 'book/book_cover.dart';
 import 'book/book_dictionary.dart';
+import 'book/book_docx_exporter.dart';
 import 'book/book_document.dart';
 import 'book/book_epub_exporter.dart';
 import 'book/book_export_targets.dart';
@@ -22,6 +25,7 @@ import 'book/book_layout.dart';
 import 'book/book_pdf_renderer.dart';
 import 'book/book_preview_painter.dart';
 import 'book/book_store.dart';
+import 'book/book_text_exporter.dart';
 import 'book/epub_settings.dart';
 import 'book/proof_rules.dart';
 import 'book/proofing.dart';
@@ -102,6 +106,8 @@ class BookStudioView extends StatefulWidget {
     this.fileSaver = const NativeBookFileSaver(),
     this.renderer = const BookPdfRenderer(),
     this.epubExporter = const BookEpubExporter(),
+    this.docxExporter = const BookDocxExporter(),
+    this.textExporter = const BookTextExporter(),
     this.coverStore = const BookCoverStore(),
     this.coverPicker = pickCoverFile,
     this.proofingEngine = const ProofingEngine(),
@@ -114,6 +120,8 @@ class BookStudioView extends StatefulWidget {
   final BookFileSaver fileSaver;
   final BookPdfRenderer renderer;
   final BookEpubExporter epubExporter;
+  final BookDocxExporter docxExporter;
+  final BookTextExporter textExporter;
   final BookCoverStore coverStore;
 
   /// Injected so a test can supply an image without a file dialog.
@@ -159,6 +167,12 @@ class _BookStudioViewState extends State<BookStudioView> {
   bool _showGuides = false;
   double _previewWidth = 300;
   BookExportFormat _exportFormat = BookExportFormat.printPdf;
+
+  /// Which job the Word file is for. Only shown once DOCX is chosen.
+  DocxFlavour _docxFlavour = DocxFlavour.submission;
+
+  /// How much of the book's structure the text file carries.
+  TextExportStyle _textStyle = TextExportStyle.readable;
 
   @override
   void initState() {
@@ -456,17 +470,33 @@ class _BookStudioViewState extends State<BookStudioView> {
     setState(() => _exporting = true);
     try {
       // Reflowable targets are built from the book's structure; paginated ones
-      // from the laid-out pages. An EPUB must never inherit print pagination.
-      final bytes = _exportFormat.isReflowable
-          ? widget.epubExporter.export(
+      // from the laid-out pages. A reflowable format must never inherit print
+      // pagination — the reader decides where its pages fall, not this app.
+      final bytes = switch (_exportFormat) {
+        BookExportFormat.epub => widget.epubExporter.export(
+            document: document,
+            settings: book.epub,
+            projectId: widget.project.id,
+            modified: _manuscript?.updatedAt ?? DateTime.utc(2000),
+            cover: _cover,
+            fonts: assets,
+          ),
+        BookExportFormat.docx => widget.docxExporter.export(
+            document: document,
+            flavour: _docxFlavour,
+            modified: _manuscript?.updatedAt ?? DateTime.utc(2000),
+            format: book.format,
+          ),
+        BookExportFormat.txt => Uint8List.fromList(utf8.encode(
+            widget.textExporter.export(
               document: document,
-              settings: book.epub,
-              projectId: widget.project.id,
-              modified: _manuscript?.updatedAt ?? DateTime.utc(2000),
-              cover: _cover,
-              fonts: assets,
-            )
-          : await widget.renderer.render(paginated, assets);
+              style: _textStyle,
+              format: book.format,
+            ),
+          )),
+        BookExportFormat.printPdf || BookExportFormat.digitalPdf =>
+          await widget.renderer.render(paginated, assets),
+      };
       final path = await widget.fileSaver.save(
         suggestedName: suggestedBookFilename(
           title: paginated.metadata.title,
@@ -1580,6 +1610,31 @@ class _BookStudioViewState extends State<BookStudioView> {
 
   // --- export -------------------------------------------------------------
 
+  /// What the author is about to get, in the terms of the format they chose.
+  ///
+  /// A page count is a promise only the PDFs can keep. Saying "412 pages" over
+  /// an EPUB or a Word file would be a straightforwardly false statement: the
+  /// reader's type size decides the first, and Word's paper decides the second.
+  String _exportSummary(PaginatedBook? paginated) {
+    final chapters = _document?.chapterCount ?? 0;
+    final words = _document?.wordCount ?? 0;
+    return switch (_exportFormat) {
+      BookExportFormat.printPdf || BookExportFormat.digitalPdf =>
+        paginated == null
+            ? 'Laying the book out…'
+            : 'This will write ${paginated.pageCount} pages at '
+                '${paginated.format.trim.label}.',
+      BookExportFormat.epub =>
+        'This will write $chapters chapters. An EPUB has no fixed pages — the '
+            'reader chooses the type size and the text reflows to fit.',
+      BookExportFormat.docx =>
+        'This will write $chapters chapters as ${_docxFlavour.label}. Word '
+            'repaginates on whatever paper it is opened with.',
+      BookExportFormat.txt =>
+        'This will write $words words as plain text.',
+    };
+  }
+
   Widget _exportStage(ThemeData theme) {
     final paginated = _paginated;
     return ListView(
@@ -1591,7 +1646,7 @@ class _BookStudioViewState extends State<BookStudioView> {
             children: [
               _SectionHeading('Export', theme),
               const SizedBox(height: 10),
-              for (final format in BookExportFormat.values)
+              for (final format in BookExportFormat.values) ...[
                 _ExportOption(
                   key: Key('book-export-${format.name}'),
                   format: format,
@@ -1600,13 +1655,32 @@ class _BookStudioViewState extends State<BookStudioView> {
                       ? () => setState(() => _exportFormat = format)
                       : null,
                 ),
+                // The variants belong to the format, so they are shown under
+                // it rather than in a separate settings panel the author has
+                // to go and find.
+                if (_exportFormat == format &&
+                    format == BookExportFormat.docx)
+                  for (final flavour in DocxFlavour.values)
+                    _VariantOption(
+                      key: Key('book-docx-${flavour.name}'),
+                      label: flavour.label,
+                      description: flavour.description,
+                      selected: _docxFlavour == flavour,
+                      onSelected: () =>
+                          setState(() => _docxFlavour = flavour),
+                    ),
+                if (_exportFormat == format && format == BookExportFormat.txt)
+                  for (final style in TextExportStyle.values)
+                    _VariantOption(
+                      key: Key('book-txt-${style.name}'),
+                      label: style.label,
+                      description: style.description,
+                      selected: _textStyle == style,
+                      onSelected: () => setState(() => _textStyle = style),
+                    ),
+              ],
               const SizedBox(height: 12),
-              if (paginated != null)
-                Text(
-                  'This will write ${paginated.pageCount} pages at '
-                  '${paginated.format.trim.label}.',
-                  style: theme.textTheme.bodyMedium,
-                ),
+              Text(_exportSummary(paginated), style: theme.textTheme.bodyMedium),
               const SizedBox(height: 12),
               FilledButton.icon(
                 key: const Key('book-export-button'),
@@ -1617,7 +1691,14 @@ class _BookStudioViewState extends State<BookStudioView> {
                         dimension: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.picture_as_pdf_outlined),
+                    : Icon(switch (_exportFormat) {
+                        BookExportFormat.printPdf ||
+                        BookExportFormat.digitalPdf =>
+                          Icons.picture_as_pdf_outlined,
+                        BookExportFormat.epub => Icons.menu_book_outlined,
+                        BookExportFormat.docx => Icons.description_outlined,
+                        BookExportFormat.txt => Icons.notes_outlined,
+                      }),
                 label: Text(_exporting ? 'Exporting…' : 'Export book'),
               ),
             ],
@@ -2041,6 +2122,74 @@ class _Panel extends StatelessWidget {
 }
 
 /// One selectable export target.
+/// One variant of an export format — a Word flavour, a text style.
+///
+/// Indented under its format so it reads as a property of that choice rather
+/// than as a sixth format.
+class _VariantOption extends StatelessWidget {
+  const _VariantOption({
+    super.key,
+    required this.label,
+    required this.description,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final String description;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: 30, bottom: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onSelected,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 16,
+                color: selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: theme.textTheme.bodyMedium),
+                    const SizedBox(height: 2),
+                    Text(description, style: theme.textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ExportOption extends StatelessWidget {
   const _ExportOption({
     super.key,

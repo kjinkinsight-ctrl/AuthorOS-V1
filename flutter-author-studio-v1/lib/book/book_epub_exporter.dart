@@ -791,14 +791,9 @@ class BookEpubExporter {
   }
 
   String _chapterNumber(int number, EpubSettings settings) =>
-      switch (settings.chapterNumberStyle) {
-        ChapterNumberStyle.none => '',
-        ChapterNumberStyle.arabic => '${settings.chapterNumberPrefix}$number',
-        ChapterNumberStyle.romanUpper =>
-          '${settings.chapterNumberPrefix}${_roman(number)}',
-        ChapterNumberStyle.word =>
-          '${settings.chapterNumberPrefix}${_word(number)}',
-      };
+      chapterNumberLabel(number,
+          style: settings.chapterNumberStyle,
+          prefix: settings.chapterNumberPrefix);
 
   // --- stylesheet ---------------------------------------------------------
 
@@ -931,47 +926,5 @@ sold on their own, and this notice must travel with them.
         .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
         .replaceAll(RegExp(r'^-+|-+$'), '');
     return slug.isEmpty ? 'item' : slug;
-  }
-
-  static String _roman(int value) {
-    if (value <= 0) return '$value';
-    const numerals = <int, String>{
-      1000: 'M', 900: 'CM', 500: 'D', 400: 'CD', 100: 'C', 90: 'XC',
-      50: 'L', 40: 'XL', 10: 'X', 9: 'IX', 5: 'V', 4: 'IV', 1: 'I',
-    };
-    final buffer = StringBuffer();
-    var remaining = value;
-    for (final entry in numerals.entries) {
-      while (remaining >= entry.key) {
-        buffer.write(entry.value);
-        remaining -= entry.key;
-      }
-    }
-    return buffer.toString();
-  }
-
-  static String _word(int value) {
-    const ones = [
-      'Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
-      'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen',
-      'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen',
-    ];
-    const tens = [
-      '', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy',
-      'Eighty', 'Ninety',
-    ];
-    if (value < 0) return '$value';
-    if (value < 20) return ones[value];
-    if (value < 100) {
-      final unit = value % 10;
-      final ten = tens[value ~/ 10];
-      return unit == 0 ? ten : '$ten-${ones[unit].toLowerCase()}';
-    }
-    if (value < 1000) {
-      final hundreds = '${ones[value ~/ 100]} Hundred';
-      final rest = value % 100;
-      return rest == 0 ? hundreds : '$hundreds ${_word(rest)}';
-    }
-    return '$value';
   }
 }

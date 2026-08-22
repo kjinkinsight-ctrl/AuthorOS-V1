@@ -61,26 +61,36 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('reflowable output never inherits print pagination', () {
-    test('the EPUB exporter builds from the book, not from its pages', () {
-      final source =
-          _withoutComments(File('lib/book/book_epub_exporter.dart')
-              .readAsStringSync());
+    // A reflowable format reflows to something this app cannot see: the
+    // reader's screen and type size for an EPUB, whatever paper Word is opened
+    // with for a DOCX, and nothing at all for plain text. A print layout's page
+    // breaks are not merely unnecessary in any of them — they are wrong. That
+    // is why BookDocument exists as a stage of its own, and this is what keeps
+    // the next exporter from quietly reaching past it.
+    for (final path in const [
+      'lib/book/book_epub_exporter.dart',
+      'lib/book/book_docx_exporter.dart',
+      'lib/book/book_text_exporter.dart',
+    ]) {
+      test('${path.split('/').last} builds from the book, not from its pages',
+          () {
+        final file = File(path);
+        expect(file.existsSync(), isTrue, reason: '$path is missing');
+        final source = _withoutComments(file.readAsStringSync());
 
-      // An EPUB reflows to the reader's own screen and type size, so a print
-      // layout's page breaks are not merely unnecessary there — they are wrong.
-      // That is why BookDocument exists as a stage of its own.
-      for (final banned in const [
-        'PaginatedBook',
-        'LaidOutPage',
-        'BookLayoutEngine',
-        'book_layout.dart',
-      ]) {
-        expect(source.contains(banned), isFalse,
-            reason: 'book_epub_exporter.dart references $banned; a reflowable '
-                'format must consume BookDocument only');
-      }
-      expect(source, contains('BookDocument'));
-    });
+        for (final banned in const [
+          'PaginatedBook',
+          'LaidOutPage',
+          'BookLayoutEngine',
+          'book_layout.dart',
+        ]) {
+          expect(source.contains(banned), isFalse,
+              reason: '$path references $banned; a reflowable format must '
+                  'consume BookDocument only');
+        }
+        expect(source, contains('BookDocument'));
+      });
+    }
   });
 
   group('the engine is the only thing that lays a book out', () {

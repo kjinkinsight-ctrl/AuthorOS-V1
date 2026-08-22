@@ -387,6 +387,80 @@ enum ChapterStartRule { anyPage, nextPage, recto }
 /// How a chapter number is spelled.
 enum ChapterNumberStyle { none, arabic, word, romanUpper }
 
+/// The chapter number as the book writes it, prefix included.
+///
+/// Lives here, beside the enum it switches over, because four things need the
+/// same answer: the layout engine that sets the printed page, and the EPUB,
+/// DOCX and text exporters. They are all rendering the *same book*, so a
+/// chapter that reads `Chapter Twenty-one` in the PDF cannot read `Chapter 21`
+/// in the Word file. Each having its own copy is how that drift starts.
+String chapterNumberLabel(
+  int number, {
+  required ChapterNumberStyle style,
+  String prefix = '',
+}) =>
+    switch (style) {
+      ChapterNumberStyle.none => '',
+      ChapterNumberStyle.arabic => '$prefix$number',
+      ChapterNumberStyle.romanUpper => '$prefix${romanUpper(number)}',
+      ChapterNumberStyle.word => '$prefix${numberWord(number)}',
+    };
+
+/// Upper-case Roman numerals.
+String romanUpper(int value) {
+  if (value <= 0) return '$value';
+  const numerals = <int, String>{
+    1000: 'M',
+    900: 'CM',
+    500: 'D',
+    400: 'CD',
+    100: 'C',
+    90: 'XC',
+    50: 'L',
+    40: 'XL',
+    10: 'X',
+    9: 'IX',
+    5: 'V',
+    4: 'IV',
+    1: 'I',
+  };
+  final buffer = StringBuffer();
+  var remaining = value;
+  for (final entry in numerals.entries) {
+    while (remaining >= entry.key) {
+      buffer.write(entry.value);
+      remaining -= entry.key;
+    }
+  }
+  return buffer.toString();
+}
+
+/// Spells a small number as a word, for `Chapter Seventeen` openers.
+String numberWord(int value) {
+  const ones = [
+    'Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
+    'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen',
+    'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen',
+  ];
+  const tens = [
+    '', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy',
+    'Eighty', 'Ninety',
+  ];
+  if (value < 0) return '$value';
+  if (value < 20) return ones[value];
+  if (value < 100) {
+    final unit = value % 10;
+    final ten = tens[value ~/ 10];
+    return unit == 0 ? ten : '$ten-${ones[unit].toLowerCase()}';
+  }
+  if (value < 1000) {
+    final hundreds = '${ones[value ~/ 100]} Hundred';
+    final rest = value % 100;
+    return rest == 0 ? hundreds : '$hundreds ${numberWord(rest)}';
+  }
+  return '$value';
+}
+
 /// What separates two scenes inside a chapter.
 enum SceneBreakStyle { blankLine, glyph, ornament }
 

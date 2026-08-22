@@ -21,13 +21,13 @@ enum BookExportFormat {
   /// blank versos.
   digitalPdf,
 
-  /// Reflowable ebook. Later phase.
+  /// Reflowable ebook.
   epub,
 
-  /// Word. Later phase.
+  /// Word, for an editor, an agent, or the author's own revision pass.
   docx,
 
-  /// Plain text. Later phase.
+  /// Plain text.
   txt,
 }
 
@@ -49,8 +49,13 @@ extension BookExportFormatX on BookExportFormat {
         BookExportFormat.epub =>
           'Reflowable ebook for Kindle, Kobo, Apple Books and libraries. The '
               'reader chooses the type size, so the text reflows to fit.',
-        BookExportFormat.docx => 'An editable Word document.',
-        BookExportFormat.txt => 'Unformatted text.',
+        BookExportFormat.docx =>
+          'An editable Word document, in real named styles. Either standard '
+              'manuscript format for an editor or agent, or a copy of the '
+              'book as you have set it.',
+        BookExportFormat.txt =>
+          'Plain text, which nothing can refuse to open. The whole book, or '
+              'the prose on its own for a word count or a diff.',
       };
 
   String get extension => switch (this) {
@@ -70,20 +75,20 @@ extension BookExportFormatX on BookExportFormat {
         BookExportFormat.txt => 'text/plain',
       };
 
-  /// Whether this target is built yet.
-  bool get isAvailable => switch (this) {
-        BookExportFormat.printPdf ||
-        BookExportFormat.digitalPdf ||
-        BookExportFormat.epub =>
-          true,
-        _ => false,
-      };
+  /// Whether this target is built yet. Every one of them now is.
+  bool get isAvailable => true;
 
   /// True when the reader, not the book, decides where the pages fall.
   ///
   /// A reflowable target is built from the book's structure and never from a
   /// paginated layout.
-  bool get isReflowable => this == BookExportFormat.epub;
+  bool get isReflowable => switch (this) {
+        BookExportFormat.epub ||
+        BookExportFormat.docx ||
+        BookExportFormat.txt =>
+          true,
+        BookExportFormat.printPdf || BookExportFormat.digitalPdf => false,
+      };
 }
 
 /// Writes an exported book somewhere the author can find it.

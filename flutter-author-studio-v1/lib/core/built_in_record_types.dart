@@ -1,4 +1,5 @@
 import 'character_record_types.dart';
+import 'knowledge_graph_record_types.dart';
 import 'plot_record_types.dart';
 import 'record_types.dart';
 import 'research_record_types.dart';
@@ -15,6 +16,7 @@ class BuiltInRecordTypes {
     ...PlotRecordTypes.definitions,
     ...TimelineRecordTypes.definitions,
     ...ResearchRecordTypes.definitions,
+    ...KnowledgeGraphRecordTypes.definitions,
     ...WorldRecordTypes.definitions,
     _faction,
     _culture,

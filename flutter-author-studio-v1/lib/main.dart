@@ -1719,7 +1719,17 @@ class _SectionView extends StatelessWidget {
               focusRecordId: request.recordId,
             ),
           ),
-        StudioSection.map => MapStudioView(project: project),
+        StudioSection.map => MapStudioView(
+            project: project,
+            onNavigate: (destination) => onNavigate(
+              switch (destination) {
+                MapStudioDestination.characters => StudioSection.characters,
+                MapStudioDestination.timeline => StudioSection.timeline,
+                MapStudioDestination.manuscript => StudioSection.manuscript,
+                MapStudioDestination.world => StudioSection.world,
+              },
+            ),
+          ),
         StudioSection.plot => PlotStudioView(
           project: project,
           service: PlotService(

@@ -775,6 +775,12 @@ enum MapEditorTool {
 
   /// Drag to move the camera. No record changes.
   pan,
+
+  /// Paint the ground with a terrain brush.
+  terrain,
+
+  /// Place and shape visual scenery.
+  asset,
 }
 
 extension MapEditorToolLabel on MapEditorTool {
@@ -784,13 +790,22 @@ extension MapEditorToolLabel on MapEditorTool {
         MapEditorTool.move => 'Move',
         MapEditorTool.region => 'Region',
         MapEditorTool.pan => 'Pan',
+        MapEditorTool.terrain => 'Terrain',
+        MapEditorTool.asset => 'Scenery',
       };
 
   /// True when this tool writes to records at all.
   bool get isEditing =>
       this == MapEditorTool.place ||
       this == MapEditorTool.move ||
-      this == MapEditorTool.region;
+      this == MapEditorTool.region ||
+      this == MapEditorTool.terrain ||
+      this == MapEditorTool.asset;
+
+  /// True when the tool paints or places scenery rather than story entities.
+  /// Phase 3 tools change how a map looks; they never create a graph entity.
+  bool get isVisual =>
+      this == MapEditorTool.terrain || this == MapEditorTool.asset;
 }
 
 /// What the place tool drops onto the canvas.
@@ -812,14 +827,31 @@ enum MapLayer {
   /// The map ground and its graticule.
   base,
 
+  /// Painted terrain. Above the ground, below everything that means something:
+  /// terrain is what the world is made of, not what happens on it.
+  terrain,
+
   /// Region fills and outlines.
   regions,
+
+  /// Placed scenery — trees, mountains, settlements. Above regions so a forest
+  /// reads over the territory it grows in, below the pins that name places.
+  assets,
 
   /// Location pins.
   locations,
 
   /// Marker pins.
   markers,
+
+  /// Journeys and story routes. Below the overlay points they connect, so a
+  /// line never hides the thing at its end.
+  storyPaths,
+
+  /// Story overlays: characters, events and scenes read from canonical data.
+  /// Above the map's own furniture because they are what the author came to
+  /// look at, below selection because they are still content.
+  storyOverlays,
 
   /// Selection rings, geometry handles and the marquee rectangle.
   selection,

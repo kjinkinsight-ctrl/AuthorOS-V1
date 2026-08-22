@@ -158,13 +158,18 @@ void main() {
   });
 
   test('no second relationship model has appeared in lib/', () {
+    // Story Graph Phase 1 landed, so `lib/core/story_graph*.dart` now exists
+    // and this guardrail no longer bans the name. What it still bans is a
+    // graph that owns storage: the read model reads RecordLink through the
+    // existing repository and writes nothing.
     final graphish = _libSources
         .map((file) => file.path.replaceAll(r'\', '/'))
         .where(
           (path) =>
-              path.contains('story_graph') ||
               path.endsWith('/graph_store.dart') ||
               path.endsWith('/graph_repository.dart') ||
+              path.endsWith('/graph_database.dart') ||
+              path.endsWith('/graph_cache.dart') ||
               path.endsWith('/edge_store.dart') ||
               path.endsWith('/relationship_store.dart'),
         )
@@ -454,30 +459,47 @@ void main() {
     );
   });
 
-  test('no Story Graph UI or service has been implemented', () {
-    final offenders = <String>[];
+  test('the Story Graph is a read model, and still has no UI', () {
+    // This guardrail used to assert that no Story Graph existed at all. Phase
+    // 1 made that premise false by design, so it now asserts what replaced it:
+    // the read model exists, it is confined to core, and the Phase 2 UI has
+    // not arrived early. Deleting it would retire the boundary rather than
+    // move it.
+    final readModel = _libSources
+        .map((file) => file.path.replaceAll(r'\', '/'))
+        .where((path) => path.contains('story_graph'))
+        .toSet();
+
+    expect(
+      readModel,
+      {'lib/core/story_graph.dart', 'lib/core/story_graph_service.dart'},
+      reason: 'The Story Graph read model is exactly two files in core. A '
+          'third one is either a second graph or the start of Phase 2 UI.',
+    );
+
+    final uiOffenders = <String>[];
     for (final file in _libSources) {
       final source = file.readAsStringSync();
       for (final symbol in const [
-        'StoryGraphService',
         'StoryGraphView',
         'StoryGraphPanel',
         'StoryGraphWorkspace',
-        'StoryGraphNode',
-        'StoryGraphEdge',
+        'StoryGraphCanvas',
+        'StoryGraphExplorer',
+        'StoryGraphMinimap',
       ]) {
         if (source.contains(symbol)) {
-          offenders.add('${file.path}: $symbol');
+          uiOffenders.add('${file.path}: $symbol');
         }
       }
     }
 
     expect(
-      offenders,
+      uiOffenders,
       isEmpty,
-      reason: 'The Story Graph is design-only. Implementation starts at Phase '
-          '1 in docs/universal-story-graph-architecture.md, after the Phase 0 '
-          'preconditions are resolved.',
+      reason: 'Phase 1 is the read model only. A graph canvas, panel or '
+          'explorer belongs to Universal Story Graph Phase 2, which consumes '
+          'this read model rather than landing inside it.',
     );
   });
 

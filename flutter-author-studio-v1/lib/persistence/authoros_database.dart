@@ -1109,6 +1109,65 @@ class DriftConnectedDomainRepository {
     return row == null ? null : _nodeFromRow(row);
   }
 
+  /// Every manuscript node belonging to [projectId], in identity order.
+  ///
+  /// The record side already had [recordsByProject]; the manuscript side had
+  /// only a by-id read, which is why a graph reader could see records but not
+  /// scenes and chapters. This closes that asymmetry using the existing
+  /// `manuscript_nodes_project` index. It adds no table and no schema change.
+  ///
+  /// Ordering is by id rather than title so graph reads are deterministic:
+  /// two manuscript nodes may share a title, ids never collide.
+  Future<List<ManuscriptNodeReference>> manuscriptNodesByProject(
+    String projectId,
+  ) async {
+    final rows = await (database.select(database.manuscriptNodeRows)
+          ..where((table) => table.projectId.equals(projectId))
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    return rows.map(_nodeFromRow).toList();
+  }
+
+  /// Counts records in [projectId] without materialising them.
+  ///
+  /// Soft-deleted records are excluded unless [includeDeleted] is set, so the
+  /// count matches what a default graph or Studio read would actually show.
+  Future<int> countRecordsByProject(
+    String projectId, {
+    bool includeDeleted = false,
+  }) async {
+    final table = database.authorRecordRows;
+    final total = table.id.count();
+    var predicate =
+        table.projectId.equals(projectId) | table.scopeId.equals(projectId);
+    if (!includeDeleted) {
+      predicate = predicate &
+          table.status.equals(AuthorRecordStatus.deleted.name).not();
+    }
+    final query = database.selectOnly(table)
+      ..addColumns([total])
+      ..where(predicate);
+    return await query.map((row) => row.read(total) ?? 0).getSingle();
+  }
+
+  /// Counts manuscript nodes in [projectId] without materialising them.
+  Future<int> countManuscriptNodesByProject(String projectId) async {
+    final total = database.manuscriptNodeRows.id.count();
+    final query = database.selectOnly(database.manuscriptNodeRows)
+      ..addColumns([total])
+      ..where(database.manuscriptNodeRows.projectId.equals(projectId));
+    return await query.map((row) => row.read(total) ?? 0).getSingle();
+  }
+
+  /// Counts relationships scoped to [scopeId] without materialising them.
+  Future<int> countLinksByScope(String scopeId) async {
+    final total = database.recordLinkRows.id.count();
+    final query = database.selectOnly(database.recordLinkRows)
+      ..addColumns([total])
+      ..where(database.recordLinkRows.scopeId.equals(scopeId));
+    return await query.map((row) => row.read(total) ?? 0).getSingle();
+  }
+
   Future<List<RecordLink>> backlinks(String entityId) async {
     final rows = await (database.select(database.recordLinkRows)
           ..where((table) =>

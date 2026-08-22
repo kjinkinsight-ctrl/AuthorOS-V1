@@ -1308,8 +1308,14 @@ so a future change that violates one fails loudly rather than silently. It asser
    invariant that survived it: research is reachable as graph nodes, `documents` can still
    attach a research entry to anything, and the legacy store stays a read-only migration
    input in `lib/migrations/`.
-9. **No Story Graph UI has been implemented** — no `StoryGraphService`, `StoryGraphView`,
-   or equivalent exists in `lib/`.
+9. **The Story Graph is a read model, and still has no UI** *(rewritten — Phase 1)* —
+   this assertion used to say no Story Graph existed at all. Phase 1 made that premise
+   false by design, so it was rewritten rather than deleted, the same treatment R-4
+   received: the read model is exactly `lib/core/story_graph.dart` and
+   `lib/core/story_graph_service.dart`, and no `StoryGraphView`, `StoryGraphPanel`,
+   `StoryGraphCanvas`, `StoryGraphExplorer` or `StoryGraphMinimap` has arrived early.
+   Assertion 3 was narrowed in the same commit for the same reason: it no longer bans the
+   `story_graph` filename, only a graph that owns storage.
 10. **The edge table refuses a dangling link** — `PRAGMA foreign_keys` is on, and a raw
     insert naming absent endpoints is rejected by the database (invariant I-1).
 
@@ -1320,3 +1326,49 @@ without someone updating this document in the same commit.
 These are architecture tests, not feature tests: ten assertions covering the boundaries
 this document relies on, rather than a speculative suite. They pass against the audited
 tree, and one of them — the Analytics guardrail — found R-21 while being written.
+
+---
+
+## 22. Amendment — Phase 1 landed
+
+Recorded when the Phase 1 bounded read model was implemented.
+
+`UniversalStoryGraphService` now exists as the single canonical graph read source. It is
+project-scoped, read-only, bounded by depth and node budget, reports truncation as a
+value, and presents both node kinds — `AuthorRecord`s and the `ManuscriptNodeReference`s
+D-3 makes permanent — through one vocabulary. Full detail:
+`docs/universal-story-graph-phase-1-read-model.md`.
+
+What this changes in this document:
+
+| § | Status |
+|---|---|
+| §15 Future Story Graph API — Design Only | **Implemented.** The shipped API is documented in the Phase 1 read-model document; this section stays as the design record it was |
+| §16 Future Graph View Design — No UI Implementation | **Still design only.** Phase 1 built no UI |
+| §21 Guardrail 9 | **Rewritten** — see above |
+| §21 Guardrail 3 | **Narrowed** — no longer bans the `story_graph` filename |
+
+What this does **not** change:
+
+- **Schema version stays 9.** No table, index or migration was added. The audited table
+  set in guardrail 1 is untouched.
+- **D-3 stands.** No scene or chapter was promoted to an `AuthorRecord`.
+- **`RecordGraph` survives.** Phase 1 composes the same repository rather than replacing
+  or duplicating it, and reuses its project-membership and soft-delete rules.
+- **`ConnectionEngine` remains the sole relationship writer.** The read model has no write
+  path, and a guardrail pins that.
+- **`WritingSession` remains history.** Invariant I-12 holds, now also proved
+  behaviourally: a session cannot resolve as a node or be traversed to.
+
+### Open risks the read model inherits
+
+**Phase 0 was directed but never executed.** `docs/story-graph-phase-0-integrity-directive.md`
+exists; `docs/universal-story-graph-phase-0-integrity.md` does not, and no integrity
+milestone landed. **R-1 (ghost manuscript nodes) and R-2 (archive restores structure
+without prose) are therefore still open beneath the graph.**
+
+Phase 1 was built to survive them rather than to depend on them: it carries no prose,
+never loads the manuscript to prove graph membership, and treats a node's existence as
+saying nothing about whether its content exists. A ghost node is consequently a display
+problem rather than a crash. It is still a ghost node, and Phase 0 remains the milestone
+that fixes it.

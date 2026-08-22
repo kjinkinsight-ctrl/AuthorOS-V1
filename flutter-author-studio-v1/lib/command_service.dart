@@ -1,40 +1,51 @@
 /// The Command System's executor.
 ///
-/// [CommandService] answers a parsed [CommandQuery] by composing the query
-/// surfaces AuthorOS already has — [UniversalSearchService] for text,
-/// [RecordGraph] and the link table for connections, [PlotQueryService] for the
-/// story-status questions Plot Studio already knows how to ask. It owns no
-/// storage, builds no index and defines no second notion of a relationship.
+/// [CommandService] answers a parsed [CommandQuery] by composing the read
+/// surfaces AuthorOS already has: [StoryGraphService] for the graph,
+/// [UniversalSearchService] for text, [PlotQueryService] for the story-status
+/// questions Plot Studio already knows how to ask. It owns no storage, builds
+/// no index, and defines no second notion of a node or an edge.
 ///
 /// It lives at the service layer rather than in `core/` because it reaches
 /// Studio services, and `core/` may not.
 ///
-/// **Every read here is a read.** Manuscript scenes and chapters are taken from
-/// [DriftConnectedDomainRepository.manuscriptNodesByProject], never through
+/// **Every read here is a read.** The manuscript is reached through the graph's
+/// projection of `manuscript_node_rows`, never through
 /// `ManuscriptStore.loadStudio`, because loading the manuscript *writes* — it
-/// seeds manuscript nodes as a side effect. A navigation query that quietly
-/// changed the project would be a bad bargain.
+/// seeds and reconciles the projection as a side effect. A navigation query
+/// that quietly changed the project would be a bad bargain.
 library;
 
 import 'core/command_grammar.dart';
 import 'core/command_query.dart';
 import 'core/connected_domain.dart';
 import 'core/connection_types.dart';
-import 'core/record_graph.dart';
 import 'core/record_service.dart';
 import 'core/record_types.dart';
 import 'core/record_validation.dart';
 import 'core/search_models.dart';
+import 'core/story_graph.dart';
+import 'core/story_graph_service.dart';
 import 'core/universal_search.dart';
 import 'map_domain.dart';
 import 'persistence/authoros_database.dart';
 import 'plot_service.dart';
 
-/// How many rows one command may return.
+/// How many rows one command may show.
 ///
 /// Mirrors [UniversalSearchFilter.limit]'s intent: a navigation layer answers
 /// questions, it does not page an entire project into a dialog.
 const commandResultLimit = 200;
+
+/// How many nodes one command may *examine*.
+///
+/// Deliberately far above [commandResultLimit] and above
+/// [kStoryGraphDefaultMaxNodes]. A negative question — "characters not yet
+/// assigned to a plot" — is only correct if every character was looked at, so
+/// the scan cap and the display cap are different numbers for different
+/// reasons. When the scan is truncated the result says so rather than quietly
+/// answering from a sample.
+const commandScanLimit = 5000;
 
 class CommandService {
   CommandService({required this.projectId, required this.repository});
@@ -50,8 +61,8 @@ class CommandService {
   UniversalSearchService get search =>
       UniversalSearchService(projectId: projectId, repository: repository);
 
-  RecordGraph get graph =>
-      RecordGraph(projectId: projectId, repository: repository);
+  StoryGraphService get graph =>
+      StoryGraphService(projectId: projectId, repository: repository);
 
   PlotService get plot =>
       PlotService(projectId: projectId, repository: repository);
@@ -86,7 +97,7 @@ class CommandService {
       );
     }
 
-    final workspace = await _load();
+    final workspace = await _load(query);
     if (query.subject.isReport) return _conflicts(query, workspace);
 
     if (query.hasAnchor) {
@@ -111,9 +122,9 @@ class CommandService {
               'Which did you mean?',
         );
       }
-      // "Show me Kali" names a thing without naming a relationship. The
-      // author wants the thing itself, and — because this is a navigation
-      // layer — what sits around it.
+      // "Show me Kali" names a thing without naming a relationship. The author
+      // wants the thing itself, and — because this is a navigation layer —
+      // what sits around it.
       if (query.relation == null && query.subject.everything) {
         return _show(query, anchor, workspace);
       }
@@ -131,10 +142,46 @@ class CommandService {
     String phrase, {
     String? entityId,
   }) async {
-    final workspace = await _load();
-    final anchor =
-        await _resolveAnchor(phrase, workspace, anchorId: entityId);
-    return anchor?.toEntity();
+    final workspace = await _load(CommandQuery(text: phrase));
+    final node = await _resolveAnchor(phrase, workspace, anchorId: entityId);
+    if (node == null) return null;
+    return CommandEntity(
+      id: node.id,
+      title: node.title,
+      typeId: node.typeId,
+      typeLabel: workspace.typeLabel(node),
+      isManuscriptNode: node.kind == StoryGraphNodeKind.manuscriptNode,
+      candidates: node.candidates,
+    );
+  }
+
+  // ----------------------------------------------------------------- filters
+
+  /// The graph filter a command implies.
+  ///
+  /// Wildcard edges and `relatedTo` are opt-in for a graph *view*, where 73 of
+  /// ~130 types would swamp the picture. A command is the opposite case: an
+  /// author who types "everything connected to Kali" means everything, and
+  /// silently dropping more than half the edge vocabulary would make the answer
+  /// wrong. Naming a relationship narrows it back down, and
+  /// [StoryGraphFilter.allowsEdgeType] lets an explicit type win over both
+  /// switches.
+  StoryGraphFilter _filterFor(
+    CommandQuery query, {
+    Set<String> edgeTypeIds = const {},
+  }) =>
+      StoryGraphFilter(
+        edgeTypeIds: edgeTypeIds,
+        includeArchived: query.hasPredicate(CommandPredicateKind.archived),
+        includeRelatedTo: true,
+        includeWildcardEdges: true,
+      );
+
+  Set<String> _edgeTypesFor(CommandQuery query) {
+    final relation = query.relation;
+    return relation == null || relation.isAny
+        ? const <String>{}
+        : <String>{relation.typeId!};
   }
 
   // ------------------------------------------------------------------ modes
@@ -177,64 +224,52 @@ class CommandService {
     CommandQuery query,
     _Workspace workspace,
   ) async {
-    final rows = <CommandRow>[];
     final context = await _context(query, workspace);
-
-    for (final record in workspace.records) {
-      if (!query.subject.matchesRecordType(record.typeId)) continue;
-      if (!_visible(record, query)) continue;
-      if (!await _keepRecord(record, query, workspace, context)) continue;
-      rows.add(_recordRow(record, workspace));
-    }
+    final rows = <CommandRow>[];
     for (final node in workspace.nodes) {
-      if (!query.subject.includesNodes) continue;
-      if (!query.subject.matchesNodeType(node.nodeType)) continue;
-      if (!_keepNode(node, query, workspace, context)) continue;
-      rows.add(_nodeRow(node, workspace));
+      if (!_matchesSubject(node, query.subject)) continue;
+      if (!await _keep(node, query, workspace, context)) continue;
+      rows.add(_row(node, workspace));
     }
-
-    return _result(query, rows, workspace, context);
+    return _result(query, rows, workspace);
   }
 
   /// Everything reachable from an anchor in one hop.
   ///
-  /// This walks the link index directly rather than calling
-  /// [RecordGraph.related], because that method resolves far endpoints with
-  /// `recordById` and so silently drops scenes and chapters. The Command System
-  /// is the first surface that has to show both node kinds, and an answer that
-  /// quietly omitted half the story would be worse than no answer.
+  /// A chapter is asked about together with its scenes, so the traversal runs
+  /// once per id in [_Workspace.anchorScope] and the results are merged.
   Future<CommandResult> _traverse(
     CommandQuery query,
-    _Anchor anchor,
+    StoryGraphNode anchor,
     _Workspace workspace,
   ) async {
-    final relation = query.relation ?? CommandRelation.any;
     final context = await _context(query, workspace);
-    final rows = <CommandRow>[];
+    final filter = _filterFor(query, edgeTypeIds: _edgeTypesFor(query));
     final anchorIds = workspace.anchorScope(anchor.id);
     final seen = <String>{...anchorIds};
+    final rows = <CommandRow>[];
 
-    for (final link in workspace.linksForAll(anchorIds)) {
-      if (!relation.matches(link.typeId)) continue;
-      final otherId =
-          anchorIds.contains(link.sourceId) ? link.targetId : link.sourceId;
-      if (!seen.add(otherId)) continue;
-      final relationLabel = workspace.relationLabel(link.typeId);
-
-      final record = workspace.recordById[otherId];
-      if (record != null) {
-        if (!query.subject.matchesRecordType(record.typeId)) continue;
-        if (!_visible(record, query)) continue;
-        if (!await _keepRecord(record, query, workspace, context)) continue;
-        rows.add(_recordRow(record, workspace, subtitle: relationLabel));
-        continue;
+    for (final anchorId in anchorIds) {
+      final hood = await graph.getNeighbours(
+        anchorId,
+        filter: filter,
+        maxNodes: commandScanLimit,
+      );
+      if (hood == null) continue;
+      final labelByNeighbour = <String, String>{
+        for (final edge in hood.edges)
+          edge.otherEnd(anchorId): workspace.relationLabel(edge.typeId),
+      };
+      for (final neighbour in hood.neighbours) {
+        if (!seen.add(neighbour.id)) continue;
+        if (!_matchesSubject(neighbour, query.subject)) continue;
+        if (!await _keep(neighbour, query, workspace, context)) continue;
+        rows.add(_row(
+          neighbour,
+          workspace,
+          subtitle: labelByNeighbour[neighbour.id] ?? '',
+        ));
       }
-
-      final node = workspace.nodeById[otherId];
-      if (node == null) continue;
-      if (!query.subject.matchesNodeType(node.nodeType)) continue;
-      if (!_keepNode(node, query, workspace, context)) continue;
-      rows.add(_nodeRow(node, workspace, subtitle: relationLabel));
     }
 
     if (rows.isEmpty) {
@@ -243,36 +278,31 @@ class CommandService {
         message: 'Nothing is connected to ${anchor.title} yet.',
       );
     }
-    return _result(query, rows, workspace, context, anchor: anchor);
+    return _result(query, rows, workspace);
   }
 
   /// One named thing, and what surrounds it.
   Future<CommandResult> _show(
     CommandQuery query,
-    _Anchor anchor,
+    StoryGraphNode anchor,
     _Workspace workspace,
   ) async {
-    final record = workspace.recordById[anchor.id];
-    final node = workspace.nodeById[anchor.id];
-    final subject = record != null
-        ? _recordRow(record, workspace)
-        : _nodeRow(node!, workspace);
-
+    final hood = await graph.getNeighbours(
+      anchor.id,
+      filter: _filterFor(query),
+      maxNodes: commandScanLimit,
+    );
+    final subject = _row(anchor, workspace);
     final connected = <CommandRow>[];
-    final seen = <String>{anchor.id};
-    for (final link in workspace.linksFor(anchor.id)) {
-      final otherId = link.sourceId == anchor.id ? link.targetId : link.sourceId;
-      if (!seen.add(otherId)) continue;
-      final label = workspace.relationLabel(link.typeId);
-      final other = workspace.recordById[otherId];
-      if (other != null) {
-        if (other.status == AuthorRecordStatus.deleted) continue;
-        connected.add(_recordRow(other, workspace, subtitle: label));
-        continue;
-      }
-      final otherNode = workspace.nodeById[otherId];
-      if (otherNode != null) {
-        connected.add(_nodeRow(otherNode, workspace, subtitle: label));
+    if (hood != null) {
+      final labels = <String, String>{
+        for (final edge in hood.edges)
+          edge.otherEnd(anchor.id): workspace.relationLabel(edge.typeId),
+      };
+      for (final neighbour in hood.neighbours) {
+        connected.add(
+          _row(neighbour, workspace, subtitle: labels[neighbour.id] ?? ''),
+        );
       }
     }
 
@@ -283,6 +313,9 @@ class CommandService {
         if (connected.isNotEmpty)
           CommandGroup(label: 'Connected', rows: connected),
       ],
+      message: hood?.truncated ?? false
+          ? 'Showing the first ${hood!.neighbours.length} connections.'
+          : '',
     );
   }
 
@@ -290,7 +323,7 @@ class CommandService {
   ///
   /// Composed from checks that already exist rather than a new analyzer:
   /// shared record validation, Plot Studio's structural validation, and two
-  /// pure reads over the link table. Each Studio's own continuity intelligence
+  /// reads over the raw link table. Each Studio's own continuity intelligence
   /// stays where it is — this is the cross-cutting view, not a replacement.
   Future<CommandResult> _conflicts(
     CommandQuery query,
@@ -298,8 +331,9 @@ class CommandService {
   ) async {
     final rows = <CommandRow>[];
 
-    for (final record in workspace.records) {
-      if (record.status == AuthorRecordStatus.deleted) continue;
+    for (final node in workspace.nodes) {
+      final record = node.record;
+      if (record == null) continue;
       final result = await records.validateRecord(record);
       for (final issue in result.issues) {
         rows.add(
@@ -318,11 +352,16 @@ class CommandService {
       }
     }
 
+    // Read raw rather than through the graph. Every other command wants the
+    // graph's view — nodes that exist, edges worth drawing. A conflict report
+    // wants exactly what that view excludes: the edge whose endpoint is gone.
+    final links = await repository.linksByScope(projectId);
+
     // A canon record joined to a record its project has ruled out of canon is
-    // the contradiction an author most wants surfaced, and it is a pure read.
-    for (final link in workspace.links) {
-      final source = workspace.recordById[link.sourceId];
-      final target = workspace.recordById[link.targetId];
+    // the contradiction an author most wants surfaced.
+    for (final link in links) {
+      final source = workspace.recordFor(link.sourceId);
+      final target = workspace.recordFor(link.targetId);
       if (source == null || target == null) continue;
       final conflicted = _isCanon(source) && _isOutOfCanon(target) ||
           _isCanon(target) && _isOutOfCanon(source);
@@ -342,12 +381,9 @@ class CommandService {
     }
 
     // An edge pointing at something neither store can resolve.
-    for (final link in workspace.links) {
+    for (final link in links) {
       for (final endpointId in [link.sourceId, link.targetId]) {
-        if (workspace.recordById.containsKey(endpointId) ||
-            workspace.nodeById.containsKey(endpointId)) {
-          continue;
-        }
+        if (await graph.getNode(endpointId) != null) continue;
         rows.add(
           CommandRow(
             id: '${link.id}:$endpointId',
@@ -364,7 +400,7 @@ class CommandService {
 
     for (final issue in await plot.validatePlot()) {
       final record =
-          issue.recordId == null ? null : workspace.recordById[issue.recordId];
+          issue.recordId == null ? null : workspace.recordFor(issue.recordId!);
       rows.add(
         CommandRow(
           id: '${issue.recordId ?? 'plot'}:${issue.code}',
@@ -384,103 +420,66 @@ class CommandService {
         message: 'No canon conflicts. Everything agrees with everything else.',
       );
     }
-    return CommandResult(
-      query: query,
-      groups: _group(rows, byTypeLabel: true),
-    );
+    return CommandResult(query: query, groups: _group(rows));
   }
 
   // ------------------------------------------------------------- predicates
 
-  bool _visible(AuthorRecord record, CommandQuery query) {
-    if (record.status == AuthorRecordStatus.deleted) return false;
-    if (record.status == AuthorRecordStatus.archived) {
-      return query.hasPredicate(CommandPredicateKind.archived);
-    }
-    return true;
-  }
+  /// Whether [node] is the kind of thing the query asked about.
+  ///
+  /// Both node kinds answer here: a subject may name record types, manuscript
+  /// node types, or both, and [StoryGraphNode.typeId] is the record type or the
+  /// manuscript node type accordingly.
+  bool _matchesSubject(StoryGraphNode node, CommandSubject subject) =>
+      switch (node.kind) {
+        StoryGraphNodeKind.record => subject.matchesRecordType(node.typeId),
+        StoryGraphNodeKind.manuscriptNode =>
+          subject.includesNodes && subject.matchesNodeType(node.typeId),
+      };
 
-  Future<bool> _keepRecord(
-    AuthorRecord record,
+  Future<bool> _keep(
+    StoryGraphNode node,
     CommandQuery query,
     _Workspace workspace,
     _Context context,
   ) async {
+    final record = node.record;
     for (final predicate in query.predicates) {
       switch (predicate.kind) {
         case CommandPredicateKind.unresolved:
-          if (!context.unresolvedIds.contains(record.id)) return false;
+          if (!context.unresolvedIds.contains(node.id)) return false;
         case CommandPredicateKind.resolved:
-          if (!_isResolved(record)) return false;
+          if (record == null || !_isResolved(record)) return false;
         case CommandPredicateKind.active:
-          if (!_isActive(record)) return false;
+          if (record == null || !_isActive(record)) return false;
         case CommandPredicateKind.canon:
-          if (!_isCanon(record)) return false;
+          if (node.canonStatus != CanonStatus.canon) return false;
         case CommandPredicateKind.draft:
-          if (record.canonStatus != CanonStatus.draft &&
-              record.canonStatus != CanonStatus.proposed) {
+          if (node.canonStatus != CanonStatus.draft &&
+              node.canonStatus != CanonStatus.proposed) {
             return false;
           }
         case CommandPredicateKind.archived:
-          if (record.status != AuthorRecordStatus.archived) return false;
+          if (node.lifecycleStatus != AuthorRecordStatus.archived) return false;
         case CommandPredicateKind.onMap:
-          if (!_isOnMap(record)) return false;
+          if (record == null || !_isOnMap(record)) return false;
         case CommandPredicateKind.inBook:
-          if (!context.inBook(record)) return false;
-        case CommandPredicateKind.missingRelation:
-          if (workspace.hasNeighbourIn(record.id, predicate.target)) {
-            return false;
-          }
-        case CommandPredicateKind.before:
-          final position = workspace.manuscriptPosition(record.id);
-          if (position == null || position >= (context.orderCut ?? -1)) {
-            return false;
-          }
-        case CommandPredicateKind.after:
-          final position = workspace.manuscriptPosition(record.id);
-          if (position == null || position <= (context.orderCut ?? 1 << 30)) {
-            return false;
-          }
-      }
-    }
-    return true;
-  }
-
-  bool _keepNode(
-    ManuscriptNodeReference node,
-    CommandQuery query,
-    _Workspace workspace,
-    _Context context,
-  ) {
-    for (final predicate in query.predicates) {
-      switch (predicate.kind) {
+          if (record == null || !context.inBook(record)) return false;
         case CommandPredicateKind.missingRelation:
           if (workspace.hasNeighbourIn(node.id, predicate.target)) return false;
           // A scene can name its location in prose without ever linking it.
           // Both have to be empty before the scene is "missing" one.
-          if (_nodeMentions(node, predicate.target)) return false;
+          if (_mentionsInProse(node, predicate.target)) return false;
         case CommandPredicateKind.before:
-          final position = workspace.nodeOrder(node);
+          final position = workspace.positionOf(node);
           if (position == null || position >= (context.orderCut ?? -1)) {
             return false;
           }
         case CommandPredicateKind.after:
-          final position = workspace.nodeOrder(node);
+          final position = workspace.positionOf(node);
           if (position == null || position <= (context.orderCut ?? 1 << 30)) {
             return false;
           }
-        case CommandPredicateKind.archived:
-          return false;
-        case CommandPredicateKind.unresolved:
-        case CommandPredicateKind.resolved:
-        case CommandPredicateKind.active:
-        case CommandPredicateKind.canon:
-        case CommandPredicateKind.draft:
-        case CommandPredicateKind.onMap:
-        case CommandPredicateKind.inBook:
-          // Record-only facets. A node neither passes nor fails them; it is
-          // simply not the kind of thing being asked about.
-          return false;
       }
     }
     return true;
@@ -488,18 +487,19 @@ class CommandService {
 
   /// A scene's free-text `location` field is a second, older way of saying
   /// where it happens. "Scenes with no location" has to respect both.
-  bool _nodeMentions(ManuscriptNodeReference node, CommandSubject? target) {
-    if (target == null) return false;
+  bool _mentionsInProse(StoryGraphNode node, CommandSubject? target) {
+    final reference = node.manuscriptNode;
+    if (target == null || reference == null) return false;
     if (!target.recordTypeIds.contains('location') &&
         !target.recordTypeIds.contains('place')) {
       return false;
     }
-    final value = node.extensionData['location'];
+    final value = reference.extensionData['location'];
     return value is String && value.trim().isNotEmpty;
   }
 
   Future<_Context> _context(CommandQuery query, _Workspace workspace) async {
-    var orderCut = <int?>[null].first;
+    int? orderCut;
     String? bookId;
     final unresolvedIds = <String>{};
 
@@ -522,8 +522,8 @@ class CommandService {
       mapIdsInBook: bookId == null
           ? const <String>{}
           : {
-              for (final record in workspace.records)
-                if (record.bookId == bookId) record.id,
+              for (final node in workspace.nodes)
+                if (node.record?.bookId == bookId) node.id,
             },
       unresolvedIds: unresolvedIds,
     );
@@ -540,7 +540,9 @@ class CommandService {
     _Workspace workspace,
   ) async {
     final ids = <String>{};
-    for (final record in workspace.records) {
+    for (final node in workspace.nodes) {
+      final record = node.record;
+      if (record == null) continue;
       if (!subject.matchesRecordType(record.typeId)) continue;
       if (!_isResolved(record)) ids.add(record.id);
     }
@@ -555,17 +557,11 @@ class CommandService {
   int? _orderOf(String? phrase, _Workspace workspace) {
     if (phrase == null) return null;
     final ordinal = _ordinal(phrase);
-    if (ordinal != null) {
-      for (final node in workspace.nodes) {
-        if (node.nodeType != ordinal.kind) continue;
-        if (workspace.nodeOrder(node) == ordinal.number) return ordinal.number;
-      }
-      return ordinal.number;
-    }
+    if (ordinal != null) return ordinal.number;
     final normalized = phrase.toLowerCase().trim();
     for (final node in workspace.nodes) {
       if (node.title.toLowerCase() == normalized) {
-        return workspace.nodeOrder(node);
+        return workspace.orderOf(node);
       }
     }
     return null;
@@ -574,10 +570,10 @@ class CommandService {
   String? _bookIdFor(String? phrase, _Workspace workspace) {
     if (phrase == null) return null;
     final normalized = phrase.toLowerCase().trim();
-    final books = workspace.records
-        .where((record) => record.typeId == 'book')
-        .toList()
-      ..sort((left, right) => left.title.compareTo(right.title));
+    final books = <AuthorRecord>[
+      for (final node in workspace.nodes)
+        if (node.record?.typeId == 'book') node.record!,
+    ]..sort((left, right) => left.title.compareTo(right.title));
     for (final book in books) {
       if (book.title.toLowerCase() == normalized) return book.id;
     }
@@ -592,128 +588,88 @@ class CommandService {
 
   // ----------------------------------------------------------------- anchors
 
-  Future<_Anchor?> _resolveAnchor(
+  Future<StoryGraphNode?> _resolveAnchor(
     String phrase,
     _Workspace workspace, {
     String? anchorId,
   }) async {
-    if (anchorId != null) {
-      final record = workspace.recordById[anchorId];
-      if (record != null) return _anchorForRecord(record, workspace);
-      final node = workspace.nodeById[anchorId];
-      if (node != null) return _anchorForNode(node);
-    }
+    if (anchorId != null) return graph.getNode(anchorId);
 
     // "Chapter 20" is an ordinal, not a title. Manuscript nodes carry their
     // position, so this is the reading to try first.
     final ordinal = _ordinal(phrase);
     if (ordinal != null && ordinal.kind != 'book') {
       for (final node in workspace.nodes) {
-        if (node.nodeType != ordinal.kind) continue;
-        if (workspace.nodeOrder(node) == ordinal.number) {
-          return _anchorForNode(node);
-        }
+        if (node.kind != StoryGraphNodeKind.manuscriptNode) continue;
+        if (node.typeId != ordinal.kind) continue;
+        if (workspace.orderOf(node) == ordinal.number) return node;
       }
     }
 
     final normalized = phrase.toLowerCase().trim();
-    final exact = <_Anchor>[];
-    for (final record in workspace.records) {
-      if (record.status == AuthorRecordStatus.deleted) continue;
-      if (record.title.toLowerCase() == normalized) {
-        exact.add(_anchorForRecord(record, workspace));
-      }
-    }
-    for (final node in workspace.nodes) {
-      if (node.title.toLowerCase() == normalized) {
-        exact.add(_anchorForNode(node));
-      }
-    }
+    final exact = [
+      for (final node in workspace.nodes)
+        if (node.title.toLowerCase() == normalized) node,
+    ];
     if (exact.length == 1) return exact.single;
-    if (exact.length > 1) return _ambiguous(exact);
+    if (exact.length > 1) return _ambiguous(exact, workspace);
 
     final hits = await search.searchAll(phrase);
-    final found = <_Anchor>[];
-    for (final hit in hits) {
-      final record = workspace.recordById[hit.recordId];
-      if (record != null && record.status != AuthorRecordStatus.deleted) {
-        found.add(_anchorForRecord(record, workspace));
-        continue;
-      }
-      final node = workspace.nodeById[hit.recordId];
-      if (node != null) found.add(_anchorForNode(node));
-    }
+    final found = <StoryGraphNode>[
+      for (final hit in hits)
+        if (workspace.nodeById[hit.recordId] != null)
+          workspace.nodeById[hit.recordId]!,
+    ];
     if (found.isEmpty) return null;
     if (found.length == 1) return found.single;
-    return _ambiguous(found.take(8).toList());
+    return _ambiguous(found.take(8).toList(), workspace);
   }
 
-  _Anchor _anchorForRecord(AuthorRecord record, _Workspace workspace) =>
-      _Anchor(
-        id: record.id,
-        title: record.title,
-        typeId: record.typeId,
-        typeLabel: workspace.typeLabel(record.typeId),
-      );
-
-  _Anchor _anchorForNode(ManuscriptNodeReference node) => _Anchor(
-        id: node.id,
-        title: node.title,
-        typeId: node.nodeType,
-        typeLabel: _titleCase(node.nodeType),
-        isNode: true,
-      );
-
-  _Anchor _ambiguous(List<_Anchor> options) => _Anchor(
-        id: options.first.id,
-        title: options.first.title,
-        typeId: options.first.typeId,
-        typeLabel: options.first.typeLabel,
-        isNode: options.first.isNode,
-        candidates: options
-            .map((option) => CommandCandidate(
-                  id: option.id,
-                  title: option.title,
-                  typeLabel: option.typeLabel,
-                ))
-            .toList(),
+  /// A stand-in node carrying the candidates the author must choose between.
+  StoryGraphNode _ambiguous(
+    List<StoryGraphNode> options,
+    _Workspace workspace,
+  ) =>
+      _AmbiguousAnchor(
+        options.first,
+        [
+          for (final option in options)
+            CommandCandidate(
+              id: option.id,
+              title: option.title,
+              typeLabel: workspace.typeLabel(option),
+            ),
+        ],
       );
 
   // ------------------------------------------------------------------- rows
 
-  CommandRow _recordRow(
-    AuthorRecord record,
-    _Workspace workspace, {
-    String subtitle = '',
-  }) =>
-      CommandRow(
-        id: record.id,
-        title: record.title,
-        kind: CommandRowKind.record,
-        typeLabel: workspace.typeLabel(record.typeId),
-        subtitle: subtitle.isNotEmpty ? subtitle : record.canonStatus.name,
-        navigationTarget: _targetForRecord(record),
-      );
-
-  CommandRow _nodeRow(
-    ManuscriptNodeReference node,
+  CommandRow _row(
+    StoryGraphNode node,
     _Workspace workspace, {
     String subtitle = '',
   }) {
-    final order = workspace.nodeOrder(node);
+    final record = node.record;
+    final order = workspace.orderOf(node);
     return CommandRow(
       id: node.id,
       title: node.title,
-      kind: CommandRowKind.manuscriptNode,
-      typeLabel: _titleCase(node.nodeType),
+      kind: node.kind == StoryGraphNodeKind.record
+          ? CommandRowKind.record
+          : CommandRowKind.manuscriptNode,
+      typeLabel: workspace.typeLabel(node),
       subtitle: subtitle.isNotEmpty
           ? subtitle
-          : (order == null ? '' : '${_titleCase(node.nodeType)} $order'),
-      navigationTarget: SearchNavigationTarget(
-        destination: SearchDestination.manuscriptStudio,
-        recordId: node.id,
-        projectId: node.projectId,
-      ),
+          : record != null
+              ? record.canonStatus.name
+              : (order == null ? '' : '${workspace.typeLabel(node)} $order'),
+      navigationTarget: record != null
+          ? _targetForRecord(record)
+          : SearchNavigationTarget(
+              destination: SearchDestination.manuscriptStudio,
+              recordId: node.id,
+              projectId: node.projectId,
+            ),
     );
   }
 
@@ -729,30 +685,31 @@ class CommandService {
     CommandQuery query,
     List<CommandRow> rows,
     _Workspace workspace,
-    _Context context, {
-    _Anchor? anchor,
-  }) {
+  ) {
     if (rows.isEmpty) {
-      return CommandResult(
-        query: query,
-        message: 'Nothing matches that yet.',
-      );
+      return CommandResult(query: query, message: 'Nothing matches that yet.');
     }
     final capped = rows.length > commandResultLimit;
     final shown = capped ? rows.take(commandResultLimit).toList() : rows;
+    final notices = <String>[
+      if (capped) 'Showing the first $commandResultLimit of ${rows.length}.',
+      if (workspace.truncated)
+        'This project is larger than one command can scan, so some entries '
+            'were not examined.',
+    ];
     return CommandResult(
       query: query,
       groups: _group(shown),
-      message: capped
-          ? 'Showing the first $commandResultLimit of ${rows.length}.'
-          : '',
+      message: notices.join(' '),
     );
   }
 
-  List<CommandGroup> _group(List<CommandRow> rows, {bool byTypeLabel = true}) {
+  /// Groups by the same buckets the Connection Explorer uses, so the console
+  /// and the graph name the parts of a story the same way.
+  List<CommandGroup> _group(List<CommandRow> rows) {
     final grouped = <String, List<CommandRow>>{};
     for (final row in rows) {
-      grouped.putIfAbsent(byTypeLabel ? row.typeLabel : '', () => []).add(row);
+      grouped.putIfAbsent(row.typeLabel, () => []).add(row);
     }
     final labels = grouped.keys.toList()..sort();
     return [
@@ -768,87 +725,55 @@ class CommandService {
 
   // ------------------------------------------------------------- workspace
 
-  Future<_Workspace> _load() async {
-    final registry = await records.registry();
-    final connections = await records.connectionRegistry();
+  Future<_Workspace> _load(CommandQuery query) async {
+    final subgraph = await graph.getProjectGraph(
+      filter: _filterFor(query),
+      maxNodes: commandScanLimit,
+    );
     return _Workspace(
-      records: await repository.recordsByProject(projectId),
-      nodes: await repository.manuscriptNodesByProject(projectId),
-      links: await repository.linksByScope(projectId),
-      registry: registry,
-      connections: connections,
+      subgraph: subgraph,
+      registry: await records.registry(),
+      connections: await records.connectionRegistry(),
     );
   }
 }
 
 /// Everything one command needs, read once.
 ///
-/// The links are loaded with a single [DriftConnectedDomainRepository.linksByScope]
-/// call and indexed in memory rather than asking for one record's backlinks at a
-/// time. A question like "characters not yet assigned to a plot" touches every
-/// character; per-record queries would make it quadratic.
+/// Nodes arrive already unified across the two kinds and already stripped of
+/// the record types that describe the graph rather than take part in it, so
+/// nothing here re-derives what [StoryGraphService] settled.
 class _Workspace {
   _Workspace({
-    required this.records,
-    required this.nodes,
-    required this.links,
+    required this.subgraph,
     required this.registry,
     required this.connections,
   }) {
-    for (final record in records) {
-      recordById[record.id] = record;
-    }
-    for (final node in nodes) {
+    for (final node in subgraph.nodes) {
       nodeById[node.id] = node;
     }
-    for (final link in links) {
-      _byEntity.putIfAbsent(link.sourceId, () => []).add(link);
-      _byEntity.putIfAbsent(link.targetId, () => []).add(link);
+    for (final edge in subgraph.edges) {
+      _byEntity.putIfAbsent(edge.sourceId, () => []).add(edge);
+      _byEntity.putIfAbsent(edge.targetId, () => []).add(edge);
     }
   }
 
-  final List<AuthorRecord> records;
-  final List<ManuscriptNodeReference> nodes;
-  final List<RecordLink> links;
+  final StorySubgraph subgraph;
   final RecordTypeRegistry registry;
   final ConnectionTypeRegistry connections;
 
-  final Map<String, AuthorRecord> recordById = {};
-  final Map<String, ManuscriptNodeReference> nodeById = {};
-  final Map<String, List<RecordLink>> _byEntity = {};
+  final Map<String, StoryGraphNode> nodeById = {};
+  final Map<String, List<StoryGraphEdge>> _byEntity = {};
 
-  List<RecordLink> linksFor(String entityId) =>
-      _byEntity[entityId] ?? const <RecordLink>[];
+  List<StoryGraphNode> get nodes => subgraph.nodes;
 
-  /// Every entity a question about [entityId] should really reach.
-  ///
-  /// Characters do not appear in chapters; they appear in the scenes a chapter
-  /// contains. "Characters appearing in Chapter 20" therefore has to ask the
-  /// chapter *and its scenes*, or it answers nothing while looking correct.
-  Set<String> anchorScope(String entityId) {
-    final scope = <String>{entityId};
-    final node = nodeById[entityId];
-    if (node == null || node.nodeType != 'chapter') return scope;
-    for (final candidate in nodes) {
-      if (candidate.extensionData['chapterId'] == node.id) {
-        scope.add(candidate.id);
-      }
-    }
-    return scope;
-  }
+  bool get truncated => subgraph.truncated;
 
-  Iterable<RecordLink> linksForAll(Set<String> entityIds) sync* {
-    final seen = <String>{};
-    for (final entityId in entityIds) {
-      for (final link in linksFor(entityId)) {
-        if (seen.add(link.id)) yield link;
-      }
-    }
-  }
+  AuthorRecord? recordFor(String id) => nodeById[id]?.record;
 
   Iterable<String> neighbourIds(String entityId) sync* {
-    for (final link in linksFor(entityId)) {
-      yield link.sourceId == entityId ? link.targetId : link.sourceId;
+    for (final edge in _byEntity[entityId] ?? const <StoryGraphEdge>[]) {
+      yield edge.otherEnd(entityId);
     }
   }
 
@@ -861,55 +786,80 @@ class _Workspace {
   bool hasNeighbourIn(String entityId, CommandSubject? target) {
     if (target == null) return false;
     for (final otherId in neighbourIds(entityId)) {
-      final record = recordById[otherId];
-      if (record != null &&
-          record.status != AuthorRecordStatus.deleted &&
-          target.matchesRecordType(record.typeId)) {
-        return true;
-      }
       final node = nodeById[otherId];
-      if (node != null && target.matchesNodeType(node.nodeType)) return true;
+      if (node == null) continue;
+      final matches = switch (node.kind) {
+        StoryGraphNodeKind.record => target.matchesRecordType(node.typeId),
+        StoryGraphNodeKind.manuscriptNode => target.matchesNodeType(node.typeId),
+      };
+      if (matches) return true;
     }
     return false;
   }
 
-  int? nodeOrder(ManuscriptNodeReference node) {
-    final value = node.extensionData['order'];
+  /// Every entity a question about [entityId] should really reach.
+  ///
+  /// Characters do not appear in chapters; they appear in the scenes a chapter
+  /// contains. "Characters appearing in Chapter 20" therefore has to ask the
+  /// chapter *and its scenes*, or it answers nothing while looking correct.
+  Set<String> anchorScope(String entityId) {
+    final scope = <String>{entityId};
+    final anchor = nodeById[entityId];
+    if (anchor?.typeId != 'chapter') return scope;
+    for (final node in nodes) {
+      if (node.manuscriptNode?.extensionData['chapterId'] == entityId) {
+        scope.add(node.id);
+      }
+    }
+    return scope;
+  }
+
+  int? orderOf(StoryGraphNode node) {
+    final value = node.manuscriptNode?.extensionData['order'];
     return value is int ? value : (value is num ? value.toInt() : null);
   }
 
-  /// Where a record sits in the manuscript, taken from the earliest scene or
-  /// chapter it is attached to.
+  /// Where a node sits in the manuscript.
   ///
-  /// A record with no manuscript connection has no position. It is excluded
-  /// from "before"/"after" rather than guessed at — inventing an order would be
-  /// the one thing worse than leaving it out.
-  int? manuscriptPosition(String entityId) {
+  /// A chapter or scene answers from its own position. Anything else answers
+  /// from the earliest scene or chapter it is attached to, and a record with no
+  /// manuscript connection has no position at all — it is excluded from
+  /// "before"/"after" rather than guessed at, because inventing an order would
+  /// be the one thing worse than leaving it out.
+  int? positionOf(StoryGraphNode node) {
+    if (node.kind == StoryGraphNodeKind.manuscriptNode) {
+      return node.typeId == 'scene' ? _chapterOrderForScene(node) : orderOf(node);
+    }
     int? earliest;
-    for (final otherId in neighbourIds(entityId)) {
-      final node = nodeById[otherId];
-      if (node == null) continue;
-      final order = node.nodeType == 'scene'
-          ? _chapterOrderForScene(node)
-          : nodeOrder(node);
+    for (final otherId in neighbourIds(node.id)) {
+      final other = nodeById[otherId];
+      if (other == null || other.kind != StoryGraphNodeKind.manuscriptNode) {
+        continue;
+      }
+      final order = other.typeId == 'scene'
+          ? _chapterOrderForScene(other)
+          : orderOf(other);
       if (order == null) continue;
       if (earliest == null || order < earliest) earliest = order;
     }
     return earliest;
   }
 
-  int? _chapterOrderForScene(ManuscriptNodeReference scene) {
-    final chapterId = scene.extensionData['chapterId'];
+  int? _chapterOrderForScene(StoryGraphNode scene) {
+    final chapterId = scene.manuscriptNode?.extensionData['chapterId'];
     if (chapterId is! String) return null;
     final chapter = nodeById[chapterId];
-    return chapter == null ? null : nodeOrder(chapter);
+    return chapter == null ? null : orderOf(chapter);
   }
 
-  String typeLabel(String typeId) {
+  String typeLabel(StoryGraphNode node) {
+    if (node.kind == StoryGraphNodeKind.manuscriptNode) {
+      return _titleCase(node.typeId);
+    }
     try {
-      return registry.resolve(typeId).name;
+      return registry.resolve(node.typeId).name;
     } on StateError {
-      return _titleCase(typeId.replaceAll('-', ' '));
+      return _titleCase(node.typeId.replaceAll('-', ' '));
     }
   }
 
@@ -920,6 +870,35 @@ class _Workspace {
       return _titleCase(typeId.replaceAll('-', ' '));
     }
   }
+}
+
+/// A resolved anchor that turned out to name more than one thing.
+///
+/// Modelled as a [StoryGraphNode] so the resolution path has one return type,
+/// with the candidates carried alongside for the console to offer.
+class _AmbiguousAnchor extends StoryGraphNode {
+  _AmbiguousAnchor(StoryGraphNode first, this.candidates)
+      : super(
+          id: first.id,
+          kind: first.kind,
+          typeId: first.typeId,
+          categoryId: first.categoryId,
+          title: first.title,
+          projectId: first.projectId,
+          versioned: first.versioned,
+          deletable: first.deletable,
+          canonStatus: first.canonStatus,
+          lifecycleStatus: first.lifecycleStatus,
+          record: first.record,
+          manuscriptNode: first.manuscriptNode,
+        );
+
+  final List<CommandCandidate> candidates;
+}
+
+extension _AnchorCandidates on StoryGraphNode {
+  List<CommandCandidate> get candidates =>
+      this is _AmbiguousAnchor ? (this as _AmbiguousAnchor).candidates : const [];
 }
 
 class _Context {
@@ -947,33 +926,6 @@ class _Context {
     final mapId = record.fields[MapFields.mapId];
     return mapId is String && mapIdsInBook.contains(mapId);
   }
-}
-
-class _Anchor {
-  const _Anchor({
-    required this.id,
-    required this.title,
-    this.typeId = '',
-    this.typeLabel = '',
-    this.isNode = false,
-    this.candidates = const [],
-  });
-
-  final String id;
-  final String title;
-  final String typeId;
-  final String typeLabel;
-  final bool isNode;
-  final List<CommandCandidate> candidates;
-
-  CommandEntity toEntity() => CommandEntity(
-        id: id,
-        title: title,
-        typeId: typeId,
-        typeLabel: typeLabel,
-        isManuscriptNode: isNode,
-        candidates: candidates,
-      );
 }
 
 class _Ordinal {

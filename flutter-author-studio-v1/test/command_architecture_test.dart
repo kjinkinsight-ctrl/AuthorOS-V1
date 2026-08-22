@@ -106,7 +106,9 @@ void main() {
     final source = _code('lib/command_service.dart');
     expect(source, isNot(contains('loadStudio')));
     expect(source, isNot(contains('ManuscriptStore')));
-    expect(source, contains('manuscriptNodesByProject'));
+    // The manuscript is reached through the graph's projection of
+    // manuscript_node_rows, which is a read.
+    expect(source, contains('StoryGraphService'));
   });
 
   test('the parser is rules, not a model', () {

@@ -1216,24 +1216,6 @@ class DriftConnectedDomainRepository {
     return row == null ? null : _nodeFromRow(row);
   }
 
-  /// Every manuscript node in [projectId].
-  ///
-  /// The alternatives were one node at a time through [manuscriptNodeById], or
-  /// [snapshot], which also loads every version and audit event. A read that
-  /// spans the manuscript — "scenes with no location" — needs neither.
-  ///
-  /// This is a query, not a second store: it reads the same rows the manuscript
-  /// already writes, and adds no table.
-  Future<List<ManuscriptNodeReference>> manuscriptNodesByProject(
-    String projectId,
-  ) async {
-    final rows = await (database.select(database.manuscriptNodeRows)
-          ..where((table) => table.projectId.equals(projectId))
-          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
-        .get();
-    return rows.map(_nodeFromRow).toList();
-  }
-
   Future<List<RecordLink>> backlinks(String entityId) async {
     final rows = await (database.select(database.recordLinkRows)
           ..where((table) =>

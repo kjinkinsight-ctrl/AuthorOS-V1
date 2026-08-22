@@ -122,6 +122,8 @@ Future<CommandService> _seed() async {
       _record('unplaced', 'A Rumour', typeId: 'timeline-event'),
       _record('heresy', 'The Heresy', typeId: 'general-lore',
           canonStatus: CanonStatus.nonCanon),
+      // An arrangement *of* the story, not a thing the story is made of.
+      _record('canvas', 'Kali\'s Board', typeId: 'knowledge-canvas'),
     ],
     links: [
       // Kali's world.
@@ -137,7 +139,9 @@ Future<CommandService> _seed() async {
       _link('blood-moon', 'chapter-15', 'occursAt'),
       _link('the-fall', 'chapter-20', 'occursAt'),
       // A canon record joined to one the project has ruled out of canon.
+      // `relatedTo` is also the wildcard edge every record type suggests.
       _link('kali', 'heresy', 'relatedTo'),
+      _link('canvas', 'kali', 'references'),
     ],
   );
 
@@ -267,6 +271,43 @@ void main() {
         .join('\n');
     expect(details, contains('Kali'));
     expect(details, contains('The Heresy'));
+  });
+
+  group('reading the graph the way the graph defines it', () {
+    test('a wildcard edge still counts as a connection', () async {
+      final service = await _seed();
+      final result = await service.run('Show everything connected to Kali');
+
+      // A graph *view* hides wildcard and `relatedTo` edges, because 73 of the
+      // ~130 types are wildcards and they swamp a picture. An author who types
+      // "everything" means everything, so the command asks for them back.
+      expect(_ids(result), contains('heresy'));
+    });
+
+    test('naming a relationship narrows to it', () async {
+      final service = await _seed();
+      final result = await service.run('Show everything appearing in Kali');
+
+      // `appearsIn` is explicit, so the wildcard edges drop away.
+      expect(_ids(result), isNot(contains('heresy')));
+      expect(_ids(result), contains('scene-20a'));
+    });
+
+    test('a knowledge canvas is never a result', () async {
+      final service = await _seed();
+
+      // It references Kali and would surface as a neighbour if the command
+      // walked links itself. It is an arrangement of the story rather than
+      // part of it, so the graph excludes it and so does the console.
+      expect(
+        _ids(await service.run('Show everything connected to Kali')),
+        isNot(contains('canvas')),
+      );
+      expect(
+        _ids(await service.run('Show me Kali')),
+        isNot(contains('canvas')),
+      );
+    });
   });
 
   group('when it cannot be sure', () {

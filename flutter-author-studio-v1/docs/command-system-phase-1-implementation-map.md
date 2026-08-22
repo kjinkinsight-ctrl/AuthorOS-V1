@@ -16,7 +16,7 @@ generative AI.
 
 AuthorOS already had a story graph. Every Studio writes `AuthorRecord`s and typed
 `RecordLink`s through one persistence layer, 224 record types and 130 connection
-types are registered, and `RecordGraph` exposes one-hop traversal. What it did
+types are registered, and the Story Graph exposes traversal. What it did
 not have was a way for the author to *ask* it anything.
 
 The one cross-cutting surface, the "Universal Search" section, was legacy:
@@ -110,11 +110,16 @@ affordance. Words the parser did not use are shown as ignored.
 
 Three decisions are worth recording:
 
-**Both node kinds, always.** `RecordGraph.related` resolves far endpoints with
-`recordById` and skips anything it cannot find, so a scene linked to a character
-is silently dropped. The Command System is the first surface that must show both,
-so it walks the link index directly rather than changing `RecordGraph` and
-rippling into its existing callers.
+**Both node kinds, always — through the Story Graph.** Scenes and chapters are
+`ManuscriptNodeReference`s, not records, and a navigation layer that showed only
+one kind would be lying about the story. `StoryGraphNode` already renders both,
+and `StoryGraphService.getNeighbours` already traverses across them, so the
+executor composes those rather than walking the link table itself.
+
+*(An earlier draft of this milestone hand-rolled that traversal, because
+`RecordGraph.related` resolves far endpoints with `recordById` and silently drops
+anything that is not a record. The Story Graph read layer landed first and made
+the hand-rolled version redundant.)*
 
 **A chapter question means its scenes.** Characters appear in scenes, not
 chapters. `_Workspace.anchorScope` expands a chapter anchor to the chapter and
@@ -122,9 +127,9 @@ every scene that names it, or "characters appearing in Chapter 20" would return
 nothing while looking correct.
 
 **Reading never writes.** Manuscript nodes come from
-`DriftConnectedDomainRepository.manuscriptNodesByProject` — a new query, not a
-new table — because `ManuscriptStore.loadStudio` seeds nodes as a side effect. A
-navigation query must not change the project.
+the graph's projection of `manuscript_node_rows`, never
+`ManuscriptStore.loadStudio`, which seeds and reconciles the projection as a side
+effect. A navigation query must not change the project.
 
 Links are loaded once per command with `linksByScope` and indexed in memory.
 "Characters not yet assigned to a plot" touches every character; per-record
@@ -189,11 +194,21 @@ path contains `story_graph`, none of the reserved `StoryGraph*` symbols appear i
 `lib/`, `ImpactTraceAnalyzer` gains no caller, no table is added, and every edge
 is still a `RecordLink` written by `ConnectionEngine`.
 
-## Known limitation
+## What the graph settles, and what this adds
 
-`docs/story-graph-phase-0-integrity-directive.md` — manuscript node lifecycle
-integrity — has not been implemented. Ghost manuscript nodes remain possible on
-some paths, so a traversal that crosses scenes and chapters can surface a node
-whose prose is gone. The Command System is read-mostly and does not make this
-worse; its `canon conflicts` report surfaces such edges rather than hiding them.
-The fix belongs to Phase 0.
+Two rules come from `StoryGraphService` rather than from here, and are better for
+it:
+
+- **Wildcard edges.** 73 of the ~130 connection types permit any endpoints, so a
+  graph *view* hides them by default or they swamp the picture. A command is the
+  opposite case: an author who types "everything connected to Kali" means
+  everything, so the executor opts them back in — and naming a relationship
+  narrows it again, because an explicit edge type beats both noise switches.
+- **What is not a node.** A knowledge canvas references graph entities and is read
+  alongside them, but it is an arrangement *of* the story rather than a thing the
+  story is made of. `kNonGraphRecordTypeIds` excludes it, so it can never appear
+  as a command result.
+
+Phase 0 (manuscript node lifecycle integrity) shipped before this milestone, so
+the ghost-node caveat an earlier draft of this document carried no longer
+applies: `saveStudio` reconciles the projection, and node removal is link-safe.

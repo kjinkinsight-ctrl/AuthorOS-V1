@@ -365,6 +365,27 @@ void main() {
 
       expect(neighbourhood!.neighbours.map((node) => node.id), ['one']);
     });
+
+    test('a book scope keeps series canon, which carries no book id', () async {
+      await create('kali', 'Kali Vale', 'project-a');
+      await create('one', 'Book One Ally', 'project-a', bookId: 'book-1');
+      await create('two', 'Book Two Ally', 'project-a', bookId: 'book-2');
+      // No book id: shared canon, visible from every book.
+      await create('endovier', 'Endovier', 'project-a', typeId: 'location');
+      await connect('project-a', 'kali', 'one', 'alliedWith');
+      await connect('project-a', 'kali', 'two', 'alliedWith');
+      await connect('project-a', 'kali', 'endovier', 'livesIn');
+
+      final neighbourhood = await graphFor('project-a').getNeighbours(
+        'kali',
+        filter: const StoryGraphFilter(bookId: 'book-1'),
+      );
+
+      expect(
+        neighbourhood!.neighbours.map((node) => node.id).toSet(),
+        {'one', 'endovier'},
+      );
+    });
   });
 
   group('connectionSummary', () {

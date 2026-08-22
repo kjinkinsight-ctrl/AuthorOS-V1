@@ -354,6 +354,9 @@ void main() {
         // `series` sits with `projects`: both are the author's catalogue of
         // work rather than a Studio with a palette of its own.
         StudioSection.series: StudioId.shell,
+        // Intelligence reads across the whole project rather than owning one
+        // surface, so it resolves the shell palette too.
+        StudioSection.intelligence: StudioId.shell,
         StudioSection.ideas: StudioId.shell,
         StudioSection.notes: StudioId.shell,
         StudioSection.settings: StudioId.shell,

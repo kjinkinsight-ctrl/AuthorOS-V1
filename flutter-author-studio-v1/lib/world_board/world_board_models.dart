@@ -7,6 +7,8 @@
 /// truth.
 library;
 
+import '../intelligence/intelligence_models.dart';
+
 /// The categories the board surfaces, in reading order.
 ///
 /// These are view sections, not record types. Each one maps onto data an
@@ -27,6 +29,7 @@ enum WorldBoardSection {
 /// way the Character and Story Codex workspaces already do.
 enum WorldBoardDestination {
   projects,
+  intelligence,
   manuscript,
   characters,
   world,
@@ -224,6 +227,7 @@ class WorldBoardSnapshot {
     required this.metrics,
     required this.branches,
     required this.activity,
+    this.intelligence = IntelligenceReport.empty,
   });
 
   final WorldBoardProjectContext project;
@@ -236,6 +240,14 @@ class WorldBoardSnapshot {
 
   /// Most recent first, already trimmed to what the panel shows.
   final List<WorldBoardActivity> activity;
+
+  /// What the Intelligence Layer found, so the board can show the author that
+  /// something needs attention without them going looking for it.
+  ///
+  /// The board renders this; it does not derive it. Structural conditions are
+  /// the Intelligence Layer's to define, exactly as words are the Manuscript
+  /// Studio's and ratios are Analytics'.
+  final IntelligenceReport intelligence;
 
   WorldBoardMetric metric(WorldBoardSection section) {
     final found = metrics[section];

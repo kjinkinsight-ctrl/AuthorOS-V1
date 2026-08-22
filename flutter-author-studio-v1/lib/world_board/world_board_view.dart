@@ -12,6 +12,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../intelligence/intelligence_sections.dart';
 import '../manuscript_store.dart';
 import '../onboarding.dart';
 import '../persistence/authoros_database.dart';
@@ -136,6 +137,13 @@ class _WorldBoardViewState extends State<WorldBoardView> {
         ),
         SizedBox(height: gap),
         _WorldBoardGrid(snapshot: snapshot, onOpen: widget.onNavigate),
+        SizedBox(height: gap),
+        IntelligenceHealthTile(
+          report: snapshot.intelligence,
+          onOpen: widget.onNavigate == null
+              ? null
+              : () => widget.onNavigate!(WorldBoardDestination.intelligence),
+        ),
         SizedBox(height: gap),
         WorldBoardProjectPanel(snapshot: snapshot, onOpen: widget.onNavigate),
         SizedBox(height: gap),

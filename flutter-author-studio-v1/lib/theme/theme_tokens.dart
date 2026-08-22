@@ -242,6 +242,7 @@ class StudioId {
   static const book = StudioId('book');
   static const analytics = StudioId('analytics');
   static const research = StudioId('research');
+  static const intelligence = StudioId('intelligence');
   static const knowledgeGraph = StudioId('knowledge_graph');
 
   @override

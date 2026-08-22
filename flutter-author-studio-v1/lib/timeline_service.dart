@@ -391,8 +391,8 @@ class TimelineService {
           message: issue.message,
           isError: issue.severity == RecordValidationSeverity.error,
         )));
-    final start = _dateFrom(record.fields['start']);
-    final end = _dateFrom(record.fields['end']);
+    final start = timelineDateFrom(record.fields['start']);
+    final end = timelineDateFrom(record.fields['end']);
     if (start != null) issues.addAll(await _validateDate(start));
     if (end != null) issues.addAll(await _validateDate(end));
     for (final representation in _objectList(
@@ -460,7 +460,7 @@ class TimelineService {
   Future<TimelineCalendar?> getCalendar(String id) async {
     final record = await records.getRecord(id);
     if (record?.typeId != TimelineRecordTypes.calendarTypeId) return null;
-    return _calendarFrom(record!);
+    return calendarFrom(record!);
   }
 
   /// Every calendar definition this project owns, name-ordered.
@@ -473,7 +473,7 @@ class TimelineService {
       for (final record in records)
         if (record.typeId == TimelineRecordTypes.calendarTypeId &&
             record.status == AuthorRecordStatus.active)
-          _calendarFrom(record),
+          calendarFrom(record),
     ];
     calendars.sort((left, right) => left.name.compareTo(right.name));
     return calendars;
@@ -493,10 +493,17 @@ class TimelineService {
       (record) => record.extensionData['primaryCalendar'] == true,
       orElse: () => calendarRecords.first,
     );
-    return _calendarFrom(primary);
+    return calendarFrom(primary);
   }
 
-  TimelineCalendar _calendarFrom(AuthorRecord record) => TimelineCalendar(
+  /// Projects a calendar-definition record into its domain model.
+  ///
+  /// Public and static so a read-only consumer — the Intelligence Layer's
+  /// timeline detector — can turn already-loaded records into calendars
+  /// without a second parser for the same fields. Timeline Studio still owns
+  /// the shape; callers only read it.
+  static TimelineCalendar calendarFrom(AuthorRecord record) =>
+      TimelineCalendar(
         id: record.id,
         name: record.title,
         months: _objectList(record.fields['months'])
@@ -547,8 +554,8 @@ class TimelineService {
   }) async {
     final birth = await _requireTimelineId(birthEventId);
     final event = await _requireTimelineId(eventId);
-    final birthDate = _dateFrom(birth.fields['start']);
-    final eventDate = _dateFrom(event.fields['start']);
+    final birthDate = timelineDateFrom(birth.fields['start']);
+    final eventDate = timelineDateFrom(event.fields['start']);
     if (birthDate == null ||
         eventDate == null ||
         !birthDate.isDated ||
@@ -691,7 +698,7 @@ class TimelineQueryService {
     final ordinals = <String, int>{};
     final calendarIds = <String, String>{};
     for (final record in records) {
-      final date = _dateFrom(record.fields['start']);
+      final date = timelineDateFrom(record.fields['start']);
       if (date == null || !date.isDated) continue;
       if (!calendars.containsKey(date.calendarId)) {
         calendars[date.calendarId] =
@@ -723,7 +730,7 @@ class TimelineQueryService {
 
   /// The calendar ordinal of a record's start date, or `null` when undated.
   Future<int?> startOrdinal(AuthorRecord record) async {
-    final date = _dateFrom(record.fields['start']);
+    final date = timelineDateFrom(record.fields['start']);
     if (date == null || !date.isDated) return null;
     final calendar = await timeline.getCalendar(date.calendarId);
     if (calendar == null) return null;
@@ -787,7 +794,7 @@ class TimelineQueryService {
     final upper = calendar.ordinal(end);
     final results = <AuthorRecord>[];
     for (final record in await all()) {
-      final eventStart = _dateFrom(record.fields['start']);
+      final eventStart = timelineDateFrom(record.fields['start']);
       if (eventStart == null ||
           !eventStart.isDated ||
           eventStart.calendarId != calendar.id) {
@@ -807,8 +814,8 @@ class TimelineQueryService {
 
   Future<List<AuthorRecord>> overlapping(String eventId) async {
     final anchor = await timeline._requireTimelineId(eventId);
-    final anchorStart = _dateFrom(anchor.fields['start']);
-    final anchorEnd = _dateFrom(anchor.fields['end']) ?? anchorStart;
+    final anchorStart = timelineDateFrom(anchor.fields['start']);
+    final anchorEnd = timelineDateFrom(anchor.fields['end']) ?? anchorStart;
     if (anchorStart == null || anchorEnd == null || !anchorStart.isDated) {
       return const [];
     }
@@ -819,8 +826,8 @@ class TimelineQueryService {
     final results = <AuthorRecord>[];
     for (final record in await all()) {
       if (record.id == eventId) continue;
-      final start = _dateFrom(record.fields['start']);
-      final end = _dateFrom(record.fields['end']) ?? start;
+      final start = timelineDateFrom(record.fields['start']);
+      final end = timelineDateFrom(record.fields['end']) ?? start;
       if (start == null ||
           end == null ||
           !start.isDated ||
@@ -840,7 +847,7 @@ class TimelineQueryService {
     required bool before,
   }) async {
     final anchor = await timeline._requireTimelineId(eventId);
-    final anchorDate = _dateFrom(anchor.fields['start']);
+    final anchorDate = timelineDateFrom(anchor.fields['start']);
     if (anchorDate == null || !anchorDate.isDated) return const [];
     final calendar = await timeline.getCalendar(anchorDate.calendarId);
     if (calendar == null) return const [];
@@ -848,7 +855,7 @@ class TimelineQueryService {
     final results = <AuthorRecord>[];
     for (final record in await all()) {
       if (record.id == eventId) continue;
-      final date = _dateFrom(record.fields['start']);
+      final date = timelineDateFrom(record.fields['start']);
       if (date == null || !date.isDated || date.calendarId != calendar.id) {
         continue;
       }
@@ -938,7 +945,11 @@ class TimelineValidationException implements Exception {
   String toString() => issues.map((issue) => issue.message).join('; ');
 }
 
-TimelineDate? _dateFrom(Object? value) {
+/// Reads a `start`/`end` temporal field into a [TimelineDate].
+///
+/// Public for the same reason as [TimelineService.calendarFrom]: one parser
+/// for the field shape, not one per consumer.
+TimelineDate? timelineDateFrom(Object? value) {
   final json = _firstObject(value);
   return json == null || (json['calendarId'] as String? ?? '').isEmpty
       ? null

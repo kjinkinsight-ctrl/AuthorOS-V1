@@ -12,6 +12,27 @@ enum CodexCanonStatus {
 
 enum CodexCollectionKind { manual, smart, pinned, savedView }
 
+/// Where an entry lives, as the workspace presents it.
+///
+/// This is a two-value view over [RecordScopeType], not a second scope model:
+/// `book` is anything the current project owns, `series` is anything it
+/// inherits from a scope above it.
+enum CodexScopeFacet { book, series }
+
+CodexScopeFacet codexScopeFacetFor(RecordScopeType scopeType) =>
+    switch (scopeType) {
+      RecordScopeType.series ||
+      RecordScopeType.universe ||
+      RecordScopeType.library =>
+        CodexScopeFacet.series,
+      _ => CodexScopeFacet.book,
+    };
+
+String codexScopeFacetLabel(CodexScopeFacet facet) => switch (facet) {
+      CodexScopeFacet.book => 'This book',
+      CodexScopeFacet.series => 'Series',
+    };
+
 enum CodexKnowledgeStatus {
   confirmed,
   suspected,
@@ -252,7 +273,10 @@ class CodexInfrastructureTypes {
   static const tag = 'codexTag';
   static const collection = 'codexCollection';
 
-  static const all = {category, tag, collection};
+  /// Which recommendations the author has dismissed.
+  static const suggestionState = 'codexSuggestionState';
+
+  static const all = {category, tag, collection, suggestionState};
 }
 
 class CodexEntryDraft {
@@ -315,8 +339,20 @@ class CodexEntry {
   String get content => _string(record.fields[CodexFields.content]) ?? '';
   String get projectId =>
       _string(record.fields[CodexFields.projectId]) ?? record.scopeId;
-  String? get seriesId => _string(record.fields[CodexFields.seriesId]);
-  String? get bookId => _string(record.fields[CodexFields.bookId]);
+  // The column is the authority and the field is a mirror of it, so the column
+  // is read first. Entries written before scopes were instantiated only have
+  // the field, which is why the fallback stays.
+  String? get seriesId =>
+      _string(record.seriesId) ?? _string(record.fields[CodexFields.seriesId]);
+  String? get bookId =>
+      _string(record.bookId) ?? _string(record.fields[CodexFields.bookId]);
+
+  RecordScopeType get scopeType => record.scopeType;
+
+  CodexScopeFacet get scopeFacet => codexScopeFacetFor(record.scopeType);
+
+  /// Whether this entry is shared canon rather than this book's own.
+  bool get isShared => scopeFacet == CodexScopeFacet.series;
   String? get branchId => _string(record.fields[CodexFields.branchId]);
   List<String> get tagIds => record.tags;
   List<String> get aliases => _stringList(record.fields['aliases']);
@@ -425,6 +461,7 @@ class CodexEntryFilter {
     this.tagIds = const {},
     this.canonStatuses = const {},
     this.knowledgeStatuses = const {},
+    this.scopes = const {},
     this.includeArchived = false,
     this.onlyPinned = false,
     this.onlyInvalid = false,
@@ -437,6 +474,7 @@ class CodexEntryFilter {
   final Set<String> tagIds;
   final Set<CodexCanonStatus> canonStatuses;
   final Set<CodexKnowledgeStatus> knowledgeStatuses;
+  final Set<CodexScopeFacet> scopes;
   final bool includeArchived;
   final bool onlyPinned;
   final bool onlyInvalid;
@@ -451,6 +489,7 @@ class CodexEntryFilter {
       tagIds.isEmpty &&
       canonStatuses.isEmpty &&
       knowledgeStatuses.isEmpty &&
+      scopes.isEmpty &&
       !includeArchived &&
       !onlyPinned &&
       !onlyInvalid;
@@ -462,6 +501,7 @@ class CodexEntryFilter {
       tagIds.length +
       canonStatuses.length +
       knowledgeStatuses.length +
+      scopes.length +
       (includeArchived ? 1 : 0) +
       (onlyPinned ? 1 : 0) +
       (onlyInvalid ? 1 : 0);
@@ -473,6 +513,7 @@ class CodexEntryFilter {
     Set<String>? tagIds,
     Set<CodexCanonStatus>? canonStatuses,
     Set<CodexKnowledgeStatus>? knowledgeStatuses,
+    Set<CodexScopeFacet>? scopes,
     bool? includeArchived,
     bool? onlyPinned,
     bool? onlyInvalid,
@@ -485,6 +526,7 @@ class CodexEntryFilter {
         tagIds: tagIds ?? this.tagIds,
         canonStatuses: canonStatuses ?? this.canonStatuses,
         knowledgeStatuses: knowledgeStatuses ?? this.knowledgeStatuses,
+        scopes: scopes ?? this.scopes,
         includeArchived: includeArchived ?? this.includeArchived,
         onlyPinned: onlyPinned ?? this.onlyPinned,
         onlyInvalid: onlyInvalid ?? this.onlyInvalid,
@@ -500,6 +542,8 @@ class CodexEntryFilter {
       copyWith(canonStatuses: _toggle(canonStatuses, status));
   CodexEntryFilter toggleKnowledgeStatus(CodexKnowledgeStatus status) =>
       copyWith(knowledgeStatuses: _toggle(knowledgeStatuses, status));
+  CodexEntryFilter toggleScope(CodexScopeFacet facet) =>
+      copyWith(scopes: _toggle(scopes, facet));
 
   Map<String, Object?> toJson() => {
         'query': query,
@@ -510,6 +554,7 @@ class CodexEntryFilter {
           ..sort(),
         'knowledgeStatuses': knowledgeStatuses.map((value) => value.name).toList()
           ..sort(),
+        'scopes': scopes.map((value) => value.name).toList()..sort(),
         'includeArchived': includeArchived,
         'onlyPinned': onlyPinned,
         'onlyInvalid': onlyInvalid,
@@ -530,6 +575,7 @@ class CodexEntryFilter {
           CodexKnowledgeStatus.values,
           json['knowledgeStatuses'],
         ),
+        scopes: _enumSet(CodexScopeFacet.values, json['scopes']),
         includeArchived: json['includeArchived'] as bool? ?? false,
         onlyPinned: json['onlyPinned'] as bool? ?? false,
         onlyInvalid: json['onlyInvalid'] as bool? ?? false,

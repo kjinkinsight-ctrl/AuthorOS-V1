@@ -196,4 +196,5 @@ fidelity ban is untouched.
   exists for it and nothing consumes it yet.
 - **No cover in the DOCX.** A cover is an ebook and print artefact; Word has
   nowhere sensible to put one that an editor would want.
-- **The `.authoros` archive still excludes book data**, unchanged from R-2.
+- **The `.authoros` archive still excludes book data.** (R-2, the scene-prose
+  half of this gap, has since been closed on `main`.)

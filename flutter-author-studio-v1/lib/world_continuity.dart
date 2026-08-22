@@ -2,6 +2,7 @@ import 'continuity.dart';
 import 'core/connected_domain.dart';
 import 'core/world_record_types.dart';
 import 'world_service.dart';
+import 'core/entity_recognition.dart';
 
 /// World-side inputs and resolution parameters for one Continuity
 /// Intelligence recommendation.
@@ -161,7 +162,7 @@ class WorldContinuityIntelligence {
       final mention = [candidate.title, ..._aliases(candidate)]
           .map((name) => name.trim())
           .where((name) => name.length >= minimumMentionLength)
-          .where((name) => _mentions(prose, name))
+          .where((name) => mentionsName(prose, name))
           .firstOrNull;
       if (mention == null) continue;
       findings.add(WorldContinuityFinding(
@@ -279,10 +280,6 @@ List<String> _aliases(AuthorRecord record) => <String>[
       ..._names(record.fields['nicknames']),
     ];
 
-bool _mentions(String prose, String name) {
-  final escaped = RegExp.escape(name.toLowerCase());
-  return RegExp('(^|[^a-z0-9])$escaped([^a-z0-9]|\$)').hasMatch(prose);
-}
 
 List<String> _names(Object? value) {
   if (value is String) {

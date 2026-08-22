@@ -7,15 +7,25 @@
 
 name: Flutter
 
+# The repository runs two trunks (see BRANCHING.md): `main` is the release tree
+# and `debug/base` is the integration line everything reaches first. Both are
+# built on every arrival. Pull requests are gated wherever they land, including
+# into a family trunk like `debug/map-studio/base`, so a studio branch is
+# verified at its own trunk rather than first being discovered on `debug/base`.
+# Pushes to work branches deliberately do not build: this job analyses, tests
+# and produces a release web build, which costs more per commit of in-progress
+# work than it catches, and the pull request into the family trunk covers the
+# same ground.
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "debug/base" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "debug/**", "rel/**" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     defaults:
       run:
@@ -26,7 +36,12 @@ jobs:
 
       # Pinned to the revision the project records in .metadata (6b182d2c75),
       # so CI analyses and tests on the same SDK the app is developed against.
-      - uses: subosito/flutter-action@v2
+      #
+      # The action is pinned by commit SHA rather than the v2 tag, which its
+      # publisher can repoint at any time. This job runs with a repository
+      # token, so the code behind that reference is worth holding still —
+      # dart-lang/setup-dart was pinned this way before it was replaced.
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: '3.44.9'
           channel: stable

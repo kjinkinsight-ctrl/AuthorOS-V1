@@ -201,4 +201,8 @@ justified line, which is most of a book and none of it worth reviewing.
 - **Emphasis cannot begin mid-word**, by the deliberate trade above.
 - **Headings and the title page do not take emphasis** — a marker in a chapter
   title is treated as literal.
-- **The `.authoros` archive still excludes book data.** Unchanged since R-2.
+- **The `.authoros` archive still excludes book data** — settings, cover bytes
+  and export snapshots. R-2 itself is now closed on `main`: the archive carries
+  scene prose and writing sessions, and its format treats new entries as
+  additive and optional, which makes adding book data a smaller change than it
+  was when Phase 1 first recorded the gap.

@@ -224,7 +224,7 @@ decision worth taking on its own merits rather than arriving with a feature.
 | File | Covers |
 |---|---|
 | `test/book_epub_test.dart` | `mimetype` first and stored; container resolves; required metadata; stable identifier; spine idrefs resolve; unique manifest ids; chapter order; contents is the nav; parts nest; nav and NCX agree; landmarks; every document well-formed with a non-empty title; hostile prose survives; drop caps; ornaments; reproducibility; relative units |
-| `test/book_cover_test.dart` | Sniffing, every rejection path, storage round trip, replacement, isolation between projects, and the 9 → 10 migration on a real file |
+| `test/book_cover_test.dart` | Sniffing, every rejection path, storage round trip, replacement, isolation between projects, and the 13 → 14 migration on a real file |
 | `test/book_studio_view_test.dart` | EPUB selectable and exporting a real package; ebook settings persisted and kept apart from print; cover chosen, stored and shown; a bad file refused with a reason |
 | `test/book_layout_fidelity_test.dart` | The EPUB exporter never reaches for the layout engine |
 

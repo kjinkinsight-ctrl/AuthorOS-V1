@@ -66,6 +66,15 @@ void main() {
   setUp(() => database = AuthorOsDatabase(NativeDatabase.memory()));
   tearDown(() => database.close());
 
+  /// Reads the manuscript back through the test's own database.
+  ///
+  /// Scene prose lives in the database now, so a bare `ManuscriptStore()`
+  /// reaches for the app's singleton and hangs. The studio resolves this the
+  /// same way, through its injected database.
+  Future<ManuscriptProjectSummary?> storedManuscript() =>
+      ManuscriptStore(repository: DriftConnectedDomainRepository(database))
+          .peekStudio('project-book');
+
   /// Seeds a manuscript whose prose has something for the rules to find.
   void seedManuscript(ManuscriptProjectSummary manuscript) {
     SharedPreferences.setMockInitialValues({
@@ -649,8 +658,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // The convention is a reading of the prose, never a rewrite of it.
-    final manuscript =
-        await const ManuscriptStore().readStudio('project-book');
+    final manuscript = await storedManuscript();
     expect(manuscript!.chapters.first.scenes.first.content, prose);
   });
 
@@ -729,7 +737,7 @@ void main() {
     });
     await tester.pumpAndSettle();
 
-    final stored = await const ManuscriptStore().readStudio('project-book');
+    final stored = await storedManuscript();
     final prose = stored!.chapters.first.scenes.first.content;
 
     expect(prose, isNot(startsWith('\t')),

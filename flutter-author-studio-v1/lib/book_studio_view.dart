@@ -215,10 +215,11 @@ class _BookStudioViewState extends State<BookStudioView> {
     try {
       final assets = await BookFontAssets.load();
       // Read-only on purpose. Book Studio consumes a manuscript snapshot and
-      // must never write the source while laying a book out, so it uses the
-      // reading path rather than the one that seeds a manuscript.
+      // must never write the source while laying a book out, so it uses
+      // `peekStudio` rather than `loadStudio`, which seeds and persists a
+      // starter manuscript when it finds none.
       final manuscript =
-          await widget.manuscriptStore.readStudio(widget.project.id) ??
+          await _manuscriptStore.peekStudio(widget.project.id) ??
               _emptyManuscript();
       final book = await widget.bookStore.load(widget.project.id);
       final cover = await _loadCover();
@@ -337,21 +338,29 @@ class _BookStudioViewState extends State<BookStudioView> {
     });
   }
 
-  ManuscriptService get _manuscriptService {
+  DriftConnectedDomainRepository get _repository {
     final database = widget.database;
-    final repository = database == null
+    return database == null
         ? authorOsRepository
         : DriftConnectedDomainRepository(database);
-    return ManuscriptService(
-      projectId: widget.project.id,
-      repository: repository,
-      // The store mirrors nodes into the same database the service uses; left
-      // to its default it would reach for the app's own singleton.
-      store: database == null
-          ? widget.manuscriptStore
-          : ManuscriptStore(repository: repository),
-    );
   }
+
+  /// The manuscript store, pointed at whichever database this studio was given.
+  ///
+  /// Left to its default the store reaches for the app's own singleton, which
+  /// is right in the app and wrong anywhere a database has been injected. It
+  /// matters on the *read* path as well as the write one: scene prose lives in
+  /// the database now, so `peekStudio` needs the same repository the rest of
+  /// the studio uses or it hangs looking for a singleton that is not there.
+  ManuscriptStore get _manuscriptStore => widget.database == null
+      ? widget.manuscriptStore
+      : ManuscriptStore(repository: _repository);
+
+  ManuscriptService get _manuscriptService => ManuscriptService(
+        projectId: widget.project.id,
+        repository: _repository,
+        store: _manuscriptStore,
+      );
 
   /// Runs the rules over the manuscript, and over the laid-out book.
   ///

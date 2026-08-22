@@ -160,19 +160,19 @@ void main() {
       }
     });
 
-    test('a version 9 file gains the asset table and keeps its data', () async {
+    test('a version 13 file gains the asset table and keeps its data', () async {
       // A database as it stood before covers existed. A fresh drift database
       // creates every declared table whatever its version, so the table is
-      // dropped to give the file the shape a real version 9 install has.
-      final versionNine = AuthorOsDatabase(
+      // dropped to give the file the shape a real version 13 install has.
+      final versionThirteen = AuthorOsDatabase(
         NativeDatabase(databaseFile),
-        schemaVersion: 9,
+        schemaVersion: 13,
       );
-      await versionNine.customStatement('DROP TABLE book_asset_rows');
-      await versionNine
+      await versionThirteen.customStatement('DROP TABLE book_asset_rows');
+      await versionThirteen
           .customStatement("INSERT INTO connected_entities (id, kind, scope_id) "
               "VALUES ('kept', 'record', 'project-book')");
-      await versionNine.close();
+      await versionThirteen.close();
 
       // Reopening at the current version runs the upgrade.
       final current = AuthorOsDatabase(NativeDatabase(databaseFile));
@@ -184,7 +184,7 @@ void main() {
       expect(
         tables.map((row) => row.read<String>('name')),
         contains('book_asset_rows'),
-        reason: 'the 9 to 10 step must create the table',
+        reason: 'the 13 to 14 step must create the table',
       );
 
       final survived = await current
@@ -201,7 +201,7 @@ void main() {
     });
 
     test('the schema version was bumped alongside the table', () {
-      expect(AuthorOsDatabase.currentSchemaVersion, 10);
+      expect(AuthorOsDatabase.currentSchemaVersion, 14);
     });
   });
 }

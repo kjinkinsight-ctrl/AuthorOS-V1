@@ -300,14 +300,40 @@ void main() {
   });
 
   test('FTS stays synchronized with record mutations', () async {
+    const rewritten =
+        'Kali crosses the obsidian causeway carrying the red knife.';
     final scene =
         (await fixture.records.getRecord(CrossSystemFixture.sceneId))!;
     await fixture.records.updateRecord(scene.copyWith(
-      fields: const {
-        'content': 'Kali crosses the obsidian causeway carrying the red knife.'
-      },
+      fields: const {'content': rewritten},
       updatedAt: CrossSystemFixture.timestamp.add(const Duration(days: 1)),
     ));
+
+    // The fixture holds this scene twice under one id: as a `scene` record,
+    // and as the manuscript node an author actually types into. Scene prose
+    // became searchable when it moved out of the manuscript blob and into the
+    // database, so the old phrase only leaves the index once both copies have
+    // moved on. Rewriting the record alone would say nothing about the node.
+    final manuscript = await fixture.manuscript.loadStudio(
+      CrossSystemFixture.projectA,
+      manuscriptTitle: 'Book One',
+      defaultChapters: const [],
+    );
+    await fixture.manuscript.saveStudio(
+      manuscript.copyWith(
+        chapters: [
+          for (final chapter in manuscript.chapters)
+            chapter.copyWith(
+              scenes: [
+                for (final sceneNode in chapter.scenes)
+                  sceneNode.id == CrossSystemFixture.sceneId
+                      ? sceneNode.copyWith(content: rewritten)
+                      : sceneNode,
+              ],
+            ),
+        ],
+      ),
+    );
 
     expect(
       (await fixture.search.searchAll('obsidian causeway'))

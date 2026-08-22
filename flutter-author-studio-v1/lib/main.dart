@@ -11,6 +11,8 @@ import 'character_studio.dart';
 import 'core/connected_domain.dart' show AuthorRecord;
 import 'core/search_models.dart' show SearchDestination;
 import 'create_profile_page.dart';
+import 'intelligence/intelligence_models.dart';
+import 'intelligence/intelligence_view.dart';
 import 'local_image.dart';
 import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
@@ -618,12 +620,44 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
   }
 }
 
+/// The navigation rail's two groups, defined once.
+///
+/// The shell indexes [_AuthorStudioShellState.sections] by position and the
+/// rail renders the same groups, so these were previously two verbatim copies
+/// that had to be kept in step by hand — adding a Studio to one and not the
+/// other selects the wrong screen. One definition removes the possibility.
+const _workspaceSections = <StudioSection>[
+  StudioSection.dashboard,
+  StudioSection.worldBoard,
+  StudioSection.search,
+  StudioSection.statistics,
+  StudioSection.analytics,
+  StudioSection.intelligence,
+  StudioSection.backup,
+  StudioSection.projects,
+  StudioSection.ideas,
+  StudioSection.manuscript,
+];
+
+const _storySections = <StudioSection>[
+  StudioSection.chapters,
+  StudioSection.characters,
+  StudioSection.codex,
+  StudioSection.world,
+  StudioSection.map,
+  StudioSection.plot,
+  StudioSection.timeline,
+  StudioSection.research,
+  StudioSection.notes,
+];
+
 enum StudioSection {
   dashboard,
   worldBoard,
   search,
   statistics,
   analytics,
+  intelligence,
   backup,
   projects,
   ideas,
@@ -647,6 +681,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.search => 'Search',
         StudioSection.statistics => 'Statistics',
         StudioSection.analytics => 'Analytics',
+        StudioSection.intelligence => 'Intelligence',
         StudioSection.backup => 'Backup',
         StudioSection.projects => 'Projects',
         StudioSection.ideas => 'Ideas',
@@ -669,6 +704,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.search => Icons.search_outlined,
         StudioSection.statistics => Icons.bar_chart_outlined,
         StudioSection.analytics => Icons.insights_outlined,
+        StudioSection.intelligence => Icons.troubleshoot_outlined,
         StudioSection.backup => Icons.backup_outlined,
         StudioSection.projects => Icons.folder_copy_outlined,
         StudioSection.ideas => Icons.lightbulb_outline,
@@ -726,29 +762,8 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   int selectedIndex = 0;
   bool focusModeEnabled = false;
 
-  static const workspaceSections = <StudioSection>[
-    StudioSection.dashboard,
-    StudioSection.worldBoard,
-    StudioSection.search,
-    StudioSection.statistics,
-    StudioSection.analytics,
-    StudioSection.backup,
-    StudioSection.projects,
-    StudioSection.ideas,
-    StudioSection.manuscript,
-  ];
-
-  static const storySections = <StudioSection>[
-    StudioSection.chapters,
-    StudioSection.characters,
-    StudioSection.codex,
-    StudioSection.world,
-    StudioSection.map,
-    StudioSection.plot,
-    StudioSection.timeline,
-    StudioSection.research,
-    StudioSection.notes,
-  ];
+  static const workspaceSections = _workspaceSections;
+  static const storySections = _storySections;
 
   static const sections = <StudioSection>[
     ...workspaceSections,
@@ -1176,29 +1191,8 @@ class _DesktopNavigation extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelected;
 
-  static const workspaceSections = <StudioSection>[
-    StudioSection.dashboard,
-    StudioSection.worldBoard,
-    StudioSection.search,
-    StudioSection.statistics,
-    StudioSection.analytics,
-    StudioSection.backup,
-    StudioSection.projects,
-    StudioSection.ideas,
-    StudioSection.manuscript,
-  ];
-
-  static const storySections = <StudioSection>[
-    StudioSection.chapters,
-    StudioSection.characters,
-    StudioSection.codex,
-    StudioSection.world,
-    StudioSection.map,
-    StudioSection.plot,
-    StudioSection.timeline,
-    StudioSection.research,
-    StudioSection.notes,
-  ];
+  static const workspaceSections = _workspaceSections;
+  static const storySections = _storySections;
 
   @override
   Widget build(BuildContext context) {
@@ -1558,6 +1552,8 @@ class _SectionView extends StatelessWidget {
             onNavigate: (destination) => onNavigate(
               switch (destination) {
                 WorldBoardDestination.projects => StudioSection.projects,
+                WorldBoardDestination.intelligence =>
+                  StudioSection.intelligence,
                 WorldBoardDestination.manuscript => StudioSection.manuscript,
                 WorldBoardDestination.characters => StudioSection.characters,
                 WorldBoardDestination.world => StudioSection.world,
@@ -1574,6 +1570,23 @@ class _SectionView extends StatelessWidget {
               project: project,
               repository: authorOsRepository,
               manuscriptStore: manuscriptStore,
+            ),
+          ),
+        StudioSection.intelligence => IntelligenceStudioView(
+            project: project,
+            repository: authorOsRepository,
+            manuscriptStore: manuscriptStore,
+            onNavigate: (destination) => onNavigate(
+              switch (destination) {
+                IntelligenceDestination.characters =>
+                  StudioSection.characters,
+                IntelligenceDestination.world => StudioSection.world,
+                IntelligenceDestination.plot => StudioSection.plot,
+                IntelligenceDestination.timeline => StudioSection.timeline,
+                IntelligenceDestination.research => StudioSection.research,
+                IntelligenceDestination.manuscript =>
+                  StudioSection.manuscript,
+              },
             ),
           ),
         StudioSection.backup => const BackupHealthView(),

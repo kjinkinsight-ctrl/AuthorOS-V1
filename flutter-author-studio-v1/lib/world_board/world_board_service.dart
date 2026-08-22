@@ -20,6 +20,7 @@ import '../analytics_service.dart';
 import '../core/connected_domain.dart';
 import '../core/version_audit.dart';
 import '../core/version_audit_service.dart';
+import '../intelligence/intelligence_service.dart';
 import '../manuscript_store.dart';
 import '../onboarding.dart';
 import '../persistence/authoros_database.dart';
@@ -117,6 +118,16 @@ class WorldBoardService {
     final plotRecords = _active(await plot.query.all());
     final activity = await _recentActivity();
 
+    // The board asks the Intelligence Layer what it found, exactly as it asks
+    // Analytics for its aggregates — and hands over the manuscript it already
+    // holds so the same prose is not read a third time.
+    final intelligence = await IntelligenceService(
+      project: project,
+      repository: repository,
+      manuscriptStore: manuscriptStore,
+      analytics: analyticsService,
+    ).analyze(manuscript: manuscript);
+
     final context = WorldBoardProjectContext(
       projectId: summary.projectId,
       title: summary.projectName,
@@ -163,6 +174,7 @@ class WorldBoardService {
 
     return WorldBoardSnapshot(
       project: context,
+      intelligence: intelligence,
       metrics: {
         WorldBoardSection.projects: WorldBoardMetric(
           section: WorldBoardSection.projects,

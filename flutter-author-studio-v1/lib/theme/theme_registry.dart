@@ -155,6 +155,24 @@ const _lightTheme = ThemeDefinition(
       ThemeColorRef.focusRing: ThemeColor(0xFF4F8FCB),
       ThemeColorRef.selection: ThemeColor(0xFFCFE2F3),
       ThemeColorRef.highlight: ThemeColor(0xFFFFF3C4),
+      // Status signals. Both palettes carry the same values because the
+      // literals these replace were theme-independent; adopting the roles is
+      // therefore not a visual change. See
+      // docs/theme-engine-phase-3-1-implementation-map.md.
+      ThemeColorRef.success: ThemeColor(0xFF77B884),
+      ThemeColorRef.warning: ThemeColor(0xFFC59B6D),
+      ThemeColorRef.error: ThemeColor(0xFFE07A6F),
+    }, categories: {
+      // The categorical ramp reproduces the eight distinct colours the Scene
+      // status and link-category switches used before this phase.
+      ThemeCategoryRef.category1: ThemeColor(0xFF858A94),
+      ThemeCategoryRef.category2: ThemeColor(0xFF65A8A0),
+      ThemeCategoryRef.category3: ThemeColor(0xFFC59B6D),
+      ThemeCategoryRef.category4: ThemeColor(0xFFD39A52),
+      ThemeCategoryRef.category5: ThemeColor(0xFF77B884),
+      ThemeCategoryRef.category6: ThemeColor(0xFF7EA6D8),
+      ThemeCategoryRef.category7: ThemeColor(0xFFE07A6F),
+      ThemeCategoryRef.category8: ThemeColor(0xFF9B8AC4),
     }),
   },
 );
@@ -179,6 +197,24 @@ const _darkTheme = ThemeDefinition(
       ThemeColorRef.focusRing: ThemeColor(0xFFD4AF37),
       ThemeColorRef.selection: ThemeColor(0xFF3A3218),
       ThemeColorRef.highlight: ThemeColor(0xFF4A3F14),
+      // Status signals. Both palettes carry the same values because the
+      // literals these replace were theme-independent; adopting the roles is
+      // therefore not a visual change. See
+      // docs/theme-engine-phase-3-1-implementation-map.md.
+      ThemeColorRef.success: ThemeColor(0xFF77B884),
+      ThemeColorRef.warning: ThemeColor(0xFFC59B6D),
+      ThemeColorRef.error: ThemeColor(0xFFE07A6F),
+    }, categories: {
+      // The categorical ramp reproduces the eight distinct colours the Scene
+      // status and link-category switches used before this phase.
+      ThemeCategoryRef.category1: ThemeColor(0xFF858A94),
+      ThemeCategoryRef.category2: ThemeColor(0xFF65A8A0),
+      ThemeCategoryRef.category3: ThemeColor(0xFFC59B6D),
+      ThemeCategoryRef.category4: ThemeColor(0xFFD39A52),
+      ThemeCategoryRef.category5: ThemeColor(0xFF77B884),
+      ThemeCategoryRef.category6: ThemeColor(0xFF7EA6D8),
+      ThemeCategoryRef.category7: ThemeColor(0xFFE07A6F),
+      ThemeCategoryRef.category8: ThemeColor(0xFF9B8AC4),
     }),
   },
 );

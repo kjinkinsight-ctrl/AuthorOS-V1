@@ -31,6 +31,7 @@ class VersionAuditService {
         seriesId: record.seriesId,
         bookId: record.bookId,
         branchId: record.branchId,
+        partitionProjectId: record.projectId ?? record.scopeId,
         schemaVersion: record.schemaVersion,
         snapshot: record.toJson(),
         changeType: changeType,
@@ -167,6 +168,22 @@ class VersionAuditService {
         branchId: branchId,
       ));
 
+  /// The version chain for [record], read from the partition it was written to.
+  ///
+  /// A shared record's history is stamped with its provenance book, so reading
+  /// it from a second book in the series has to ask for that partition rather
+  /// than the caller's own. Records this book owns resolve to the same value
+  /// [getVersionHistory] would have used.
+  Future<List<RecordVersion>> getVersionHistoryForRecord(
+    AuthorRecord record, {
+    String? branchId,
+  }) =>
+      repository.versionHistory(HistoryFilter(
+        projectId: record.projectId ?? record.scopeId,
+        recordId: record.id,
+        branchId: branchId,
+      ));
+
   Future<List<AuditEvent>> getAuditHistory({
     String? recordId,
     String? recordType,
@@ -238,11 +255,18 @@ class VersionAuditService {
     String? seriesId,
     String? bookId,
     String? branchId,
+    String? partitionProjectId,
     Map<String, Object?> metadata = const {},
   }) async {
+    // A record's history belongs to the record, not to whoever opened it. A
+    // shared record is edited from several books, so partitioning by the
+    // calling service's projectId would start a second chain at sequence 1 for
+    // every book that touched it. Provenance never changes across promote and
+    // demote, which is what makes it a stable partition key.
+    final partition = partitionProjectId ?? projectId;
     final normalizedTime = timestamp.toUtc();
     final previous = await repository.latestVersion(
-      projectId: projectId,
+      projectId: partition,
       entityId: entityId,
       branchId: branchId,
     );
@@ -256,7 +280,7 @@ class VersionAuditService {
       entityKind: entityKind,
       recordId: recordId,
       recordType: recordType,
-      projectId: projectId,
+      projectId: partition,
       seriesId: seriesId,
       bookId: bookId,
       branchId: branchId,
@@ -276,7 +300,7 @@ class VersionAuditService {
       entityKind: entityKind,
       recordId: recordId,
       recordType: recordType,
-      projectId: projectId,
+      projectId: partition,
       seriesId: seriesId,
       bookId: bookId,
       branchId: branchId,

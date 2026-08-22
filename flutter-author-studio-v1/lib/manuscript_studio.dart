@@ -3,15 +3,38 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/prose_document.dart';
+import 'core/prose_markup.dart';
 import 'core/version_audit.dart';
 import 'manuscript_export.dart';
 import 'manuscript_service.dart';
 import 'manuscript_store.dart';
+import 'sync/manuscript_appliers.dart';
 import 'manuscript_workspace.dart';
+import 'prose_editor.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
+import 'core/scene_revision.dart';
 import 'reading_rhythm.dart';
+import 'scene_revision_service.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/theme_tokens.dart';
 import 'writing_session_recorder.dart';
+
+/// [base] in the code face, from [ThemeTextRole.code].
+///
+/// Library-level because two widgets need it: the draft editor and the scene
+/// revision preview, which live in different States. One place decides the
+/// family, so they cannot drift onto different faces, and the no-scope
+/// fallback is written once.
+TextStyle? _asCode(BuildContext context, TextStyle? base) {
+  final code =
+      StudioThemeScope.maybeOf(context)?.theme.text(ThemeTextRole.code);
+  return base?.copyWith(
+    fontFamily: code?.family ?? 'monospace',
+    fontFamilyFallback: code?.fallbackFamilies,
+  );
+}
 
 class ManuscriptStudioView extends StatefulWidget {
   const ManuscriptStudioView({
@@ -24,12 +47,23 @@ class ManuscriptStudioView extends StatefulWidget {
     this.activeBranchId,
     this.onNavigate,
     this.sessionRecorder,
+    this.syncRecorder,
+    this.revisionService,
+    this.focusNodeId,
   });
 
   final StarterProject project;
   final bool startSprint;
   final bool minimalMode;
   final ManuscriptStore store;
+
+  /// A chapter or scene to open on, when the author arrived here by following
+  /// a connection from another Studio.
+  ///
+  /// A request, not a guarantee: an id that no longer exists, or belongs to
+  /// another project, falls through to the manuscript's own stored selection
+  /// rather than leaving the editor blank.
+  final String? focusNodeId;
 
   /// The shared connected-domain repository. Defaults to the app-wide one so
   /// the Studio reads and writes the same records as every other Studio.
@@ -48,6 +82,14 @@ class ManuscriptStudioView extends StatefulWidget {
   /// Injectable so tests can pin a clock; production leaves it null and the
   /// state creates one against the app's canonical repository.
   final WritingSessionRecorder? sessionRecorder;
+
+  /// Queues and uploads this device's prose. Injectable so tests can hand in
+  /// an offline transport; production leaves it null.
+  final ManuscriptSyncRecorder? syncRecorder;
+
+  /// Keeps a scene's prose after it has been overwritten. Injectable so tests
+  /// can pin a clock and build a history without waiting for one.
+  final SceneRevisionService? revisionService;
 
   @override
   State<ManuscriptStudioView> createState() => _ManuscriptStudioViewState();
@@ -95,7 +137,7 @@ class _SaveIntent extends Intent {
 
 class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     with WidgetsBindingObserver {
-  final TextEditingController _editorController = TextEditingController();
+  final ProseEditingController _editorController = ProseEditingController();
   final TextEditingController _searchController = TextEditingController();
 
   final TextEditingController _filterController = TextEditingController();
@@ -124,6 +166,24 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   ReadingRhythmPreset _readingRhythm = ReadingRhythmPreset.standard;
   late final WritingSessionRecorder _sessionRecorder;
 
+  /// Queues this device's prose for other devices, and uploads it.
+  ///
+  /// Deliberately driven from here rather than from `ManuscriptStore.saveStudio`:
+  /// `loadStudio` saves when it seeds a manuscript that has never been opened,
+  /// so a hook inside the save would queue during a read.
+  late final ManuscriptSyncRecorder _syncRecorder;
+
+  /// True while a sync or a restore is writing prose, so the resulting editor
+  /// update is not mistaken for the author typing.
+  bool _applyingRemote = false;
+
+  /// Keeps what a scene said before something replaced it.
+  ///
+  /// Driven from here for the same reason [_syncRecorder] is: the store's
+  /// `saveStudio` is called by `loadStudio` when it seeds a manuscript, so a
+  /// hook inside the save would write prose history during a read.
+  late final SceneRevisionService _revisionService;
+
   @override
   void initState() {
     super.initState();
@@ -142,7 +202,165 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         setState(() => _sprintSeconds--);
       });
     }
-    _load();
+    _syncRecorder = widget.syncRecorder ??
+        ManuscriptSyncRecorder(store: widget.store);
+    _revisionService = widget.revisionService ??
+        SceneRevisionService(
+          projectId: widget.project.id,
+          repository: widget.repository ?? widget.store.repository,
+        );
+    // Opening the manuscript is the first natural boundary: whatever the
+    // author wrote elsewhere should be here before they start.
+    _load().then((_) => _pullRemoteProse());
+  }
+
+  /// Queues what has changed and sends it.
+  ///
+  /// Called at the boundaries where an author actually pauses — leaving a
+  /// scene, closing the manuscript, backgrounding the app — rather than on the
+  /// 700ms autosave, which would put the network in the middle of typing.
+  Future<void> _syncManuscript() async {
+    final manuscript = _manuscript;
+    // A branch makes the manuscript Canon and read-only, and nothing about it
+    // is this device's to publish.
+    if (manuscript == null || !_canEdit) return;
+    // Before anything leaves or arrives: keep what the scenes say now. A
+    // boundary is the last honest moment to do it — after the pull below, the
+    // prose it replaced is only recoverable from here.
+    await _captureRevisions(manuscript);
+    await _syncRecorder.recordChanges(manuscript);
+    await _syncRecorder.flush();
+    await _pullRemoteProse();
+  }
+
+  /// Applies prose other devices have written.
+  ///
+  /// Push before pull, so a scene this device just changed reaches the server
+  /// before the same scene comes back — otherwise its own work returns looking
+  /// like someone else's and manufactures a conflict copy against itself.
+  Future<void> _pullRemoteProse() async {
+    // Never under a branch: the manuscript is Canon and held read-only, and
+    // writing to it from a sync would go behind that guard's back.
+    if (!_canEdit) return;
+    try {
+      await buildManuscriptSyncEngine(
+        projectId: widget.project.id,
+        store: widget.store,
+        onManuscriptChanged: _adoptRemoteManuscript,
+      ).pull();
+    } catch (error) {
+      // A sync that cannot run costs an update, never the author's words.
+      debugPrint('Could not apply remote prose: $error');
+    }
+  }
+
+  /// Snapshots the scenes whose prose has changed since they were last kept.
+  ///
+  /// Failure here costs a snapshot, never the author's words or their save —
+  /// the manuscript is already on disk by the time this runs.
+  Future<void> _captureRevisions(ManuscriptProjectSummary manuscript) async {
+    try {
+      await _revisionService.captureBoundary(manuscript);
+    } catch (error) {
+      debugPrint('Could not keep a scene revision: $error');
+    }
+  }
+
+  /// Opens the prose history for [scene] and restores whatever the author
+  /// picks.
+  Future<void> _showSceneRevisions(ManuscriptScene scene) async {
+    final revisionId = await showDialog<String>(
+      context: context,
+      builder: (context) => _SceneRevisionDialog(
+        service: _revisionService,
+        scene: scene,
+        canRestore: _canEdit,
+      ),
+    );
+    if (revisionId == null || !mounted) return;
+    await _restoreRevision(revisionId);
+  }
+
+  /// Puts an older version of a scene's prose back.
+  ///
+  /// Three things have to happen around the replacement itself, and all three
+  /// are the same lessons the remote-apply path already learned:
+  ///
+  /// * The pending save is flushed first, so the version this restores *over*
+  ///   is the one the author can see rather than one already superseded.
+  /// * [_applyingRemote] is held for the duration, because setting the editor
+  ///   text fires the change listener and these are not words the author
+  ///   typed.
+  /// * The session recorder is told the count moved, or the next keystroke
+  ///   credits the whole difference to them.
+  Future<void> _restoreRevision(String revisionId) async {
+    await _flushSave();
+    final current = _manuscript;
+    if (current == null || !_canEdit) return;
+    ManuscriptProjectSummary? restored;
+    try {
+      restored = await _revisionService.restore(
+        manuscript: current,
+        revisionId: revisionId,
+      );
+    } catch (error) {
+      debugPrint('Could not restore a scene revision: $error');
+    }
+    if (!mounted) return;
+    if (restored == null) {
+      _report('That revision is no longer available.');
+      return;
+    }
+    _applyingRemote = true;
+    try {
+      await _sessionRecorder.noteRemoteChange(restored.wordCount);
+      await _adoptManuscript(restored);
+    } finally {
+      _applyingRemote = false;
+    }
+    await _flushSave();
+    if (mounted) _report('Restored the earlier version of this scene.');
+  }
+
+  void _report(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Adopts a manuscript that arrived from another device.
+  ///
+  /// Two things have to happen together. The Studio takes the new manuscript,
+  /// or its stale in-memory copy would be written straight back over the
+  /// arriving prose on the next save. And the session recorder is told the
+  /// word count moved without the author doing it — otherwise the next
+  /// keystroke credits every arriving word to them.
+  Future<void> _adoptRemoteManuscript(
+    ManuscriptProjectSummary manuscript,
+  ) async {
+    if (!mounted) return;
+    _applyingRemote = true;
+    try {
+      // `_manuscript` is still this device's version: the store has written
+      // the arriving one, but nothing here has adopted it yet. That makes now
+      // the only moment the local prose is still readable, so it is the only
+      // moment it can be kept.
+      final local = _manuscript;
+      if (local != null) {
+        try {
+          await _revisionService.captureBeforeRemote(
+            local: local,
+            incoming: manuscript,
+          );
+        } catch (error) {
+          debugPrint('Could not keep a scene revision: $error');
+        }
+      }
+      await _sessionRecorder.noteRemoteChange(manuscript.wordCount);
+      await _adoptManuscript(manuscript);
+    } finally {
+      _applyingRemote = false;
+    }
   }
 
   @override
@@ -151,6 +369,9 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _flushSave();
+      // Backgrounding is a real boundary: the author has stopped, so this is
+      // the moment to send what they wrote.
+      unawaited(_syncManuscript());
       // Finalizing is idempotent, so a lifecycle event that fires repeatedly
       // — or fires again after disposal already finalized — records nothing
       // twice.
@@ -252,7 +473,44 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     });
   }
 
+  /// The selection [nodeId] asks for, or null when it names nothing here.
+  _ManuscriptSelection? _selectionForFocus(
+    ManuscriptProjectSummary? data,
+    String? nodeId,
+  ) {
+    if (data == null) return null;
+    if (nodeId == null || nodeId.trim().isEmpty) return null;
+    final scene = data.sceneById(nodeId);
+    if (scene != null) {
+      return _ManuscriptSelection.scene(scene.chapterId, scene.id);
+    }
+    if (data.chapterById(nodeId) != null) {
+      return _ManuscriptSelection.chapter(nodeId);
+    }
+    return null;
+  }
+
+  @override
+  void didUpdateWidget(ManuscriptStudioView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Following a connection while already in Manuscript Studio does not
+    // rebuild this widget, so the new target arrives here rather than through
+    // _load. Without this, the second scene an author clicks is ignored.
+    if (widget.focusNodeId != oldWidget.focusNodeId) {
+      final focused = _selectionForFocus(_manuscript, widget.focusNodeId);
+      if (focused != null) {
+        setState(() {
+          _selection = focused;
+          _showSearchResults = false;
+        });
+        _syncEditorWithSelection();
+      }
+    }
+  }
+
   _ManuscriptSelection _resolveInitialSelection(ManuscriptProjectSummary data) {
+    final focused = _selectionForFocus(data, widget.focusNodeId);
+    if (focused != null) return focused;
     if (data.currentSceneId.trim().isNotEmpty &&
         data.sceneById(data.currentSceneId) != null) {
       final scene = data.sceneById(data.currentSceneId)!;
@@ -273,7 +531,10 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   }
 
   void _onEditorChanged() {
-    if (_isApplyingSelection || _loading) {
+    // `_applyingRemote` covers the window where a sync is writing prose into
+    // the editor. Those words are not the author's, and crediting them would
+    // record a session they never wrote.
+    if (_isApplyingSelection || _loading || _applyingRemote) {
       return;
     }
     final manuscript = _manuscript;
@@ -294,12 +555,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     }
 
     final scene = chapter.scenes[sceneIndex];
-    if (scene.content == _editorController.text) {
+    final markup = _editorController.markup;
+    // Formatting counts as a change even when not one character moved, so the
+    // text comparison alone is not enough to decide there is nothing to save.
+    if (scene.content == _editorController.text &&
+        (markup.isPlain
+            ? scene.document == null
+            : scene.document == markup.toDocument())) {
       return;
     }
 
     final updatedScene = scene.copyWith(
       content: _editorController.text,
+      // Null while the scene is plain, which is almost always. Only a scene
+      // that actually carries marks pays for a document.
+      document: markup.isPlain ? null : markup.toDocument(),
       updatedAt: DateTime.now(),
     );
 
@@ -383,9 +653,15 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     try {
       if (_selection.kind == ManuscriptSelectionKind.scene) {
         final scene = manuscript.sceneById(_selection.sceneId);
-        _editorController.text = scene?.content ?? '';
+        // Through `markup`, never `text`: assigning the text alone would leave
+        // the previous scene's marks anchored over this scene's words.
+        _editorController.markup = scene == null
+            ? ProseMarkup.empty
+            : ProseMarkup.fromDocument(
+                scene.document ?? ProseDocument.fromPlainText(scene.content),
+              );
       } else {
-        _editorController.text = '';
+        _editorController.markup = ProseMarkup.empty;
       }
     } finally {
       _isApplyingSelection = false;
@@ -485,6 +761,12 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     final manuscript = _manuscript;
     if (manuscript == null) {
       return;
+    }
+    // Leaving a scene is the boundary that matters most: the author has
+    // finished with it, so it is worth sending. Not awaited — navigating
+    // must not wait on the network.
+    if (manuscript.currentSceneId != sceneId) {
+      unawaited(_syncManuscript());
     }
     setState(() {
       _selection = _ManuscriptSelection.scene(chapterId, sceneId);
@@ -784,6 +1066,16 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     final current = _manuscript;
     if (current == null) {
       return;
+    }
+    // The one snapshot with no scene left to live in. Without it, deleting a
+    // scene is the last unrecoverable way to lose prose in AuthorOS.
+    try {
+      await _revisionService.captureScene(
+        current.sceneById(scene.id) ?? scene,
+        trigger: SceneRevisionTrigger.deletion,
+      );
+    } catch (error) {
+      debugPrint('Could not keep a scene revision: $error');
     }
     try {
       final next = await _service.deleteScene(
@@ -2086,31 +2378,45 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                 onPressed: _flushSave,
                 child: const Text('Save now'),
               ),
+              TextButton.icon(
+                key: const Key('scene-revisions-button'),
+                onPressed: () => _showSceneRevisions(scene),
+                icon: const Icon(Icons.history),
+                label: const Text('Revisions'),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ProseFormattingToolbar(
+              controller: _editorController,
+              enabled: _canEdit,
+            ),
+          ),
+          const SizedBox(height: 4),
           Expanded(
             child: Center(
               child: ConstrainedBox(
                 constraints:
                     BoxConstraints(maxWidth: _readingRhythm.editorWidth),
-                child: TextField(
+                child: ProseFormattingShortcuts(
+                  controller: _editorController,
+                  enabled: _canEdit,
+                  child: TextField(
                   key: const Key('manuscript-draft-field'),
                   controller: _editorController,
                   readOnly: !_canEdit,
                   maxLines: null,
                   expands: true,
                   keyboardType: TextInputType.multiline,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontFamily: 'monospace',
-                        fontSize: _readingRhythm.fontSize,
-                        height: _readingRhythm.lineHeight,
-                      ),
+                  style: _draftTextStyle(context),
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     hintText: 'Write this scene...',
                     contentPadding:
                         EdgeInsets.all(_readingRhythm.editorPadding),
+                  ),
                   ),
                 ),
               ),
@@ -2185,28 +2491,34 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
           ),
           const SizedBox(height: 8),
           _buildReadingRhythmControl(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
+          ProseFormattingToolbar(
+            controller: _editorController,
+            enabled: _canEdit,
+          ),
+          const SizedBox(height: 4),
           Expanded(
             child: Center(
               child: ConstrainedBox(
                 constraints:
                     BoxConstraints(maxWidth: _readingRhythm.editorWidth),
-                child: TextField(
-                  key: const Key('manuscript-draft-field'),
+                child: ProseFormattingShortcuts(
                   controller: _editorController,
-                  maxLines: null,
-                  expands: true,
-                  keyboardType: TextInputType.multiline,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontFamily: 'monospace',
-                        fontSize: _readingRhythm.fontSize,
-                        height: _readingRhythm.lineHeight,
-                      ),
-                  decoration: InputDecoration(
-                    border: InputBorder.none,
-                    hintText: 'Write this scene...',
-                    contentPadding:
-                        EdgeInsets.all(_readingRhythm.editorPadding),
+                  enabled: _canEdit,
+                  child: TextField(
+                    key: const Key('manuscript-draft-field'),
+                    controller: _editorController,
+                    readOnly: !_canEdit,
+                    maxLines: null,
+                    expands: true,
+                    keyboardType: TextInputType.multiline,
+                    style: _draftTextStyle(context),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Write this scene...',
+                      contentPadding:
+                          EdgeInsets.all(_readingRhythm.editorPadding),
+                    ),
                   ),
                 ),
               ),
@@ -2284,16 +2596,23 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   }
 
   Widget _buildChapterOverview(ManuscriptChapter chapter) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+    // Material rather than a decorated Container: the scene rows below are
+    // ListTiles, which paint their background and ink splash onto the nearest
+    // Material ancestor. Inside a plain Container the framework asserts and
+    // the tap feedback is invisible — which nobody had hit until a connection
+    // could open Manuscript Studio directly on a chapter.
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
+        side: BorderSide(
           color: Theme.of(context).colorScheme.outlineVariant,
         ),
       ),
-      child: Column(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(chapter.title,
@@ -2331,7 +2650,8 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                 onTap: () => _selectScene(chapter.id, scene.id),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2590,6 +2910,20 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     );
   }
 
+  /// The draft editor face.
+  ///
+  /// Comes from the theme's `code` typography role, which is what the
+  /// previously hard-coded `'monospace'` family was reproducing — same face,
+  /// plus the role's fallback families. Reading rhythm still owns size and
+  /// line height. Falls back to the literal family only when no
+  /// [StudioThemeScope] is installed above this Studio.
+  TextStyle? _draftTextStyle(BuildContext context) =>
+      _asCode(context, Theme.of(context).textTheme.bodyLarge)?.copyWith(
+        fontSize: _readingRhythm.fontSize,
+        height: _readingRhythm.lineHeight,
+      );
+
+
   Widget _buildDetailsModeSwitch() => SegmentedButton<bool>(
         key: const Key('manuscript-details-mode'),
         segments: const [
@@ -2731,4 +3065,179 @@ class _SceneSearchResult {
   final String chapterTitle;
   final String sceneTitle;
   final String preview;
+}
+
+/// One scene's prose history, and the way back to any of it.
+///
+/// Built from [SceneRevisionSummary]s rather than [SceneRevision]s: the list
+/// shows time, size and reason for every snapshot, and loading the bodies to
+/// draw it would pull every stored copy of the scene into memory to display
+/// none of them. A body is read only when the author opens one.
+class _SceneRevisionDialog extends StatefulWidget {
+  const _SceneRevisionDialog({
+    required this.service,
+    required this.scene,
+    required this.canRestore,
+  });
+
+  final SceneRevisionService service;
+  final ManuscriptScene scene;
+  final bool canRestore;
+
+  @override
+  State<_SceneRevisionDialog> createState() => _SceneRevisionDialogState();
+}
+
+class _SceneRevisionDialogState extends State<_SceneRevisionDialog> {
+  late Future<List<SceneRevisionSummary>> _history;
+  String? _openId;
+  Future<SceneRevision?>? _openBody;
+
+  @override
+  void initState() {
+    super.initState();
+    _history = widget.service.historyFor(widget.scene.id);
+  }
+
+  void _open(SceneRevisionSummary revision) {
+    setState(() {
+      _openId = revision.id;
+      _openBody = widget.service.revision(revision.id);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      key: const Key('scene-revisions-dialog'),
+      title: Text('Revisions — ${widget.scene.title}'),
+      content: SizedBox(
+        width: 560,
+        height: 420,
+        child: FutureBuilder<List<SceneRevisionSummary>>(
+          future: _history,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final revisions = snapshot.data ?? const <SceneRevisionSummary>[];
+            if (revisions.isEmpty) {
+              return const Text(
+                'No earlier versions yet. AuthorOS keeps a copy of a scene '
+                'when you leave it, before a sync replaces its words, and '
+                'before a restore or a deletion takes them away.',
+                key: Key('scene-revisions-empty'),
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: ListView.builder(
+                    key: const Key('scene-revisions-list'),
+                    itemCount: revisions.length,
+                    itemBuilder: (context, index) {
+                      final revision = revisions[index];
+                      return _RevisionTile(
+                        key: Key('scene-revision-${revision.id}'),
+                        revision: revision,
+                        currentWordCount: widget.scene.wordCount,
+                        selected: revision.id == _openId,
+                        onOpen: () => _open(revision),
+                      );
+                    },
+                  ),
+                ),
+                if (_openBody != null) ...[
+                  const Divider(),
+                  Expanded(
+                    child: FutureBuilder<SceneRevision?>(
+                      future: _openBody,
+                      builder: (context, body) {
+                        if (body.connectionState != ConnectionState.done) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        final revision = body.data;
+                        if (revision == null) {
+                          return const Text(
+                            'That revision has since been pruned.',
+                            key: Key('scene-revision-gone'),
+                          );
+                        }
+                        return SingleChildScrollView(
+                          key: const Key('scene-revision-preview'),
+                          child: Text(
+                            revision.content,
+                            style:
+                                _asCode(context, theme.textTheme.bodyMedium),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        FilledButton(
+          key: const Key('scene-revision-restore'),
+          // Restoring writes prose, and a branch holds the manuscript
+          // read-only. Reading the history under one is still allowed: seeing
+          // what a scene used to say changes nothing.
+          onPressed: _openId == null || !widget.canRestore
+              ? null
+              : () => Navigator.of(context).pop(_openId),
+          child: const Text('Restore this version'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RevisionTile extends StatelessWidget {
+  const _RevisionTile({
+    super.key,
+    required this.revision,
+    required this.currentWordCount,
+    required this.selected,
+    required this.onOpen,
+  });
+
+  final SceneRevisionSummary revision;
+  final int currentWordCount;
+  final bool selected;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final delta = revision.wordCount - currentWordCount;
+    final sign = delta > 0 ? '+' : '';
+    return ListTile(
+      selected: selected,
+      onTap: onOpen,
+      leading: const Icon(Icons.history_toggle_off),
+      title: Text(_revisionTimestamp(revision.capturedAt)),
+      subtitle: Text(
+        '${revision.wordCount} words'
+        '${delta == 0 ? '' : ' ($sign$delta)'} • ${revision.trigger.label}',
+      ),
+    );
+  }
+}
+
+String _revisionTimestamp(DateTime value) {
+  final local = value.toLocal();
+  String two(int input) => input.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
 }

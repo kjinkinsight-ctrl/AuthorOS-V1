@@ -10,6 +10,27 @@ enum RecordScopeType {
 
 enum CanonStatus { canon, draft, proposed, deprecated, nonCanon, alternate }
 
+/// The scopes that hold canon shared by more than one book.
+const Set<RecordScopeType> kSharedScopeTypes = {
+  RecordScopeType.universe,
+  RecordScopeType.series,
+};
+
+/// Whether a record owned by [scopeType]/[scopeId] is shared canon a project
+/// inheriting [inheritedScopeIds] may read.
+///
+/// The scope type is checked as well as the id, and that is the whole point: a
+/// project-scoped record merely *carrying* a series id stays private to the
+/// book that wrote it. Written once because the repository, the record service,
+/// the validator and the Codex all have to agree, and three copies of a
+/// predicate are three chances to disagree.
+bool isInheritedSharedScope({
+  required RecordScopeType scopeType,
+  required String scopeId,
+  required Set<String> inheritedScopeIds,
+}) =>
+    inheritedScopeIds.contains(scopeId) && kSharedScopeTypes.contains(scopeType);
+
 class RecordScope {
   const RecordScope({
     required this.type,

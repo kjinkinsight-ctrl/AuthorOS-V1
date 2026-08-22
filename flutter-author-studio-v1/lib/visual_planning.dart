@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'onboarding.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/theme_tokens.dart';
 
 enum SceneStatus { backlog, outlining, drafting, revised, finalDraft }
 
@@ -16,13 +18,21 @@ extension SceneStatusData on SceneStatus {
         SceneStatus.finalDraft => 'Final',
       };
 
-  Color get color => switch (this) {
-        SceneStatus.backlog => const Color(0xFF858A94),
-        SceneStatus.outlining => const Color(0xFF65A8A0),
-        SceneStatus.drafting => const Color(0xFFC59B6D),
-        SceneStatus.revised => const Color(0xFFD39A52),
-        SceneStatus.finalDraft => const Color(0xFF77B884),
-      };
+  /// Scene workflow states resolve through the theme's categorical ramp.
+  ///
+  /// These are stages a scene moves through, not pass/fail signals, so they
+  /// use ramp slots rather than the `success`/`warning` status roles even
+  /// where a value coincides today — a scene being drafted is not a warning.
+  Color colorIn(BuildContext context) {
+    final ramp = AuthorOsSemanticColors.of(context);
+    return switch (this) {
+      SceneStatus.backlog => ramp.category(ThemeCategoryRef.category1),
+      SceneStatus.outlining => ramp.category(ThemeCategoryRef.category2),
+      SceneStatus.drafting => ramp.category(ThemeCategoryRef.category3),
+      SceneStatus.revised => ramp.category(ThemeCategoryRef.category4),
+      SceneStatus.finalDraft => ramp.category(ThemeCategoryRef.category5),
+    };
+  }
 }
 
 enum StructureOverlay { none, threeAct, heroesJourney }
@@ -534,11 +544,11 @@ class _SceneLane extends StatelessWidget {
         decoration: BoxDecoration(
           color: candidates.isEmpty
               ? Theme.of(context).colorScheme.surface
-              : status.color.withValues(alpha: 0.16),
+              : status.colorIn(context).withValues(alpha: 0.16),
           border: Border.all(
             color: candidates.isEmpty
                 ? Theme.of(context).colorScheme.outlineVariant
-                : status.color,
+                : status.colorIn(context),
           ),
           borderRadius: BorderRadius.circular(8),
         ),
@@ -547,7 +557,11 @@ class _SceneLane extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(width: 4, height: 20, color: status.color),
+                Container(
+                  width: 4,
+                  height: 20,
+                  color: status.colorIn(context),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                     child: Text(status.label,

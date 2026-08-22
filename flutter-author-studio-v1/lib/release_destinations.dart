@@ -9,11 +9,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_updater.dart';
+import 'command_console.dart';
+import 'core/search_models.dart' show SearchNavigationTarget;
 import 'local_image.dart';
+import 'persistence/authoros_database.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'supabase_service.dart';
-import 'sync/project_sync_service.dart';
+import 'sync/sync_appliers.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/theme_definition.dart';
 import 'theme/theme_persistence.dart';
@@ -359,451 +362,49 @@ class StudioRecordStore {
   }
 }
 
+/// The Command Console, as a full page.
+///
+/// This section used to be a substring search over a handful of
+/// `SharedPreferences` stores: it never reached the record graph, never used
+/// the shared full-text index, and a result could not be opened. It is now the
+/// same console the palette shows, so the page and the shortcut answer the
+/// same questions the same way.
 class SearchStudioView extends StatefulWidget {
-  const SearchStudioView({super.key, required this.project});
+  const SearchStudioView({
+    super.key,
+    required this.project,
+    this.onNavigate,
+    this.repository,
+  });
 
   final StarterProject project;
+
+  /// Where a tapped result should take the author. The shell supplies this;
+  /// without it a result is still listed, just not navigable.
+  final ValueChanged<SearchNavigationTarget>? onNavigate;
+
+  final DriftConnectedDomainRepository? repository;
 
   @override
   State<SearchStudioView> createState() => _SearchStudioViewState();
 }
 
 class _SearchStudioViewState extends State<SearchStudioView> {
-  final controller = TextEditingController();
-  List<StudioRecord> records = [];
-  bool loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    const store = ManuscriptStore();
-    final migratedChapters =
-        await store.loadLegacyChapterSeeds(widget.project.id);
-    final chapterSeeds = migratedChapters.isNotEmpty
-        ? migratedChapters
-        : widget.project.chapters
-            .map(
-              (chapter) => ManuscriptChapterSeed(
-                title: chapter.title,
-                prompt: chapter.prompt,
-                status: chapter.status,
-                scenes: chapter.scenes,
-                linkedChapterIds: chapter.linkedChapterIds,
-              ),
-            )
-            .toList();
-    final manuscript = await store.loadStudio(
-      widget.project.id,
-      manuscriptTitle: widget.project.title,
-      defaultChapters: chapterSeeds,
-      firstSceneTitle: widget.project.firstSceneTitle,
-    );
-    final stored = <StudioRecord>[];
-    for (final collection in ['ideas', 'characters', 'world']) {
-      stored.addAll(await StudioRecordStore(collection).load());
-    }
-    stored.addAll(
-        (await StoryCodexStore(projectId: widget.project.id).load()).map(
-      (entry) => StudioRecord(
-        id: entry.id,
-        title: entry.title,
-        category: entry.type.label,
-        details: '${entry.summary} ${entry.aliases.join(', ')}',
-      ),
-    ));
-    stored.addAll(manuscript.chapters.map(
-      (chapter) => StudioRecord(
-        id: chapter.id,
-        title: chapter.title,
-        category: 'Chapter',
-        details: chapter.prompt,
-      ),
-    ));
-    stored.addAll(manuscript.chapters.expand(
-      (chapter) => chapter.scenes.map(
-        (scene) => StudioRecord(
-          id: scene.id,
-          title: scene.title,
-          category: 'Scene',
-          details: '${chapter.title}\n${scene.content}',
-        ),
-      ),
-    ));
-    stored.addAll(widget.project.characterSheets.asMap().entries.map(
-          (entry) => StudioRecord(
-            id: 'starter-character-${entry.key}',
-            title: entry.value.name,
-            category: 'Character',
-            details: entry.value.role,
-          ),
-        ));
-    final manuscriptText = manuscript.exportAsSingleText();
-    if (manuscriptText.isNotEmpty) {
-      stored.add(StudioRecord(
-        id: 'manuscript',
-        title: manuscript.manuscriptTitle,
-        category: 'Manuscript',
-        details: manuscriptText,
-      ));
-    }
-    if (mounted) {
-      setState(() {
-        records = stored;
-        loading = false;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final query = controller.text.trim().toLowerCase();
-    final results = query.isEmpty
-        ? records
-        : records
-            .where((record) =>
-                '${record.title} ${record.category} ${record.details}'
-                    .toLowerCase()
-                    .contains(query))
-            .toList();
-
-    final resultLabel = query.isEmpty
-        ? 'Ready to search'
-        : '${results.length} result${results.length == 1 ? '' : 's'}';
-
     return _StudioPage(
-      title: 'Universal Search',
-      subtitle:
-          'Search projects, manuscript content, story entities, and research instantly.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        key: const Key('universal-search-field'),
-                        controller: controller,
-                        onChanged: (_) => setState(() {}),
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface,
-                          fontSize: 16,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'Search Author Studio...',
-                          filled: true,
-                          fillColor: theme.colorScheme.surfaceContainerHighest,
-                          prefixIcon: Icon(
-                            Icons.search,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                              color: theme.colorScheme.outlineVariant,
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                              color: theme.colorScheme.outlineVariant,
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 16,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    TextButton(
-                      onPressed: () => setState(() {}),
-                      style: TextButton.styleFrom(
-                        backgroundColor: theme.colorScheme.primaryContainer,
-                        foregroundColor: theme.colorScheme.onPrimaryContainer,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text('Search'),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () {
-                        controller.clear();
-                        setState(() {});
-                      },
-                      style: TextButton.styleFrom(
-                        backgroundColor: theme.colorScheme.primaryContainer,
-                        foregroundColor: theme.colorScheme.onPrimaryContainer,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text('Clear'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Shortcut: Ctrl/Cmd + K. Search is read-only and never edits story data.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: const Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _SearchFilterPill(label: 'All Projects'),
-                _SearchFilterPill(label: 'Current Project'),
-                _SearchFilterPill(label: 'Relevance'),
-                _SearchFilterPill(label: 'All Types'),
-                _SearchFilterPill(label: 'All Categories'),
-                _SearchFilterPill(label: 'Include archived'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: Text(
-              resultLabel,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (loading)
-            const LinearProgressIndicator()
-          else if (query.isEmpty)
-            const _SearchEmptyState(
-              title: 'Search across all writing data',
-              message:
-                  'Enter a term to search titles, content, tags, statuses, and metadata.',
-            )
-          else if (results.isEmpty)
-            const _SearchEmptyState(
-              title: 'No results found',
-              message:
-                  'Try another title, character, chapter, idea, or note keyword.',
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: results.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final result = results[index];
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant,
-                    ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer,
-                          borderRadius: const BorderRadius.all(
-                            Radius.circular(12),
-                          ),
-                        ),
-                        child: Icon(
-                          Icons.description_outlined,
-                          color: theme.colorScheme.onPrimaryContainer,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              result.title,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              result.category,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color: theme.colorScheme.primary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              result.details,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
-                                    color: theme.colorScheme.onSurface,
-                                    height: 1.45,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-        ],
+      title: 'Command Console',
+      subtitle: 'Ask anything about this project — characters, plots, scenes, '
+          'timeline, research and how they connect.',
+      child: CommandConsole(
+        projectId: widget.project.id,
+        repository: widget.repository,
+        onNavigate: widget.onNavigate ?? (_) {},
       ),
     );
   }
 }
 
-class _SearchFilterPill extends StatelessWidget {
-  const _SearchFilterPill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurface,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchEmptyState extends StatelessWidget {
-  const _SearchEmptyState({
-    required this.title,
-    required this.message,
-  });
-
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.search,
-            size: 42,
-            color: theme.colorScheme.onSurface,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class StatisticsStudioView extends StatefulWidget {
   const StatisticsStudioView({super.key, required this.project});
@@ -2924,8 +2525,11 @@ class _SettingsStudioViewState extends State<SettingsStudioView> {
 
     setState(() {});
 
-    // Drain anything saved while signed out.
-    await const ProjectSyncService().flushQueue();
+    // Drain anything saved while signed out, and pull down whatever the
+    // author's other devices have. Sign-in is the moment a fresh install has
+    // an empty roster and the server has a full one, so it is the one trigger
+    // where the download matters most.
+    await buildSyncEngine().sync();
     if (!mounted) {
       return;
     }

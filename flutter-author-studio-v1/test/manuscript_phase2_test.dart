@@ -211,7 +211,11 @@ void main() {
       expect(connections.single.recordId, kali.id);
       expect(connections.single.title, 'Kali Vale');
       expect(connections.single.incoming, isTrue);
-      expect(connections.single.displayName, 'Appears in');
+      // Read from the scene's side the edge is incoming, so the label is the
+      // connection type's inverse: this scene *features* Kali. The forward
+      // name would read "this scene appears in Kali Vale", which inverts the
+      // relationship the author actually recorded.
+      expect(connections.single.displayName, 'Features');
 
       final audits = await manuscriptService.auditFor(kali.id);
       expect(

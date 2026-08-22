@@ -90,6 +90,32 @@ enum ThemeColorRef {
   focusRing,
   selection,
   highlight,
+
+  /// Semantic status signals. Distinct from [primary] because they carry
+  /// meaning ("this passed", "this failed"), not brand identity, and from
+  /// [ThemeCategoryRef] because they are states rather than categories.
+  success,
+  warning,
+  error,
+}
+
+/// Ordered slots for *categorical* data colour.
+///
+/// Categories are values a user's data happens to fall into — scene workflow
+/// states, relationship kinds — not semantic UI states. They are addressed
+/// positionally so one palette swap re-colours every category at once, and
+/// they are deliberately kept out of [ThemeColorRef]: a status role means
+/// something, a category slot only has to stay distinguishable from its
+/// neighbours.
+enum ThemeCategoryRef {
+  category1,
+  category2,
+  category3,
+  category4,
+  category5,
+  category6,
+  category7,
+  category8,
 }
 
 /// Typography roles the shell and Studios may request.
@@ -215,6 +241,7 @@ class StudioId {
   static const manuscript = StudioId('manuscript');
   static const analytics = StudioId('analytics');
   static const research = StudioId('research');
+  static const knowledgeGraph = StudioId('knowledge_graph');
 
   @override
   bool operator ==(Object other) => other is StudioId && other.value == value;

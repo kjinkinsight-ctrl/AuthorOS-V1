@@ -2,7 +2,7 @@
 ///
 /// The detector unit tests prove each rule in isolation. These prove the
 /// service reads the project correctly: that it sees what the Studios wrote,
-/// that soft-deleted records and ghost manuscript nodes stay out of the report,
+/// that soft-deleted records and deleted scenes stay out of the report,
 /// and — in the read-only group — that analysing a project changes nothing.
 library;
 
@@ -248,11 +248,16 @@ void main() {
       expect(report.forCondition(StructuralCondition.orphanEntity), isEmpty);
     });
 
-    test('a ghost manuscript node cannot satisfy a connection', () async {
-      // Deleting a scene leaves its node row and every link pointing at it
-      // (risk R-1). A plotline connected only to a deleted scene is still
-      // orphaned, and the survey must see that.
-      final project = _project('int-ghost');
+    test('a link to a scene the author deleted does not keep a plot alive',
+        () async {
+      // Story Graph Phase 0 closed risk R-1: deleting a scene now removes its
+      // node and that node's edges, so the link disappears with it. The survey
+      // does not depend on that — it derives live nodes from the manuscript,
+      // so a link naming a scene that is not in the prose would not count
+      // either way (proved directly in intelligence_detectors_test.dart). This
+      // pins the integration: whichever mechanism gets there first, a plotline
+      // whose only scene is gone is reported as orphaned.
+      final project = _project('int-deleted-scene');
       await saveManuscript(project, [
         _chapter('ch-1', title: 'The Drowned Gate', scenes: [
           _scene('ch-1', 'sc-1', title: 'Arrival', content: 'Fog.'),
@@ -273,16 +278,15 @@ void main() {
       var report = await serviceFor(project).analyze();
       expect(report.forCondition(StructuralCondition.orphanPlot), isEmpty);
 
-      // Remove the scene from the manuscript. Its node row and its link
-      // survive; the prose does not.
+      // Remove the scene from the manuscript.
       await saveManuscript(project, [
         _chapter('ch-1', title: 'The Drowned Gate', scenes: [
           _scene('ch-1', 'sc-1', title: 'Arrival', content: 'Fog.'),
         ]),
       ]);
 
-      expect(await repository.manuscriptNodeById('sc-2'), isNotNull,
-          reason: 'the ghost node is expected to survive; that is risk R-1');
+      expect(await repository.manuscriptNodeById('sc-2'), isNull,
+          reason: 'Phase 0 reconciles the projection on save');
 
       report = await serviceFor(project).analyze();
       expect(report.forCondition(StructuralCondition.orphanPlot), hasLength(1));

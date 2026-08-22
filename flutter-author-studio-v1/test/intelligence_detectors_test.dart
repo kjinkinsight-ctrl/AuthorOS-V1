@@ -314,8 +314,9 @@ void main() {
     });
 
     test('a link to a scene that no longer exists does not save it', () {
-      // A ghost node: the scene was deleted, its node row and links survive.
-      // The plotline is genuinely orphaned and must be reported as such.
+      // A link naming a scene that is not in the manuscript. Phase 0 now
+      // deletes a scene's edges with it, so this state should not arise in
+      // practice — but the detector must not depend on that to be right.
       final findings = detectOrphanPlots(_survey(
         records: [_record('pl1', 'plotline', 'The Red Widow')],
         links: [_link('pl1', 'appearsIn', 'deleted-scene')],

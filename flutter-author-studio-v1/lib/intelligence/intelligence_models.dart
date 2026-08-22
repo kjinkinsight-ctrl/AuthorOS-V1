@@ -197,9 +197,9 @@ class StructuralFinding {
   /// What to do about it.
   final String recommendation;
 
-  /// The records and live manuscript nodes this finding is about. Never
-  /// contains a ghost node: the survey builds its node set from the loaded
-  /// manuscript, not from the node table.
+  /// The records and live manuscript nodes this finding is about. Never names
+  /// a scene the author cannot see: the survey builds its node set from the
+  /// loaded manuscript, not from the node table.
   final List<String> entityIds;
 
   /// Set only where an existing continuity action already fits.

@@ -129,13 +129,20 @@ on what "the prose names this record" means. `AnalyticsService`'s naive
 substring match (risk R-20 — "Will" matches the auxiliary verb) is deliberately
 **not** reused.
 
-**Why ghost nodes cannot become findings.** Deleting a scene leaves its
-`manuscript_node_rows` row, its links and its search-index entry behind
-permanently (risk R-1, open until Story Graph Phase 0). `ProjectSurvey` builds
-its live node set from the **loaded manuscript**, never from the node table, so
-a link pointing at a deleted scene does not count as reaching the manuscript.
-Pinned by a test that deletes a scene, asserts the ghost node survives, and
-asserts the plotline connected only to it is reported as orphaned.
+**Why the live node set comes from the manuscript.** `ProjectSurvey` builds it
+from the **loaded manuscript**, never from `manuscript_node_rows`, so a link
+naming a scene the author cannot see never counts as reaching the manuscript.
+
+This was written against risk R-1 — deleted scenes leaving their node row, links
+and search-index entry behind forever — which **Story Graph Phase 0 has since
+closed**: `removeManuscriptNodes` now deletes a node's edges inside its own
+transaction, and the projection reconciles on save. The rule stays anyway. The
+manuscript is what the author actually has; the projection is a derivative of
+it, and a derivative that has been wrong before is not the thing to ask.
+
+Pinned at two levels: a detector unit test proves a link to a non-existent scene
+does not count, and a service test proves a plotline whose only scene is deleted
+is reported as orphaned.
 
 **Why `orphaned-scene` was routed around, not fixed.** `PlotService.validatePlot`
 queries `recordsByTypeAndScope(typeId: 'scene')`, which always returns zero
@@ -207,8 +214,12 @@ is not read a third time.
 | `test/intelligence_service_test.dart` | 12 | End-to-end over an in-memory database, plus the read-only guardrails and the I-9 no-promotion guardrail |
 | `test/intelligence_view_test.dart` | 8 | Loading / error / data states by key, grouping, the clean state, refresh, destination hand-off, and the World Board tile |
 
-Full suite after this change: **1127 tests passing, 60 analyzer issues (0
-errors) — identical to the pre-change baseline.**
+Full suite after merging `main` (which brought the Knowledge Graph milestone and
+Story Graph Phase 0): **1207 tests passing, 60 analyzer issues, 0 errors.**
+
+60 is the baseline: `origin/main` alone measures the same 60 on the SDK used
+here (3.47.1), so this milestone adds none. CI runs 3.44.9 and reports a lower
+count for both — the difference is the SDK's deprecation set, not the tree.
 
 ---
 

@@ -136,10 +136,13 @@ class ProjectSurvey {
   /// The manuscript nodes that actually exist.
   ///
   /// Derived from the loaded manuscript, **never** from `manuscript_node_rows`.
-  /// Deleting a scene today leaves its node row, its links and its search-index
-  /// entry behind permanently (risk R-1, still open until Story Graph Phase 0).
-  /// Building the live set from the prose the author can still see means a
-  /// ghost node cannot become a finding.
+  ///
+  /// Story Graph Phase 0 closed risk R-1, so deleting a scene now removes its
+  /// node and that node's edges. This does not make the rule redundant: it
+  /// means a finding can never be about a scene the author cannot see,
+  /// whichever way the node table happens to be behaving. The manuscript is
+  /// what the author actually has; the projection is a derivative of it, and a
+  /// derivative that has been wrong before is not the thing to ask.
   Set<String> get liveManuscriptNodeIds => {..._chapterNodeIds, ..._sceneNodeIds};
 
   Set<String> get sceneNodeIds => Set.unmodifiable(_sceneNodeIds);

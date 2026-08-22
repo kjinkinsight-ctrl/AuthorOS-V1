@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'author_profile_store.dart';
@@ -8,6 +9,7 @@ import 'analytics_service.dart';
 import 'analytics_studio_view.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
+import 'command_console.dart';
 import 'core/connected_domain.dart' show AuthorRecord;
 import 'core/search_models.dart'
     show SearchDestination, SearchNavigationTarget;
@@ -19,7 +21,11 @@ import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
 import 'map_studio_view.dart';
 import 'migrations/research_panel_migration.dart';
+import 'core/project_roster_entry.dart';
+import 'core/writing_series.dart';
 import 'onboarding.dart';
+import 'project_roster_store.dart';
+import 'sync/sync_appliers.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
@@ -42,6 +48,11 @@ import 'theme/theme_tokens.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppSupabase.initialize();
+  // Fire and forget: start-up must never wait on the network. The engine
+  // returns immediately when the transport is unavailable — unconfigured or
+  // signed out — without so much as minting a device id, so an offline launch
+  // writes nothing at all.
+  unawaited(buildSyncEngine().sync());
   runApp(const AuthorStudioApp());
 }
 
@@ -404,6 +415,24 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
     _loadStartupState();
   }
 
+  /// Opens a different project from the roster.
+  ///
+  /// The roster is the durable list; this makes one of its entries the open
+  /// one. It also writes the project back through [OnboardingStore], because
+  /// `author_studio.starter_project` is still the pointer the app reads on
+  /// next launch — the roster is additive, not a replacement for it.
+  Future<void> _switchProject(StarterProject next) async {
+    if (next.id == project?.id) return;
+    await widget.store.saveProject(next);
+    if (!mounted) return;
+    setState(() {
+      project = next;
+      // A freshly opened project is not the one the author was mid-sprint in.
+      openFirstDraft = false;
+      startSprint = false;
+    });
+  }
+
   Future<void> _loadStartupState() async {
     final prefs = await SharedPreferences.getInstance();
     final savedProject = await widget.store.loadProject();
@@ -616,6 +645,7 @@ class _OnboardingBootstrapState extends State<_OnboardingBootstrap> {
       onThemeChanged: widget.onThemeChanged,
       onLogout: _logoutToProfileSelection,
       initialSection: welcomeTarget,
+      onProjectChanged: _switchProject,
     );
   }
 }
@@ -691,6 +721,25 @@ extension StudioSectionData on StudioSection {
       };
 }
 
+/// The Studio that owns [destination].
+///
+/// The section switches inside `_SectionView` each carry their own fallback for
+/// `SearchDestination.record`, which is why they are not folded into this. A
+/// command result has no such context, so it routes to the record's own Studio
+/// and falls back to the World Studio, where untyped records live.
+StudioSection studioSectionFor(SearchDestination destination) =>
+    switch (destination) {
+      SearchDestination.characterStudio => StudioSection.characters,
+      SearchDestination.worldStudio => StudioSection.world,
+      SearchDestination.storyCodex => StudioSection.codex,
+      SearchDestination.timelineStudio => StudioSection.timeline,
+      SearchDestination.plotStudio => StudioSection.plot,
+      SearchDestination.manuscriptStudio => StudioSection.manuscript,
+      SearchDestination.seriesStudio => StudioSection.projects,
+      SearchDestination.knowledgeGraph => StudioSection.knowledgeGraph,
+      SearchDestination.record => StudioSection.world,
+    };
+
 Future<void> _defaultLogout() async {}
 
 class AuthorStudioShell extends StatefulWidget {
@@ -707,6 +756,8 @@ class AuthorStudioShell extends StatefulWidget {
     this.manuscriptStore = const ManuscriptStore(),
     this.onLogout = _defaultLogout,
     this.initialSection,
+    this.onProjectChanged,
+    this.rosterStore,
   });
 
   final StarterProject project;
@@ -722,6 +773,15 @@ class AuthorStudioShell extends StatefulWidget {
   final void Function(String themeId, String accentId) onThemeChanged;
   final ManuscriptStore manuscriptStore;
   final Future<void> Function() onLogout;
+
+  /// Called when the author opens a different project from the Projects
+  /// Studio. The host swaps the project and this shell rebuilds around it.
+  final ValueChanged<StarterProject>? onProjectChanged;
+
+  /// Where the Projects Studio reads the book roster from. Threaded through
+  /// the shell the same way [manuscriptStore] is, so a test can hand in an
+  /// in-memory database instead of the app-wide one.
+  final ProjectRosterStore? rosterStore;
 
   @override
   State<AuthorStudioShell> createState() => _AuthorStudioShellState();
@@ -804,8 +864,43 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     setState(() => focusModeEnabled = !focusModeEnabled);
   }
 
+  /// Opens the command palette and follows wherever the author taps.
+  Future<void> _openCommandPalette() async {
+    final navigator = Navigator.of(context);
+    await CommandPalette.show(
+      context,
+      projectId: widget.project.id,
+      onNavigate: (SearchNavigationTarget target) {
+        navigator.pop();
+        _selectSection(studioSectionFor(target.destination));
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // The command palette is reachable from every Studio, so its shortcut lives
+    // above the section switcher rather than inside any one view. Key events
+    // travel up the focus chain, so a Studio that has claimed focus for its own
+    // bindings — Manuscript Studio does — still lets Ctrl+K through.
+    //
+    // Both `control` and `meta` are bound. The top bar has advertised Ctrl+K
+    // since before anything listened for it.
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _openCommandPalette,
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+            _openCommandPalette,
+      },
+      child: Focus(
+        autofocus: true,
+        child: _buildShell(context),
+      ),
+    );
+  }
+
+  Widget _buildShell(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 980;
@@ -815,7 +910,10 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
         final content = AnimatedSwitcher(
           duration: const Duration(milliseconds: 220),
           child: _SectionView(
-            key: ValueKey(currentSection),
+            // Keyed by project as well as section: every Studio caches the
+            // project in initState, so switching books has to remount them
+            // rather than leave the previous book's services mounted.
+            key: ValueKey('${currentSection.name}:${widget.project.id}'),
             section: currentSection,
             project: widget.project,
             startSprint: widget.openFirstDraft && widget.startSprint,
@@ -827,6 +925,8 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
             onThemeChanged: widget.onThemeChanged,
             manuscriptStore: widget.manuscriptStore,
             onLogout: widget.onLogout,
+            onProjectChanged: widget.onProjectChanged,
+            rosterStore: widget.rosterStore,
             graphFocusId: graphFocusId,
             studioFocusId: studioFocusId,
             minimalFocusMode:
@@ -922,6 +1022,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
                         _TopBar(
                           section: currentSection,
                           onNavigate: _selectSection,
+                          onOpenCommands: _openCommandPalette,
                           focusMode: false,
                           onToggleFocus: _toggleFocusMode,
                         ),
@@ -964,6 +1065,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.section,
+    required this.onOpenCommands,
     required this.onNavigate,
     required this.focusMode,
     required this.onToggleFocus,
@@ -975,6 +1077,7 @@ class _TopBar extends StatelessWidget {
   /// section alone and is unaffected.
   final void Function(StudioSection section, {String? focusRecordId})
       onNavigate;
+  final VoidCallback onOpenCommands;
   final bool focusMode;
   final VoidCallback onToggleFocus;
 
@@ -983,11 +1086,11 @@ class _TopBar extends StatelessWidget {
     final theme = Theme.of(context);
     final actionButtons = <Widget>[
       _HeaderActionButton(
-        icon: Icons.search_rounded,
-        label: 'Search',
+        icon: Icons.bolt_outlined,
+        label: 'Command',
         shortcut: 'Ctrl+K',
-        tooltip: 'Open search',
-        onPressed: () => onNavigate(StudioSection.search),
+        tooltip: 'Ask anything about this project',
+        onPressed: onOpenCommands,
       ),
       _HeaderActionButton(
         icon: Icons.notifications_none_rounded,
@@ -1497,12 +1600,21 @@ class _SectionView extends StatelessWidget {
     required this.manuscriptStore,
     this.onLogout,
     this.minimalFocusMode = false,
+    this.onProjectChanged,
+    this.rosterStore,
     this.graphFocusId,
     this.studioFocusId,
   });
 
   final StudioSection section;
   final StarterProject project;
+
+  /// Called when the author opens a different project from the Projects
+  /// Studio. The shell rebuilds around it.
+  final ValueChanged<StarterProject>? onProjectChanged;
+
+  /// Where the Projects Studio reads the roster from; a test seam.
+  final ProjectRosterStore? rosterStore;
   final bool startSprint;
   /// Section routing. [focusRecordId] names the record a Studio asked to open,
   /// which only the Knowledge Graph currently uses; every other caller passes a
@@ -1658,7 +1770,11 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
-        StudioSection.search => SearchStudioView(project: project),
+        StudioSection.search => SearchStudioView(
+            project: project,
+            onNavigate: (target) =>
+                onNavigate(studioSectionFor(target.destination)),
+          ),
         StudioSection.statistics => StatisticsStudioView(project: project),
         StudioSection.analytics => AnalyticsStudioView(
             project: project,
@@ -1669,7 +1785,12 @@ class _SectionView extends StatelessWidget {
             ),
           ),
         StudioSection.backup => const BackupHealthView(),
-        StudioSection.projects => const _ProjectsStudioView(),
+        StudioSection.projects => _ProjectsStudioView(
+            activeProjectId: project.id,
+            onProjectChanged: onProjectChanged,
+            manuscriptStore: manuscriptStore,
+            rosterStore: rosterStore,
+          ),
         StudioSection.ideas => const RecordStudioView(
             collection: 'ideas',
             title: 'Ideas',
@@ -1739,7 +1860,17 @@ class _SectionView extends StatelessWidget {
               focusRecordId: request.recordId,
             ),
           ),
-        StudioSection.map => MapStudioView(project: project),
+        StudioSection.map => MapStudioView(
+            project: project,
+            onNavigate: (destination) => onNavigate(
+              switch (destination) {
+                MapStudioDestination.characters => StudioSection.characters,
+                MapStudioDestination.timeline => StudioSection.timeline,
+                MapStudioDestination.manuscript => StudioSection.manuscript,
+                MapStudioDestination.world => StudioSection.world,
+              },
+            ),
+          ),
         StudioSection.plot => PlotStudioView(
           project: project,
           service: PlotService(
@@ -2010,434 +2141,212 @@ class _ResearchSidePanelState extends State<_ResearchSidePanel> {
   }
 }
 
-class _ProjectRecord {
-  const _ProjectRecord({
-    required this.id,
-    required this.title,
-    required this.template,
-    required this.status,
-    required this.goalWords,
-    required this.currentWords,
-    required this.description,
-    required this.updatedAt,
+/// The Projects Studio — the author's book roster.
+///
+/// This screen used to be a mock: two hardcoded projects held in memory that
+/// no amount of clicking ever persisted. It is now backed by
+/// [ProjectRosterStore], which is what lets AuthorOS hold more than one book
+/// at a time and what makes a series something real to measure.
+///
+/// Word counts here come from [ManuscriptStore.peekStudio], never
+/// `loadStudio`: opening a list of projects must not create a manuscript for
+/// every project in it.
+class _ProjectsStudioView extends StatefulWidget {
+  const _ProjectsStudioView({
+    required this.activeProjectId,
+    this.onProjectChanged,
+    this.rosterStore,
+    this.manuscriptStore = const ManuscriptStore(),
   });
 
-  final String id;
-  final String title;
-  final String template;
-  final String status;
-  final int goalWords;
-  final int currentWords;
-  final String description;
-  final DateTime updatedAt;
+  /// The project the shell currently has open, marked as active in the list.
+  final String activeProjectId;
 
-  _ProjectRecord copyWith({
-    String? title,
-    String? template,
-    String? status,
-    int? goalWords,
-    int? currentWords,
-    String? description,
-    DateTime? updatedAt,
-  }) {
-    return _ProjectRecord(
-      id: id,
-      title: title ?? this.title,
-      template: template ?? this.template,
-      status: status ?? this.status,
-      goalWords: goalWords ?? this.goalWords,
-      currentWords: currentWords ?? this.currentWords,
-      description: description ?? this.description,
-      updatedAt: updatedAt ?? this.updatedAt,
-    );
-  }
-}
+  /// Called when the author opens a different project. The shell rebuilds
+  /// around it; this view does not switch anything by itself.
+  final ValueChanged<StarterProject>? onProjectChanged;
 
-class _ProjectsStudioView extends StatefulWidget {
-  const _ProjectsStudioView();
+  final ProjectRosterStore? rosterStore;
+  final ManuscriptStore manuscriptStore;
 
   @override
   State<_ProjectsStudioView> createState() => _ProjectsStudioViewState();
 }
 
 class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
-  final List<String> templates = const [
+  static const projectTypes = <String>[
     'Novel',
     'Memoir',
     'Short Story',
     'Screenplay',
-    'Series Planning',
   ];
 
-  final List<_ProjectRecord> projects = [];
-  final TextEditingController searchController = TextEditingController();
+  late final ProjectRosterStore rosterStore;
 
-  String templateFilter = 'All';
-  String statusFilter = 'All';
-  String selectedProjectId = '';
-  String authorName = 'Ari Rowan';
-  String authorFocus = 'Fantasy romance and literary thrillers';
-  String authorBio =
-      'I write character-led stories with strong atmosphere, sharp stakes, and hopeful endings.';
-  String avatarPath = '';
-  bool publicProfile = true;
+  List<ProjectRosterEntry> roster = const [];
+  List<WritingSeries> seriesList = const [];
+
+  /// Words already written per project, read without writing anything.
+  Map<String, int> wordCounts = const {};
+
+  bool loading = true;
+  String? loadError;
 
   @override
   void initState() {
     super.initState();
-    _loadAuthorProfile();
-    projects.addAll([
-      _ProjectRecord(
-        id: 'project_1',
-        title: 'Ash and Lanterns',
-        template: 'Novel',
-        status: 'Active',
-        goalWords: 90000,
-        currentWords: 18420,
-        description: 'Fantasy novel draft with three-act structure starter.',
-        updatedAt: DateTime.now().subtract(const Duration(hours: 5)),
-      ),
-      _ProjectRecord(
-        id: 'project_2',
-        title: 'City of Quiet Bridges',
-        template: 'Series Planning',
-        status: 'Active',
-        goalWords: 120000,
-        currentWords: 42000,
-        description: 'Series bible and book one outline.',
-        updatedAt: DateTime.now().subtract(const Duration(days: 1)),
-      ),
-    ]);
-    selectedProjectId = projects.first.id;
+    rosterStore = widget.rosterStore ?? const ProjectRosterStore();
+    _load();
   }
 
-  Future<void> _loadAuthorProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) {
-      return;
-    }
+  Future<void> _load() async {
     setState(() {
-      authorName = prefs.getString('author_studio.profile.name') ?? authorName;
-      authorFocus =
-          prefs.getString('author_studio.profile.focus') ?? authorFocus;
-      authorBio = prefs.getString('author_studio.profile.bio') ?? authorBio;
-      avatarPath =
-          prefs.getString('author_studio.profile.avatar_path') ?? avatarPath;
-      publicProfile =
-          prefs.getBool('author_studio.profile.public') ?? publicProfile;
+      loading = true;
+      loadError = null;
     });
-  }
-
-  @override
-  void dispose() {
-    searchController.dispose();
-    super.dispose();
-  }
-
-  List<_ProjectRecord> get filteredProjects {
-    final query = searchController.text.trim().toLowerCase();
-    return projects.where((project) {
-      if (templateFilter != 'All' && project.template != templateFilter) {
-        return false;
+    try {
+      final entries = await rosterStore.load();
+      final allSeries = await rosterStore.allSeries();
+      final counts = <String, int>{};
+      for (final entry in entries) {
+        // peekStudio, never loadStudio: listing projects must not bring
+        // manuscripts into existence for the ones never opened.
+        final manuscript =
+            await widget.manuscriptStore.peekStudio(entry.projectId);
+        counts[entry.projectId] = manuscript?.wordCount ?? 0;
       }
-      if (statusFilter != 'All' && project.status != statusFilter) {
-        return false;
-      }
-      if (query.isEmpty) {
-        return true;
-      }
-      return ('${project.title} ${project.description}'.toLowerCase())
-          .contains(query);
-    }).toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-  }
-
-  _ProjectRecord? get selectedProject {
-    for (final project in projects) {
-      if (project.id == selectedProjectId) {
-        return project;
-      }
-    }
-    return null;
-  }
-
-  String templateStarterText(String template) {
-    switch (template) {
-      case 'Novel':
-        return 'Creates act structure, chapter placeholders, character sheets, and beat checklist.';
-      case 'Memoir':
-        return 'Creates memory timeline, voice notes area, and chapter reflection prompts.';
-      case 'Short Story':
-        return 'Creates compact arc scaffold, scene beats, and revision checklist.';
-      case 'Screenplay':
-        return 'Creates act breaks, slugline prompts, and dialogue pacing checklist.';
-      default:
-        return 'Creates multi-book map, shared world entries, and arc tracking.';
-    }
-  }
-
-  Future<void> openProjectEditor({_ProjectRecord? existing}) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final descriptionController =
-        TextEditingController(text: existing?.description ?? '');
-    final goalController = TextEditingController(
-      text: existing?.goalWords.toString() ?? '90000',
-    );
-    var template = existing?.template ?? templates.first;
-    var status = existing?.status ?? 'Active';
-
-    final save = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text(existing == null ? 'Create Project' : 'Edit Project'),
-          content: SizedBox(
-            width: 460,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleController,
-                    decoration:
-                        const InputDecoration(labelText: 'Project Title'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: template,
-                    items: templates
-                        .map((value) =>
-                            DropdownMenuItem(value: value, child: Text(value)))
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setModalState(() => template = value);
-                      }
-                    },
-                    decoration: const InputDecoration(labelText: 'Template'),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      templateStarterText(template),
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Colors.white60),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: goalController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Word Goal'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: status,
-                    items: const [
-                      DropdownMenuItem(value: 'Active', child: Text('Active')),
-                      DropdownMenuItem(
-                          value: 'Archived', child: Text('Archived')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setModalState(() => status = value);
-                      }
-                    },
-                    decoration: const InputDecoration(labelText: 'Status'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: descriptionController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Description'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  return;
-                }
-                Navigator.of(context).pop(true);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (save == true) {
+      if (!mounted) return;
       setState(() {
-        final now = DateTime.now();
-        final goal = int.tryParse(goalController.text.trim()) ?? 0;
-        if (existing == null) {
-          final project = _ProjectRecord(
-            id: 'project_${now.microsecondsSinceEpoch}',
-            title: titleController.text.trim(),
-            template: template,
-            status: status,
-            goalWords: goal,
-            currentWords: 0,
-            description: descriptionController.text.trim(),
-            updatedAt: now,
-          );
-          projects.add(project);
-          selectedProjectId = project.id;
-        } else {
-          final index =
-              projects.indexWhere((project) => project.id == existing.id);
-          if (index >= 0) {
-            projects[index] = projects[index].copyWith(
-              title: titleController.text.trim(),
-              template: template,
-              status: status,
-              goalWords: goal,
-              description: descriptionController.text.trim(),
-              updatedAt: now,
-            );
-          }
-        }
+        roster = entries;
+        seriesList = allSeries;
+        wordCounts = counts;
+        loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        loadError = 'Projects could not be loaded: $error';
+        loading = false;
       });
     }
-
-    titleController.dispose();
-    descriptionController.dispose();
-    goalController.dispose();
   }
 
-  void deleteProject(_ProjectRecord project) {
-    setState(() {
-      projects.removeWhere((item) => item.id == project.id);
-      if (selectedProjectId == project.id) {
-        selectedProjectId = projects.isNotEmpty ? projects.first.id : '';
-      }
-    });
+  List<ProjectRosterEntry> _standaloneProjects() =>
+      roster.where((entry) => !entry.isBook).toList();
+
+  List<ProjectRosterEntry> _booksOf(String seriesId) {
+    final books =
+        roster.where((entry) => entry.seriesId == seriesId).toList()
+          ..sort((a, b) =>
+              (a.seriesPosition ?? 0).compareTo(b.seriesPosition ?? 0));
+    return books;
+  }
+
+  Future<void> _createProject() async {
+    final created = await showDialog<_NewProjectResult>(
+      context: context,
+      builder: (context) => _NewProjectDialog(series: seriesList),
+    );
+    if (created == null || !mounted) return;
+
+    final project = StarterProject(
+      id: 'project_${DateTime.now().microsecondsSinceEpoch}',
+      title: created.title,
+      genre: created.genre,
+      projectType: created.projectType,
+      wordGoal: created.wordGoal,
+      acts: const [],
+      chapters: const [],
+      characterSheets: const [],
+      beatChecklist: const [],
+      firstSceneTitle: 'Opening Scene',
+    );
+    await rosterStore.save(project);
+    final seriesId = created.seriesId;
+    if (seriesId != null) {
+      await rosterStore.addBookToSeries(
+        projectId: project.id,
+        seriesId: seriesId,
+      );
+    }
+    await _load();
+  }
+
+  Future<void> _createSeries() async {
+    final created = await showDialog<WritingSeries>(
+      context: context,
+      builder: (context) => const _NewSeriesDialog(),
+    );
+    if (created == null || !mounted) return;
+    await rosterStore.saveSeries(created);
+    await _load();
+  }
+
+  Future<void> _openProject(ProjectRosterEntry entry) async {
+    // The shell owns which project is open; this view only asks.
+    widget.onProjectChanged?.call(entry.project);
+  }
+
+  Future<void> _assignToSeries(ProjectRosterEntry entry) async {
+    if (seriesList.isEmpty) return;
+    final seriesId = await showDialog<String>(
+      context: context,
+      builder: (context) => _PickSeriesDialog(series: seriesList),
+    );
+    if (seriesId == null || !mounted) return;
+    await rosterStore.addBookToSeries(
+      projectId: entry.projectId,
+      seriesId: seriesId,
+    );
+    await _load();
+  }
+
+  Future<void> _removeFromSeries(ProjectRosterEntry entry) async {
+    await rosterStore.removeBookFromSeries(entry.projectId);
+    await _load();
+  }
+
+  Future<void> _move(ProjectRosterEntry entry, int delta) async {
+    final seriesId = entry.seriesId;
+    if (seriesId == null) return;
+    final books = _booksOf(seriesId).map((book) => book.projectId).toList();
+    final index = books.indexOf(entry.projectId);
+    final target = index + delta;
+    if (index < 0 || target < 0 || target >= books.length) return;
+    books
+      ..removeAt(index)
+      ..insert(target, entry.projectId);
+    await rosterStore.reorderBooks(seriesId, books);
+    await _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    final visibleProjects = filteredProjects;
+    final theme = Theme.of(context);
+    if (loading) {
+      return const Padding(
+        key: Key('projects-loading'),
+        padding: EdgeInsets.symmetric(vertical: 96),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final error = loadError;
+    if (error != null) {
+      return Column(
+        key: const Key('projects-error'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(error, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 12),
+          TextButton(onPressed: _load, child: const Text('Retry')),
+        ],
+      );
+    }
 
     return Column(
+      key: const Key('projects-studio'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Row(
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withValues(alpha: 0.6),
-                      width: 2,
-                    ),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: LocalImage(
-                    path: avatarPath,
-                    width: 72,
-                    height: 72,
-                    fallback: Container(
-                      alignment: Alignment.center,
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      child: Text(
-                        authorName.isNotEmpty
-                            ? authorName[0].toUpperCase()
-                            : 'A',
-                        style: const TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              authorName,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: publicProfile
-                                  ? Colors.green.withValues(alpha: 0.14)
-                                  : Colors.orange.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              publicProfile
-                                  ? 'Public profile'
-                                  : 'Private profile',
-                              style: TextStyle(
-                                color: publicProfile
-                                    ? Colors.greenAccent
-                                    : Colors.orangeAccent,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        authorFocus,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white70,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        authorBio,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white60,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
@@ -2445,230 +2354,627 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Projects Studio',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                    'Projects',
+                    style: theme.textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
-                    'Template-aware project creation and project hub workflows.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
-                        ),
+                    'Every book you are writing, and the series they belong '
+                    'to.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
             ),
+            TextButton.icon(
+              key: const Key('projects-series-new'),
+              onPressed: _createSeries,
+              icon: const Icon(Icons.collections_bookmark_outlined, size: 18),
+              label: const Text('New series'),
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
-              onPressed: () => openProjectEditor(),
-              icon: const Icon(Icons.add),
-              label: const Text('New Project'),
+              key: const Key('projects-new'),
+              onPressed: _createProject,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('New project'),
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            SizedBox(
-              width: 280,
-              child: TextField(
-                controller: searchController,
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                    labelText: 'Search projects', isDense: true),
-              ),
+        const SizedBox(height: 18),
+        if (roster.isEmpty)
+          Container(
+            key: const Key('projects-empty'),
+            width: double.infinity,
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
-            SizedBox(
-              width: 190,
-              child: DropdownButtonFormField<String>(
-                initialValue: templateFilter,
-                decoration:
-                    const InputDecoration(labelText: 'Template', isDense: true),
-                items: ['All', ...templates]
-                    .map((value) =>
-                        DropdownMenuItem(value: value, child: Text(value)))
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => templateFilter = value ?? 'All'),
-              ),
+            child: Text(
+              'No projects yet. Create one to start writing, and group several '
+              'into a series to track them together.',
+              style: theme.textTheme.bodyMedium,
             ),
-            SizedBox(
-              width: 170,
-              child: DropdownButtonFormField<String>(
-                initialValue: statusFilter,
-                decoration:
-                    const InputDecoration(labelText: 'Status', isDense: true),
-                items: const [
-                  DropdownMenuItem(value: 'All', child: Text('All')),
-                  DropdownMenuItem(value: 'Active', child: Text('Active')),
-                  DropdownMenuItem(value: 'Archived', child: Text('Archived')),
-                ],
-                onChanged: (value) =>
-                    setState(() => statusFilter = value ?? 'All'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Column(
-                children: [
-                  for (final project in visibleProjects)
-                    Card(
-                      child: ListTile(
-                        onTap: () =>
-                            setState(() => selectedProjectId = project.id),
-                        title: Text(project.title),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                                '${project.template} | ${project.status} | Goal ${project.goalWords}'),
-                            const SizedBox(height: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.05),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                'Author: $authorName',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Colors.white70,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        trailing: Wrap(
-                          spacing: 6,
-                          children: [
-                            IconButton(
-                              tooltip: 'Edit',
-                              onPressed: () =>
-                                  openProjectEditor(existing: project),
-                              icon: const Icon(Icons.edit_outlined),
-                            ),
-                            IconButton(
-                              tooltip: project.status == 'Archived'
-                                  ? 'Restore'
-                                  : 'Archive',
-                              onPressed: () {
-                                setState(() {
-                                  final index = projects.indexWhere(
-                                      (item) => item.id == project.id);
-                                  if (index >= 0) {
-                                    projects[index] = projects[index].copyWith(
-                                      status: project.status == 'Archived'
-                                          ? 'Active'
-                                          : 'Archived',
-                                      updatedAt: DateTime.now(),
-                                    );
-                                  }
-                                });
-                              },
-                              icon: Icon(project.status == 'Archived'
-                                  ? Icons.unarchive_outlined
-                                  : Icons.archive_outlined),
-                            ),
-                            IconButton(
-                              tooltip: 'Delete',
-                              onPressed: () => deleteProject(project),
-                              icon: const Icon(Icons.delete_outline),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (visibleProjects.isEmpty)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text(
-                          'No projects match your filters.',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyLarge
-                              ?.copyWith(color: Colors.white70),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              flex: 2,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: selectedProject == null
-                      ? const Text('Select a project to inspect details.')
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              selectedProject!.title,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text('Template: ${selectedProject!.template}'),
-                            Text('Status: ${selectedProject!.status}'),
-                            Text('Word Goal: ${selectedProject!.goalWords}'),
-                            Text(
-                                'Current Words: ${selectedProject!.currentWords}'),
-                            const SizedBox(height: 8),
-                            LinearProgressIndicator(
-                              value: selectedProject!.goalWords == 0
-                                  ? 0
-                                  : (selectedProject!.currentWords /
-                                          selectedProject!.goalWords)
-                                      .clamp(0, 1),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              selectedProject!.description.isEmpty
-                                  ? 'No description yet.'
-                                  : selectedProject!.description,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              templateStarterText(selectedProject!.template),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: Colors.white54),
-                            ),
-                          ],
-                        ),
+          ),
+        for (final series in seriesList) ...[
+          _SeriesGroup(
+            key: Key('projects-series-${series.id}'),
+            series: series,
+            books: _booksOf(series.id),
+            activeProjectId: widget.activeProjectId,
+            wordCounts: wordCounts,
+            onOpen: _openProject,
+            onRemoveFromSeries: _removeFromSeries,
+            onMove: _move,
+          ),
+          const SizedBox(height: 18),
+        ],
+        if (_standaloneProjects().isNotEmpty) ...[
+          Text(
+            'Standalone projects',
+            style: theme.textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          Column(
+            key: const Key('projects-roster'),
+            children: [
+              for (final entry in _standaloneProjects()) ...[
+                _ProjectTile(
+                  entry: entry,
+                  isActive: entry.projectId == widget.activeProjectId,
+                  wordCount: wordCounts[entry.projectId] ?? 0,
+                  onOpen: () => _openProject(entry),
+                  onAssign:
+                      seriesList.isEmpty ? null : () => _assignToSeries(entry),
+                ),
+                const SizedBox(height: 10),
+              ],
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// One series and its books, in reading order.
+class _SeriesGroup extends StatelessWidget {
+  const _SeriesGroup({
+    super.key,
+    required this.series,
+    required this.books,
+    required this.activeProjectId,
+    required this.wordCounts,
+    required this.onOpen,
+    required this.onRemoveFromSeries,
+    required this.onMove,
+  });
+
+  final WritingSeries series;
+  final List<ProjectRosterEntry> books;
+  final String activeProjectId;
+  final Map<String, int> wordCounts;
+  final Future<void> Function(ProjectRosterEntry) onOpen;
+  final Future<void> Function(ProjectRosterEntry) onRemoveFromSeries;
+  final Future<void> Function(ProjectRosterEntry, int) onMove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  series.name,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
+              Text(
+                '${books.length} ${books.length == 1 ? 'book' : 'books'}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (books.isEmpty)
+            Text(
+              'No books in this series yet.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            for (final book in books) ...[
+              _ProjectTile(
+                entry: book,
+                isActive: book.projectId == activeProjectId,
+                wordCount: wordCounts[book.projectId] ?? 0,
+                onOpen: () => onOpen(book),
+                onUnassign: () => onRemoveFromSeries(book),
+                onMoveUp: book == books.first ? null : () => onMove(book, -1),
+                onMoveDown: book == books.last ? null : () => onMove(book, 1),
+              ),
+              const SizedBox(height: 10),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One project in the list.
+class _ProjectTile extends StatelessWidget {
+  const _ProjectTile({
+    required this.entry,
+    required this.isActive,
+    required this.wordCount,
+    required this.onOpen,
+    this.onAssign,
+    this.onUnassign,
+    this.onMoveUp,
+    this.onMoveDown,
+  });
+
+  final ProjectRosterEntry entry;
+  final bool isActive;
+  final int wordCount;
+  final VoidCallback onOpen;
+  final VoidCallback? onAssign;
+  final VoidCallback? onUnassign;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final target = entry.targetWords;
+    return Container(
+      key: Key('projects-roster-entry-${entry.projectId}'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          if (entry.bookNumber != null) ...[
+            Text(
+              'BOOK ${entry.bookNumber}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        entry.title,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    if (isActive) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        key: Key('projects-active-badge-${entry.projectId}'),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Open',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  target > 0
+                      ? '${formatWorldBoardCount(wordCount)} / '
+                          '${formatWorldBoardCount(target)} words'
+                      : '${formatWorldBoardCount(wordCount)} words · '
+                          'no word goal',
+                  key: Key('projects-words-${entry.projectId}'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onMoveUp != null || onMoveDown != null) ...[
+            IconButton(
+              key: Key('projects-series-move-up-${entry.projectId}'),
+              onPressed: onMoveUp,
+              icon: const Icon(Icons.arrow_upward, size: 18),
+              tooltip: 'Move earlier',
+            ),
+            IconButton(
+              key: Key('projects-series-move-down-${entry.projectId}'),
+              onPressed: onMoveDown,
+              icon: const Icon(Icons.arrow_downward, size: 18),
+              tooltip: 'Move later',
             ),
           ],
+          if (onAssign != null)
+            TextButton(
+              key: Key('projects-assign-${entry.projectId}'),
+              onPressed: onAssign,
+              child: const Text('Add to series'),
+            ),
+          if (onUnassign != null)
+            TextButton(
+              key: Key('projects-unassign-${entry.projectId}'),
+              onPressed: onUnassign,
+              child: const Text('Remove'),
+            ),
+          const SizedBox(width: 4),
+          FilledButton.tonal(
+            key: Key('projects-open-${entry.projectId}'),
+            onPressed: isActive ? null : onOpen,
+            child: const Text('Open'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the new-project dialog hands back.
+class _NewProjectResult {
+  const _NewProjectResult({
+    required this.title,
+    required this.genre,
+    required this.projectType,
+    required this.wordGoal,
+    this.seriesId,
+  });
+
+  final String title;
+  final String genre;
+  final String projectType;
+  final int wordGoal;
+  final String? seriesId;
+}
+
+class _NewProjectDialog extends StatefulWidget {
+  const _NewProjectDialog({required this.series});
+
+  final List<WritingSeries> series;
+
+  @override
+  State<_NewProjectDialog> createState() => _NewProjectDialogState();
+}
+
+class _NewProjectDialogState extends State<_NewProjectDialog> {
+  final formKey = GlobalKey<FormState>();
+  final titleController = TextEditingController();
+  final genreController = TextEditingController(text: 'Fantasy');
+  final goalController = TextEditingController(text: '80000');
+
+  String projectType = _ProjectsStudioViewState.projectTypes.first;
+  String? seriesId;
+
+  /// True until the author edits the goal themselves, so choosing a series can
+  /// still seed the field but never overwrite a number they typed.
+  bool goalUntouched = true;
+
+  @override
+  void initState() {
+    super.initState();
+    goalController.addListener(() {
+      if (goalController.text != '80000') goalUntouched = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    genreController.dispose();
+    goalController.dispose();
+    super.dispose();
+  }
+
+  void _pickSeries(String? id) {
+    setState(() {
+      seriesId = id;
+      if (!goalUntouched || id == null) return;
+      final series =
+          widget.series.where((entry) => entry.id == id).firstOrNull;
+      if (series != null && series.hasDefaultTarget) {
+        goalController.text = '${series.defaultTargetWords}';
+      }
+    });
+  }
+
+  void _save() {
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(
+      _NewProjectResult(
+        title: titleController.text.trim(),
+        genre: genreController.text.trim().isEmpty
+            ? 'Fantasy'
+            : genreController.text.trim(),
+        projectType: projectType,
+        wordGoal: int.parse(goalController.text.trim()),
+        seriesId: seriesId,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const Key('projects-new-dialog'),
+      title: const Text('New project'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                key: const Key('projects-new-title-field'),
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'Give the project a title.'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const Key('projects-new-genre-field'),
+                controller: genreController,
+                decoration: const InputDecoration(
+                  labelText: 'Genre',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                key: const Key('projects-new-type-field'),
+                initialValue: projectType,
+                decoration: const InputDecoration(
+                  labelText: 'Type',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final type in _ProjectsStudioViewState.projectTypes)
+                    DropdownMenuItem(value: type, child: Text(type)),
+                ],
+                onChanged: (value) => setState(
+                  () => projectType = value ?? projectType,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const Key('projects-new-goal-field'),
+                controller: goalController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Word goal',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final parsed = int.tryParse((value ?? '').trim());
+                  if (parsed == null) {
+                    return 'Enter a whole number of words.';
+                  }
+                  if (parsed < 0) return 'A goal cannot be negative.';
+                  return null;
+                },
+              ),
+              if (widget.series.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  key: const Key('projects-new-series-field'),
+                  initialValue: seriesId,
+                  decoration: const InputDecoration(
+                    labelText: 'Series (optional)',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Standalone'),
+                    ),
+                    for (final series in widget.series)
+                      DropdownMenuItem<String?>(
+                        value: series.id,
+                        child: Text(series.name),
+                      ),
+                  ],
+                  onChanged: _pickSeries,
+                ),
+              ],
+            ],
+          ),
         ),
+      ),
+      actions: [
+        TextButton(
+          key: const Key('projects-new-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('projects-new-save'),
+          onPressed: _save,
+          child: const Text('Create project'),
+        ),
+      ],
+    );
+  }
+}
+
+class _NewSeriesDialog extends StatefulWidget {
+  const _NewSeriesDialog();
+
+  @override
+  State<_NewSeriesDialog> createState() => _NewSeriesDialogState();
+}
+
+class _NewSeriesDialogState extends State<_NewSeriesDialog> {
+  final formKey = GlobalKey<FormState>();
+  final nameController = TextEditingController();
+  final goalController = TextEditingController(
+    text: '${WritingSeries.defaultTargetWordsSeed}',
+  );
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    goalController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(
+      WritingSeries(
+        id: WritingSeriesId.create(),
+        name: nameController.text.trim(),
+        defaultTargetWords: int.parse(goalController.text.trim()),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      key: const Key('projects-series-dialog'),
+      title: const Text('New series'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextFormField(
+                key: const Key('projects-series-name-field'),
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Series name',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'Give the series a name.'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const Key('projects-series-goal-field'),
+                controller: goalController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Default word goal per book',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final parsed = int.tryParse((value ?? '').trim());
+                  if (parsed == null) {
+                    return 'Enter a whole number of words.';
+                  }
+                  if (parsed < 0) return 'A goal cannot be negative.';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'A new book starts from this goal. Each book keeps its own '
+                'target afterwards, so book five can be longer than book one.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const Key('projects-series-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('projects-series-save'),
+          onPressed: _save,
+          child: const Text('Create series'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PickSeriesDialog extends StatelessWidget {
+  const _PickSeriesDialog({required this.series});
+
+  final List<WritingSeries> series;
+
+  @override
+  Widget build(BuildContext context) {
+    return SimpleDialog(
+      key: const Key('projects-pick-series-dialog'),
+      title: const Text('Add to series'),
+      children: [
+        for (final entry in series)
+          SimpleDialogOption(
+            key: Key('projects-pick-series-${entry.id}'),
+            onPressed: () => Navigator.of(context).pop(entry.id),
+            child: Text(entry.name),
+          ),
       ],
     );
   }

@@ -164,6 +164,47 @@ class AppSupabase {
     }, onConflict: 'user_id,project_id');
   }
 
+  /// Sync records changed at or after [since], oldest first.
+  ///
+  /// The read half of the sync protocol. Until this existed the app only ever
+  /// wrote to `sync_records` and never looked at it, which is why a second
+  /// device saw nothing.
+  ///
+  /// Ordered ascending by `updated_at` so the caller can advance a cursor as
+  /// it goes, and bounded by [limit] so one very busy account cannot pull an
+  /// unbounded page. Returns an empty list — never throws — when Supabase is
+  /// unconfigured or the author is signed out, matching [loadProjects].
+  static Future<List<Map<String, dynamic>>> loadSyncRecords({
+    DateTime? since,
+    int limit = 500,
+  }) async {
+    if (!hasCredentials || !isSignedIn) {
+      return const [];
+    }
+
+    final userId = client.auth.currentUser?.id;
+    if (userId == null || userId.isEmpty) {
+      return const [];
+    }
+
+    var query = client.from('sync_records').select().eq('user_id', userId);
+    if (since != null) {
+      // At-or-after, not after: a record sharing the cursor's exact instant
+      // would otherwise never be seen. Re-reading one row is harmless because
+      // applying a record the device already has is a no-op.
+      query = query.gte('updated_at', since.toUtc().toIso8601String());
+    }
+
+    final response =
+        await query.order('updated_at', ascending: true).limit(limit);
+
+    final rows = response as List<dynamic>? ?? const <dynamic>[];
+    return rows
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
   static Future<void> saveSyncRecord({
     required String recordType,
     required String recordId,

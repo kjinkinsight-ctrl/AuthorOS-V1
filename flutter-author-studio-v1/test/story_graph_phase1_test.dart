@@ -111,6 +111,7 @@ Future<(AuthorOsDatabase, DriftConnectedDomainRepository)> _fixture() async {
     sourceId: 'kali',
     targetId: 'cassian',
     typeId: 'relatedTo',
+    direction: RecordLinkDirection.undirected,
     timestamp: _timestamp,
   );
   await engineA.connect(
@@ -135,6 +136,7 @@ Future<(AuthorOsDatabase, DriftConnectedDomainRepository)> _fixture() async {
     sourceId: 'kali',
     targetId: 'deleted-ghost',
     typeId: 'relatedTo',
+    direction: RecordLinkDirection.undirected,
     timestamp: _timestamp,
   );
 
@@ -153,6 +155,7 @@ Future<(AuthorOsDatabase, DriftConnectedDomainRepository)> _fixture() async {
     sourceId: 'bram',
     targetId: 'bree',
     typeId: 'relatedTo',
+    direction: RecordLinkDirection.undirected,
     timestamp: _timestamp,
   );
 
@@ -479,6 +482,7 @@ void main() {
         sourceId: 'endovier',
         targetId: 'kali',
         typeId: 'relatedTo',
+        direction: RecordLinkDirection.undirected,
         timestamp: _timestamp,
       );
 
@@ -517,8 +521,8 @@ void main() {
     });
 
     test('negative depth is rejected as a programmer error', () async {
-      expect(
-        () => graph.traverse(
+      await expectLater(
+        graph.traverse(
           _id('kali'),
           options: const StoryGraphTraversalOptions(maxDepth: -1),
         ),
@@ -527,8 +531,8 @@ void main() {
     });
 
     test('a zero node budget is rejected', () async {
-      expect(
-        () => graph.traverse(
+      await expectLater(
+        graph.traverse(
           _id('kali'),
           options: const StoryGraphTraversalOptions(maxNodes: 0),
         ),
@@ -698,6 +702,7 @@ void main() {
         sourceId: 'endovier',
         targetId: 'kali',
         typeId: 'relatedTo',
+        direction: RecordLinkDirection.undirected,
         timestamp: _timestamp,
       );
 

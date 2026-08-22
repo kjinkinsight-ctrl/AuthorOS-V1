@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'author_profile_store.dart';
@@ -8,8 +9,10 @@ import 'analytics_service.dart';
 import 'analytics_studio_view.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
+import 'command_console.dart';
 import 'core/connected_domain.dart' show AuthorRecord;
-import 'core/search_models.dart' show SearchDestination;
+import 'core/search_models.dart'
+    show SearchDestination, SearchNavigationTarget;
 import 'create_profile_page.dart';
 import 'local_image.dart';
 import 'login_select_user_page.dart';
@@ -686,6 +689,24 @@ extension StudioSectionData on StudioSection {
       };
 }
 
+/// The Studio that owns [destination].
+///
+/// The section switches inside `_SectionView` each carry their own fallback for
+/// `SearchDestination.record`, which is why they are not folded into this. A
+/// command result has no such context, so it routes to the record's own Studio
+/// and falls back to the World Studio, where untyped records live.
+StudioSection studioSectionFor(SearchDestination destination) =>
+    switch (destination) {
+      SearchDestination.characterStudio => StudioSection.characters,
+      SearchDestination.worldStudio => StudioSection.world,
+      SearchDestination.storyCodex => StudioSection.codex,
+      SearchDestination.timelineStudio => StudioSection.timeline,
+      SearchDestination.plotStudio => StudioSection.plot,
+      SearchDestination.manuscriptStudio => StudioSection.manuscript,
+      SearchDestination.seriesStudio => StudioSection.projects,
+      SearchDestination.record => StudioSection.world,
+    };
+
 Future<void> _defaultLogout() async {}
 
 class AuthorStudioShell extends StatefulWidget {
@@ -775,8 +796,43 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     setState(() => focusModeEnabled = !focusModeEnabled);
   }
 
+  /// Opens the command palette and follows wherever the author taps.
+  Future<void> _openCommandPalette() async {
+    final navigator = Navigator.of(context);
+    await CommandPalette.show(
+      context,
+      projectId: widget.project.id,
+      onNavigate: (SearchNavigationTarget target) {
+        navigator.pop();
+        _selectSection(studioSectionFor(target.destination));
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // The command palette is reachable from every Studio, so its shortcut lives
+    // above the section switcher rather than inside any one view. Key events
+    // travel up the focus chain, so a Studio that has claimed focus for its own
+    // bindings — Manuscript Studio does — still lets Ctrl+K through.
+    //
+    // Both `control` and `meta` are bound. The top bar has advertised Ctrl+K
+    // since before anything listened for it.
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _openCommandPalette,
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+            _openCommandPalette,
+      },
+      child: Focus(
+        autofocus: true,
+        child: _buildShell(context),
+      ),
+    );
+  }
+
+  Widget _buildShell(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 980;
@@ -891,6 +947,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
                         _TopBar(
                           section: currentSection,
                           onNavigate: _selectSection,
+                          onOpenCommands: _openCommandPalette,
                           focusMode: false,
                           onToggleFocus: _toggleFocusMode,
                         ),
@@ -933,6 +990,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.section,
+    required this.onOpenCommands,
     required this.onNavigate,
     required this.focusMode,
     required this.onToggleFocus,
@@ -940,6 +998,7 @@ class _TopBar extends StatelessWidget {
 
   final StudioSection section;
   final ValueChanged<StudioSection> onNavigate;
+  final VoidCallback onOpenCommands;
   final bool focusMode;
   final VoidCallback onToggleFocus;
 
@@ -948,11 +1007,11 @@ class _TopBar extends StatelessWidget {
     final theme = Theme.of(context);
     final actionButtons = <Widget>[
       _HeaderActionButton(
-        icon: Icons.search_rounded,
-        label: 'Search',
+        icon: Icons.bolt_outlined,
+        label: 'Command',
         shortcut: 'Ctrl+K',
-        tooltip: 'Open search',
-        onPressed: () => onNavigate(StudioSection.search),
+        tooltip: 'Ask anything about this project',
+        onPressed: onOpenCommands,
       ),
       _HeaderActionButton(
         icon: Icons.notifications_none_rounded,
@@ -1566,7 +1625,11 @@ class _SectionView extends StatelessWidget {
               },
             ),
           ),
-        StudioSection.search => SearchStudioView(project: project),
+        StudioSection.search => SearchStudioView(
+            project: project,
+            onNavigate: (target) =>
+                onNavigate(studioSectionFor(target.destination)),
+          ),
         StudioSection.statistics => StatisticsStudioView(project: project),
         StudioSection.analytics => AnalyticsStudioView(
             project: project,

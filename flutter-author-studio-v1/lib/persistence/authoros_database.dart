@@ -5,12 +5,14 @@ import 'package:drift_flutter/drift_flutter.dart';
 
 import '../core/connected_domain.dart';
 import '../core/connection_types.dart';
+import '../core/prose_document.dart';
 import '../core/record_types.dart';
 import '../core/relationship_validation.dart';
 import '../core/branch_domain.dart';
 import '../core/search_models.dart';
 import '../core/version_audit.dart';
 import '../core/project_roster_entry.dart';
+import '../core/scene_prose.dart';
 import '../core/scene_revision.dart';
 import '../core/starter_project.dart';
 import '../core/writing_goals.dart';
@@ -416,7 +418,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     driftWorker: Uri.parse('drift_worker.js'),
   );
 
-  static const currentSchemaVersion = 12;
+  static const currentSchemaVersion = 13;
   final int _schemaVersion;
 
   @override
@@ -428,6 +430,9 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           await migrator.createAll();
           if (schemaVersion >= 2) {
             await _createSearchIndex();
+          }
+          if (schemaVersion >= 13) {
+            await _createSceneProseTable();
           }
         },
         onUpgrade: (migrator, from, to) async {
@@ -516,6 +521,9 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           if (from < 12 && to >= 12) {
             await migrator.createTable(sceneRevisionRows);
           }
+          if (from < 13 && to >= 13) {
+            await _createSceneProseTable();
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -523,6 +531,48 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           await customStatement('PRAGMA synchronous = FULL');
         },
       );
+
+  /// Creates the table that holds each scene's current prose.
+  ///
+  /// Written as SQL rather than a drift table class, the same way the FTS
+  /// index below is, because prose is deliberately *not* part of the record
+  /// graph: it carries no entity row, no typed links and no branch overlay,
+  /// and a generated dataclass would invite exactly the joins this separation
+  /// exists to prevent. It also keeps the change out of the ten-thousand-line
+  /// generated file, where a schema addition is unreviewable.
+  ///
+  /// Version 13, not 10: versions 10, 11 and 12 are already spent on writing
+  /// goals, the series and project roster, and scene revisions. A migration
+  /// version is consumed the moment a build ships it, because drift records
+  /// the applied version in the user's own database file -- so reusing one
+  /// would leave anyone who had run the earlier build skipping the step
+  /// entirely and opening an app whose tables do not exist.
+  ///
+  /// There is no history table here. Scene history is `scene_revision_rows`,
+  /// and there is one of it.
+  ///
+  /// Instants are stored as milliseconds since the Unix epoch in UTC. Drift's
+  /// own `DateTimeColumn` stores whole seconds, which is coarser than an
+  /// autosave interval.
+  Future<void> _createSceneProseTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS scene_prose_rows(
+        scene_id TEXT NOT NULL PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        chapter_id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        document_json TEXT NOT NULL,
+        plain_text TEXT NOT NULL,
+        word_count INTEGER NOT NULL,
+        is_formatted INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS scene_prose_project '
+      'ON scene_prose_rows(project_id)',
+    );
+  }
 
   Future<void> _createSearchIndex() async {
     await customStatement('''
@@ -680,8 +730,184 @@ class DriftConnectedDomainRepository {
             [id, SearchEntityKind.manuscriptNode.name],
           );
         }
+        await removeSceneProse([id]);
       }
     });
+  }
+
+  // --- Scene prose --------------------------------------------------------
+  //
+  // One row per scene, holding what that scene says now. Writing a scene costs
+  // one row, not one re-serialisation of the whole manuscript, which is the
+  // point of storing prose here rather than in the manuscript blob.
+  //
+  // Current prose only. Scene history lives in `scene_revision_rows` and is
+  // reached through `SceneRevisionService`; nothing below writes it, and
+  // nothing below is a second answer to what a scene used to say.
+  //
+  // Everything no-ops on a database older than schema 13, the same way the
+  // search-index helpers no-op below schema 2, so a migration-pinned test
+  // database still opens and still answers.
+
+  bool get _supportsSceneProse => database.schemaVersion >= 13;
+
+  /// What a save needs to tell changed scenes from unchanged ones.
+  ///
+  /// Deliberately does not select `document_json`: decoding every scene in the
+  /// project on every autosave tick would reintroduce, in CPU, the
+  /// whole-manuscript cost that moving prose out of the blob removed.
+  Future<Map<String, SceneProseDigest>> sceneProseDigestsForProject(
+    String projectId,
+  ) async {
+    if (!_supportsSceneProse) return const {};
+    final rows = await database.customSelect(
+      'SELECT scene_id, chapter_id, plain_text, word_count, revision, '
+      'is_formatted, updated_at FROM scene_prose_rows WHERE project_id = ?',
+      variables: [Variable<String>(projectId)],
+    ).get();
+    return {
+      for (final row in rows)
+        row.read<String>('scene_id'): _proseDigestFromRow(row),
+    };
+  }
+
+  /// Every scene's prose in [projectId], keyed by scene id.
+  ///
+  /// One query for the whole project: loading a manuscript should not cost a
+  /// round trip per scene.
+  Future<Map<String, SceneProse>> sceneProseForProject(String projectId) async {
+    if (!_supportsSceneProse) return const {};
+    final rows = await database.customSelect(
+      'SELECT * FROM scene_prose_rows WHERE project_id = ?',
+      variables: [Variable<String>(projectId)],
+    ).get();
+    return {
+      for (final row in rows) row.read<String>('scene_id'): _proseFromRow(row),
+    };
+  }
+
+  Future<SceneProse?> sceneProseById(String sceneId) async {
+    if (!_supportsSceneProse) return null;
+    final row = await database.customSelect(
+      'SELECT * FROM scene_prose_rows WHERE scene_id = ?',
+      variables: [Variable<String>(sceneId)],
+    ).getSingleOrNull();
+    return row == null ? null : _proseFromRow(row);
+  }
+
+  /// Writes [prose], replacing whatever those scenes said before.
+  ///
+  /// The caller decides which scenes are in the list; passing only the scenes
+  /// whose text changed is what keeps an autosave proportional to the edit
+  /// rather than to the manuscript. The search index is refreshed for each one
+  /// so prose becomes findable at the moment it is saved.
+  Future<void> putSceneProse(Iterable<SceneProse> prose) async {
+    if (!_supportsSceneProse) return;
+    final entries = prose.toList();
+    if (entries.isEmpty) return;
+    await database.transaction(() async {
+      for (final entry in entries) {
+        await database.customStatement(
+          'INSERT INTO scene_prose_rows('
+          'scene_id, project_id, chapter_id, revision, document_json, '
+          'plain_text, word_count, is_formatted, updated_at) '
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          'ON CONFLICT(scene_id) DO UPDATE SET '
+          'project_id = excluded.project_id, '
+          'chapter_id = excluded.chapter_id, '
+          'revision = excluded.revision, '
+          'document_json = excluded.document_json, '
+          'plain_text = excluded.plain_text, '
+          'word_count = excluded.word_count, '
+          'is_formatted = excluded.is_formatted, '
+          'updated_at = excluded.updated_at',
+          [
+            entry.sceneId,
+            entry.projectId,
+            entry.chapterId,
+            entry.revision,
+            jsonEncode(entry.document.toJson()),
+            entry.plainText,
+            entry.wordCount,
+            entry.document.isPlainText ? 0 : 1,
+            entry.updatedAt.toUtc().millisecondsSinceEpoch,
+          ],
+        );
+        await _reindexSceneNode(entry.sceneId);
+      }
+    });
+  }
+
+  /// Removes the current prose of [sceneIds].
+  ///
+  /// Called whenever a scene stops existing. Prose carries no foreign key into
+  /// the entity table -- it is not graph data -- so nothing else would collect
+  /// it, and a deleted scene's words would sit in the database, and in search
+  /// results, for the life of the project.
+  ///
+  /// Revisions are deliberately left alone: deleting a scene captures a
+  /// `deletion` revision precisely so its words survive it, and dropping the
+  /// history here would undo that.
+  Future<void> removeSceneProse(Iterable<String> sceneIds) async {
+    if (!_supportsSceneProse) return;
+    final ids = sceneIds.toSet().toList();
+    if (ids.isEmpty) return;
+    for (final id in ids) {
+      await database.customStatement(
+        'DELETE FROM scene_prose_rows WHERE scene_id = ?',
+        [id],
+      );
+    }
+  }
+
+  /// Removes every scene's prose in [projectId].
+  Future<void> removeSceneProseForProject(String projectId) async {
+    if (!_supportsSceneProse) return;
+    await database.customStatement(
+      'DELETE FROM scene_prose_rows WHERE project_id = ?',
+      [projectId],
+    );
+  }
+
+  SceneProse _proseFromRow(QueryRow row) => SceneProse(
+        sceneId: row.read<String>('scene_id'),
+        projectId: row.read<String>('project_id'),
+        chapterId: row.read<String>('chapter_id'),
+        revision: row.read<int>('revision'),
+        document: _documentFromJson(row.read<String>('document_json')),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(
+          row.read<int>('updated_at'),
+          isUtc: true,
+        ),
+      );
+
+  SceneProseDigest _proseDigestFromRow(QueryRow row) => SceneProseDigest(
+        sceneId: row.read<String>('scene_id'),
+        chapterId: row.read<String>('chapter_id'),
+        plainText: row.read<String>('plain_text'),
+        wordCount: row.read<int>('word_count'),
+        revision: row.read<int>('revision'),
+        isFormatted: row.read<int>('is_formatted') != 0,
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(
+          row.read<int>('updated_at'),
+          isUtc: true,
+        ),
+      );
+
+  ProseDocument _documentFromJson(String encoded) => ProseDocument.fromJson(
+        Map<String, dynamic>.from(jsonDecode(encoded) as Map),
+      );
+
+  /// Rewrites the search entry for [sceneId] so it includes the scene's prose.
+  ///
+  /// Prose only became searchable when it moved into the database; before
+  /// this, the index carried a scene's metadata and nothing an author had
+  /// actually written.
+  Future<void> _reindexSceneNode(String sceneId) async {
+    if (database.schemaVersion < 2) return;
+    final node = await manuscriptNodeById(sceneId);
+    if (node == null) return;
+    await _putManuscriptNode(node);
   }
 
   Future<void> putRecordsAndLinks({
@@ -1535,6 +1761,13 @@ class DriftConnectedDomainRepository {
       if (database.schemaVersion >= 2) {
         await database.customStatement('DELETE FROM author_search');
       }
+      // Prose has no entity row, so the deletes above leave it untouched.
+      // Without this the scenes of the replaced project would keep answering
+      // searches, and their words would attach themselves to whichever new
+      // scene happened to reuse an id.
+      if (_supportsSceneProse) {
+        await database.customStatement('DELETE FROM scene_prose_rows');
+      }
       await _insertSnapshot(snapshot);
     });
   }
@@ -1883,6 +2116,11 @@ class DriftConnectedDomainRepository {
     final sessionRows = await (database.select(database.writingSessionRows)
           ..orderBy([(table) => OrderingTerm.asc(table.id)]))
         .get();
+    final proseRows = _supportsSceneProse
+        ? await database.customSelect(
+            'SELECT * FROM scene_prose_rows ORDER BY scene_id',
+          ).get()
+        : const <QueryRow>[];
     return ConnectedDomainSnapshot(
       records: recordRows.map(_recordFromRow).toList(),
       manuscriptNodes: nodeRows.map(_nodeFromRow).toList(),
@@ -1898,6 +2136,7 @@ class DriftConnectedDomainRepository {
       versions: versionRows.map(_versionFromRow).toList(),
       auditEvents: auditRows.map(_auditFromRow).toList(),
       writingSessions: sessionRows.map(_writingSessionFromRow).toList(),
+      sceneProse: proseRows.map(_proseFromRow).toList(),
     );
   }
 
@@ -1909,6 +2148,9 @@ class DriftConnectedDomainRepository {
       await _putEntity(record.id, 'record', record.scopeId);
       await _putRecord(record);
     }
+    // Before the nodes, not after: indexing a scene reads its prose, so prose
+    // that arrived second would not be searchable until the next save.
+    await putSceneProse(snapshot.sceneProse);
     for (final node in snapshot.manuscriptNodes) {
       await _putEntity(node.id, 'manuscriptNode', node.projectId);
       await _putManuscriptNode(node);
@@ -2070,6 +2312,12 @@ class DriftConnectedDomainRepository {
             extensionJson: jsonEncode(node.extensionData),
           ),
         );
+    final metadata = jsonEncode(node.extensionData);
+    // The stored plain-text projection, not the document: this runs once per
+    // node on every manuscript save, and the index wants the words, not the
+    // marks around them.
+    final prose =
+        node.nodeType == 'scene' ? await _sceneProsePlainText(node.id) : null;
     await _indexEntity(
       entityId: node.id,
       kind: SearchEntityKind.manuscriptNode,
@@ -2078,8 +2326,17 @@ class DriftConnectedDomainRepository {
       lifecycleStatus: AuthorRecordStatus.active,
       typeId: node.nodeType,
       title: node.title,
-      body: jsonEncode(node.extensionData),
+      body: prose == null || prose.isEmpty ? metadata : '$metadata\n$prose',
     );
+  }
+
+  Future<String?> _sceneProsePlainText(String sceneId) async {
+    if (!_supportsSceneProse) return null;
+    final row = await database.customSelect(
+      'SELECT plain_text FROM scene_prose_rows WHERE scene_id = ?',
+      variables: [Variable<String>(sceneId)],
+    ).getSingleOrNull();
+    return row?.read<String>('plain_text');
   }
 
   Future<void> _putLink(RecordLink link) =>

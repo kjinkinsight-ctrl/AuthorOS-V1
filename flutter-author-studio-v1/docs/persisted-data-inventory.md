@@ -41,6 +41,7 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 - Chapter fields: `id`, `title`, `order`, `status`, `summary`, `prompt`, `pov`, `linkedChapterIds`, `scenes`, `createdAt`, `updatedAt`
 - Scene fields: `id`, `chapterId`, `title`, `order`, `content`, `status`, `pov`, `location`, `timeLabel`, `notes`, `relationships`, `createdAt`, `updatedAt`
 - Scene relationship fields: `id`, `type`, `targetId`, `label`, `metadata`
+- Prose: `content` is now written empty. Scene body text lives in `scene_prose_rows` in the embedded database; this key holds structure only. Scene history is separate again, in `scene_revision_rows`. See [Manuscript Prose Persistence Implementation Map](manuscript-prose-persistence-implementation-map.md). Blobs written before that split still carry prose, and are migrated on first read or first write.
 - 2.0 destination: specialized manuscript repository plus canonical links
 - Migration concerns: generated or missing IDs, ordering normalization, parent-ID repair, local relationship enum mapping, unknown relationship targets
 - Fixture coverage: simple, large manuscript, malformed JSON, duplicate IDs, missing parent IDs, partially migrated version
@@ -147,6 +148,13 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 - Storage type: plain manuscript text string
 - Behavior: current structured manuscript writes also refresh this flattened representation unless disabled
 - 2.0 treatment: migration fallback only; structured manuscript wins when valid
+
+### `author_studio.manuscript_prose_backup.{projectId}`
+
+- Owner: `ManuscriptStore`
+- Storage type: JSON object string, or an empty string
+- Behavior: the structure blob exactly as it stood before its prose moved into the database, written before the prose rows so an interrupted migration simply runs again. An empty value means there was nothing to migrate, and doubles as the marker that stops every later save from re-checking.
+- 2.0 treatment: retain through the migration support window and include in diagnostic recovery export; never treat as a second authoritative manuscript
 
 ### `author_studio.manuscript_legacy_backup.{projectId}`
 

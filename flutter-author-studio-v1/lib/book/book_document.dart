@@ -700,6 +700,7 @@ class BookDocument {
     required this.body,
     required this.backMatter,
     this.issues = const [],
+    this.inlineMarkup = BookInlineMarkup.none,
   });
 
   final BookMetadata metadata;
@@ -707,6 +708,19 @@ class BookDocument {
   final List<BookBodyElement> body;
   final List<BookMatterPage> backMatter;
   final List<BookDocumentIssue> issues;
+
+  /// The emphasis convention the author's prose is written in.
+  ///
+  /// Carried on the document so that every exporter reads the same answer from
+  /// the same place. It comes from the book's typography, and copying it here
+  /// rather than passing it to four `export` methods is what stops the EPUB and
+  /// the Word file disagreeing about whether an underscore means anything —
+  /// the drift `chapterNumberLabel` exists to prevent, in a different guise.
+  ///
+  /// The paragraphs themselves stay as the author wrote them, markers and all:
+  /// they are what a proof finding's offsets point into and what an auto-fix
+  /// rewrites. `parseProse` resolves them at the moment of use.
+  final BookInlineMarkup inlineMarkup;
 
   Iterable<BookChapterContent> get chapters => body
       .whereType<BookChapterElement>()
@@ -764,6 +778,7 @@ class BookDocumentBuilder {
       body: body,
       backMatter: back,
       issues: issues,
+      inlineMarkup: book.format.typography.inlineMarkup,
     );
   }
 

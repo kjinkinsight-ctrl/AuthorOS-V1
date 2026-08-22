@@ -21,6 +21,7 @@ import 'book/book_epub_exporter.dart';
 import 'book/book_export_targets.dart';
 import 'book/book_fonts.dart';
 import 'book/book_format.dart';
+import 'book/inline_markup.dart';
 import 'book/book_layout.dart';
 import 'book/book_pdf_renderer.dart';
 import 'book/book_preview_painter.dart';
@@ -1557,6 +1558,8 @@ class _BookStudioViewState extends State<BookStudioView> {
           ),
         ),
         const SizedBox(height: 12),
+        _emphasisPanel(theme, format),
+        const SizedBox(height: 12),
         _Panel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2121,6 +2124,70 @@ class _BookStudioViewState extends State<BookStudioView> {
     final templates = await widget.templateStore.delete(template.id);
     if (!mounted) return;
     setState(() => _templates = templates);
+  }
+
+  /// The inline emphasis convention, and what switching it on would do.
+  ///
+  /// Off by default, because turning it on reinterprets prose the author has
+  /// already written — an underscore that was just an underscore becomes
+  /// emphasis. So it says how many spans it found first, from the real parser
+  /// over the real book, rather than asking them to switch it on and go
+  /// looking.
+  Widget _emphasisPanel(ThemeData theme, BookFormat format) {
+    final on =
+        format.typography.inlineMarkup == BookInlineMarkup.underscoreItalic;
+    final document = _document;
+    final found = document == null
+        ? 0
+        : countEmphasis(document, BookInlineMarkup.underscoreItalic);
+
+    return _Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeading('Italics', theme),
+          const SizedBox(height: 6),
+          Text(
+            'Scene prose is plain text, so italics need a convention. Write '
+            '_like this_ and it is set in italic — in the PDF, the ebook and '
+            'the Word file alike.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          _SwitchRow(
+            key: const Key('book-emphasis-switch'),
+            title: 'Underscores mean italic',
+            value: on,
+            onChanged: (value) => _customise((f) => f.copyWith(
+                  typography: f.typography.copyWith(
+                    inlineMarkup: value
+                        ? BookInlineMarkup.underscoreItalic
+                        : BookInlineMarkup.none,
+                  ),
+                )),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            switch ((on, found)) {
+              (true, 0) =>
+                'Nothing in this book uses the convention yet. Wrap a phrase '
+                    'in underscores and it will appear in italic here.',
+              (true, final n) =>
+                'Set in italic in $n place${n == 1 ? '' : 's'}.',
+              (false, 0) =>
+                'Nothing in this book would change if you switched this on.',
+              (false, final n) =>
+                'Switching this on would set $n phrase${n == 1 ? '' : 's'} in '
+                    'italic. Your writing is not altered either way — the '
+                    'underscores stay in the manuscript.',
+            },
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// What preflight found, above the button rather than in the way of it.

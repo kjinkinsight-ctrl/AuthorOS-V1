@@ -67,11 +67,6 @@ class BookFontAssets {
   final Map<BookFontFace, ByteData> _data;
 
   /// The asset path for each face, or null when this build does not ship it.
-  ///
-  /// Italic and bold-italic are deliberately absent: `pubspec.yaml` ships only
-  /// the 400 and 700 weights of each family. A format that asks for italic gets
-  /// the upright face and a recorded substitution rather than a crash. Adding
-  /// the italic TTFs here is all that is needed to switch it on.
   /// The face used when a requested one is not shipped at all.
   ///
   /// This lives with the assets rather than with the metrics because it is a
@@ -81,8 +76,16 @@ class BookFontAssets {
   static final Map<BookFontFace, String> assetPaths = {
     BookFontFace.merriweatherRegular: 'assets/fonts/Merriweather-400.ttf',
     BookFontFace.merriweatherBold: 'assets/fonts/Merriweather-700.ttf',
+    BookFontFace.merriweatherItalic:
+        'assets/fonts/Merriweather-400-Italic.ttf',
+    const BookFontFace(
+            BookFontFamilyId.merriweather, BookFontStyleId.boldItalic):
+        'assets/fonts/Merriweather-700-Italic.ttf',
     BookFontFace.interRegular: 'assets/fonts/Inter-400.ttf',
     BookFontFace.interBold: 'assets/fonts/Inter-700.ttf',
+    BookFontFace.interItalic: 'assets/fonts/Inter-400-Italic.ttf',
+    const BookFontFace(BookFontFamilyId.inter, BookFontStyleId.boldItalic):
+        'assets/fonts/Inter-700-Italic.ttf',
   };
 
   ByteData? bytesFor(BookFontFace face) => _data[face];
@@ -209,11 +212,26 @@ class FakeBookFontMetrics implements BookFontMetrics {
     this.perCharacterEm = 0.5,
     this.ascent = 0.8,
     this.descent = 0.2,
+    this.italicFactor = 1.0,
   });
 
   final double perCharacterEm;
   final double ascent;
   final double descent;
+
+  /// How much wider a slanted face is than its upright.
+  ///
+  /// One by default, so every existing arithmetic layout test is unaffected by
+  /// emphasis existing. A test that sets it to something else can prove the
+  /// line breaker is really measuring each segment in its own face rather than
+  /// getting the right answer because every face happened to be identical.
+  final double italicFactor;
+
+  double _factor(BookFontFace face) =>
+      face.style == BookFontStyleId.italic ||
+              face.style == BookFontStyleId.boldItalic
+          ? italicFactor
+          : 1.0;
 
   @override
   Map<BookFontFace, BookFontFace> get substitutions => const {};
@@ -223,7 +241,7 @@ class FakeBookFontMetrics implements BookFontMetrics {
 
   @override
   double advanceEm(String text, BookFontFace face) =>
-      text.length * perCharacterEm;
+      text.length * perCharacterEm * _factor(face);
 
   @override
   double ascentEm(BookFontFace face) => ascent;

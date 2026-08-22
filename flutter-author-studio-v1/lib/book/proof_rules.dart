@@ -11,7 +11,9 @@ library;
 
 import '../manuscript_store.dart';
 import 'book_document.dart';
+import 'book_format.dart';
 import 'book_layout.dart';
+import 'inline_markup.dart';
 import 'proofing.dart';
 
 /// Every text rule, in the order the studio lists them.
@@ -35,6 +37,7 @@ class BuiltInProofRules {
     ChapterTitleConsistencyRule(),
     UnbalancedQuotesRule(),
     UnbalancedBracketsRule(),
+    UnclosedEmphasisRule(),
     FrontMatterCompleteRule(),
     SpellingRule(),
   ];
@@ -811,6 +814,63 @@ class UnbalancedBracketsRule extends ProofRule {
             found: line,
           );
         }
+      }
+    }
+  }
+}
+
+/// Emphasis the author opened and never closed.
+///
+/// The one failure of the inline convention that actually costs something. The
+/// parser refuses to run emphasis past the end of a paragraph — a dropped
+/// marker italicising a whole chapter is the failure mode it exists to prevent
+/// — so an unclosed marker does not produce wrong italics. It produces *no*
+/// italics, silently, on a phrase the author meant to emphasise.
+///
+/// Never auto-fixed. Which of the two markers is the stray one, or where the
+/// missing one belongs, is a question about intent.
+class UnclosedEmphasisRule extends ProofRule {
+  const UnclosedEmphasisRule();
+
+  @override
+  String get id => 'unclosedEmphasis';
+  @override
+  String get label => 'Unclosed emphasis';
+  @override
+  String get description =>
+      'A paragraph that opens the emphasis convention and never closes it, so '
+      'the phrase is set upright instead.';
+  @override
+  ProofStage get stage => ProofStage.proofing;
+
+  @override
+  Iterable<ProofFinding> run(ProofContext context) sync* {
+    final markup = context.book.format.typography.inlineMarkup;
+    // Nothing to say when an underscore is just an underscore.
+    if (markup == BookInlineMarkup.none) return;
+
+    for (final entry in context.scenes) {
+      var offset = 0;
+      for (final line in entry.scene.content.split('\n')) {
+        final start = offset;
+        offset += line.length + 1;
+        if (!hasUnclosedEmphasis(line, markup)) continue;
+
+        yield ProofFinding(
+          ruleId: id,
+          stage: stage,
+          severity: ProofSeverity.warning,
+          title: 'Emphasis is never closed',
+          message: 'This paragraph opens emphasis with an underscore and does '
+              'not close it, so nothing in it is italicised. Add the closing '
+              'underscore, or remove the opening one.',
+          sceneId: entry.scene.id,
+          chapterId: entry.chapter.id,
+          where: context.describe(entry.chapter, entry.scene),
+          start: start,
+          end: start + line.length,
+          found: line,
+        );
       }
     }
   }

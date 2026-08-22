@@ -25,6 +25,7 @@ import 'book_cover.dart';
 import 'book_document.dart';
 import 'book_fonts.dart';
 import 'book_format.dart';
+import 'inline_markup.dart';
 import 'epub_settings.dart';
 
 /// Where each part of the package lives inside the container.
@@ -123,7 +124,8 @@ class BookEpubExporter {
         id: nextId('front'),
         href: 'text/front-${_slug(page.kind.name)}.xhtml',
         title: page.title.isEmpty ? page.kind.label : page.title,
-        xhtml: _matterXhtml(page, document.metadata, settings),
+        xhtml: _matterXhtml(page, document.metadata, settings,
+            markup: document.inlineMarkup),
         inNav: page.layout != BookMatterLayout.titlePage,
       ));
     }
@@ -142,7 +144,8 @@ class BookEpubExporter {
             id: nextId('chapter'),
             href: 'text/chapter-${_slug(chapter.id)}.xhtml',
             title: _chapterNavTitle(chapter, settings),
-            xhtml: _chapterXhtml(chapter, settings),
+            xhtml: _chapterXhtml(chapter, settings,
+                markup: document.inlineMarkup),
             // Chapters nest under a part when the book has any.
             navLevel: document.body.whereType<BookPartElement>().isEmpty ? 0 : 1,
           ));
@@ -154,7 +157,8 @@ class BookEpubExporter {
         id: nextId('back'),
         href: 'text/back-${_slug(page.kind.name)}.xhtml',
         title: page.title.isEmpty ? page.kind.label : page.title,
-        xhtml: _matterXhtml(page, document.metadata, settings),
+        xhtml: _matterXhtml(page, document.metadata, settings,
+            markup: document.inlineMarkup),
       ));
     }
 
@@ -620,8 +624,9 @@ class BookEpubExporter {
   String _matterXhtml(
     BookMatterPage page,
     BookMetadata metadata,
-    EpubSettings settings,
-  ) {
+    EpubSettings settings, {
+    BookInlineMarkup markup = BookInlineMarkup.none,
+  }) {
     final epubType = switch (page.kind) {
       BookSectionKind.halfTitle => 'halftitlepage',
       BookSectionKind.titlePage => 'titlepage',
@@ -651,8 +656,9 @@ class BookEpubExporter {
               builder.element('h1', nest: page.title);
             }
             for (final paragraph in page.paragraphs) {
-              builder.element('p',
-                  attributes: {'class': 'centred'}, nest: paragraph);
+              builder.element('p', attributes: {'class': 'centred'},
+                  nest: () => _writeSpans(
+                      builder, parseProse(paragraph, markup)));
             }
           case BookMatterLayout.copyrightBlock:
             for (final paragraph in page.paragraphs) {
@@ -667,7 +673,8 @@ class BookEpubExporter {
             for (var i = 0; i < page.paragraphs.length; i++) {
               builder.element('p',
                   attributes: {'class': i == 0 ? 'first' : 'body'},
-                  nest: page.paragraphs[i]);
+                  nest: () => _writeSpans(
+                      builder, parseProse(page.paragraphs[i], markup)));
             }
         }
       });
@@ -697,7 +704,11 @@ class BookEpubExporter {
         });
       });
 
-  String _chapterXhtml(BookChapterContent chapter, EpubSettings settings) {
+  String _chapterXhtml(
+    BookChapterContent chapter,
+    EpubSettings settings, {
+    BookInlineMarkup markup = BookInlineMarkup.none,
+  }) {
     final number = _chapterNumber(chapter.number, settings);
     final title = chapter.title.trim();
 
@@ -732,22 +743,56 @@ class BookEpubExporter {
                 : 'body';
             final text = scene.paragraphs[p];
 
-            if (isFirstParagraph && settings.dropCap && text.isNotEmpty) {
+            final spans = parseProse(text, markup);
+            final plain = spans.map((span) => span.text).join();
+
+            if (isFirstParagraph && settings.dropCap && plain.isNotEmpty) {
               builder.element('p', attributes: {'class': '$indent dropcap-line'},
                   nest: () {
                 builder.element('span',
-                    attributes: {'class': 'dropcap'}, nest: text[0]);
-                builder.text(text.substring(1));
+                    attributes: {'class': 'dropcap'}, nest: plain[0]);
+                // The cap has already taken the first character, so the rest is
+                // written from the spans with that one letter removed.
+                _writeSpans(builder, _withoutFirstCharacter(spans));
               });
             } else {
-              builder.element('p',
-                  attributes: {'class': indent}, nest: text);
+              builder.element('p', attributes: {'class': indent},
+                  nest: () => _writeSpans(builder, spans));
             }
             isFirstParagraph = false;
           }
         }
       });
     });
+  }
+
+  /// Writes prose with its emphasis resolved into `<em>`.
+  ///
+  /// `<em>` rather than `<i>` or a CSS class: it is what the reading system
+  /// already knows how to slant, in whatever face the reader has chosen, and it
+  /// carries the meaning to a screen reader as well. An EPUB that pinned a
+  /// bundled italic here would be fighting the format.
+  void _writeSpans(XmlBuilder builder, List<ProseSpan> spans) {
+    for (final span in spans) {
+      if (span.text.isEmpty) continue;
+      if (span.italic) {
+        builder.element('em', nest: span.text);
+      } else {
+        builder.text(span.text);
+      }
+    }
+  }
+
+  /// The same spans with the opening character removed, for a drop cap.
+  static List<ProseSpan> _withoutFirstCharacter(List<ProseSpan> spans) {
+    for (var i = 0; i < spans.length; i++) {
+      if (spans[i].text.isEmpty) continue;
+      return [
+        ProseSpan(spans[i].text.substring(1), italic: spans[i].italic),
+        ...spans.skip(i + 1),
+      ];
+    }
+    return spans;
   }
 
   /// The mark between two scenes.

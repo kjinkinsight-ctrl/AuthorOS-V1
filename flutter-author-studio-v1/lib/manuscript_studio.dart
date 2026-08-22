@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'book/inline_markup.dart';
 import 'core/version_audit.dart';
 import 'manuscript_export.dart';
 import 'manuscript_service.dart';
@@ -416,6 +417,29 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         setState(() => _readingRhythm = preset);
         const ReadingRhythmStore().save(widget.project.id, preset);
       },
+    );
+  }
+
+  /// Wraps the selected prose in the emphasis convention.
+  ///
+  /// Scene prose is a plain string, so italics are a convention rather than a
+  /// stored attribute. That convention is discoverable only if the editor
+  /// offers it — an author should not have to read documentation to find out
+  /// that underscores mean something.
+  ///
+  /// Toggles: wrapping an already-wrapped selection unwraps it, which is what
+  /// pressing an italic button twice does everywhere else.
+  void _emphasiseSelection() {
+    final selection = _editorController.selection;
+    final text = _editorController.text;
+    if (!selection.isValid || selection.isCollapsed) return;
+
+    final result = toggleEmphasis(text, selection.start, selection.end);
+    _editorController.value = _editorController.value.copyWith(
+      text: result.text,
+      selection:
+          TextSelection(baseOffset: result.start, extentOffset: result.end),
+      composing: TextRange.empty,
     );
   }
 
@@ -2081,6 +2105,16 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                     : () => _selectScene(next.chapterId, next.sceneId),
                 icon: const Icon(Icons.arrow_forward),
                 label: const Text('Next Scene'),
+              ),
+              Tooltip(
+                message: 'Wrap the selection in underscores, which Book Studio '
+                    'sets in italic when the convention is switched on',
+                child: OutlinedButton.icon(
+                  key: const Key('manuscript-italic-button'),
+                  onPressed: _canEdit ? _emphasiseSelection : null,
+                  icon: const Icon(Icons.format_italic),
+                  label: const Text('Italic'),
+                ),
               ),
               TextButton(
                 onPressed: _flushSave,

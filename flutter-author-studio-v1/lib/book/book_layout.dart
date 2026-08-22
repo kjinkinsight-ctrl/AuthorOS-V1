@@ -13,6 +13,7 @@ library;
 
 import 'book_document.dart';
 import 'book_format.dart';
+import 'inline_markup.dart';
 import 'book_fonts.dart';
 
 /// What a page is for.
@@ -743,7 +744,7 @@ class BookLayoutEngine {
     }
     for (final paragraph in matter.paragraphs) {
       for (final line in _breakLines(
-        paragraph,
+        _tokenise(paragraph, format),
         face,
         size,
         geometry.textWidthPt,
@@ -774,7 +775,7 @@ class BookLayoutEngine {
     var y = geometry.textHeightPt * 0.45;
     for (final paragraph in matter.paragraphs) {
       for (final line in _breakLines(
-        paragraph,
+        _tokenise(paragraph, format),
         face,
         size,
         geometry.textWidthPt,
@@ -897,7 +898,7 @@ class BookLayoutEngine {
               ? 0.0
               : format.typography.firstLineIndentPt;
       final lines = _breakLines(
-        matter.paragraphs[i],
+        _tokenise(matter.paragraphs[i], format),
         face,
         size,
         geometry.textWidthPt,
@@ -1104,16 +1105,29 @@ class BookLayoutEngine {
     final leading = format.typography.leadingPt;
     var rivers = 0;
 
+    // The author's emphasis convention is resolved once, here, before anything
+    // is measured. A word can span faces from this point on, so everything
+    // downstream works in segments rather than in one face per paragraph.
+    var words = _tokenise(text, format);
+
     final dropCapLines = dropCap ? format.chapter.dropCapLines : 0;
-    final dropCapGlyph = dropCap && text.isNotEmpty ? text[0] : '';
+    // Taken off the tokenised prose rather than off the raw string, or a
+    // paragraph that opens with an emphasis marker would set an underscore as
+    // its drop cap.
+    final dropCapGlyph =
+        dropCapLines > 0 && words.isNotEmpty && words.first.text.isNotEmpty
+            ? words.first.text[0]
+            : '';
+    if (dropCapLines > 0 && dropCapGlyph.isNotEmpty) {
+      words = _withoutFirstCharacter(words);
+    }
     final dropCapSize = dropCapLines > 0 ? leading * dropCapLines * 0.86 : 0.0;
     final dropCapWidth = dropCapLines > 0
         ? metrics.advancePt(dropCapGlyph, face, dropCapSize) + size * 0.12
         : 0.0;
-    final bodyText = dropCapLines > 0 ? text.substring(1) : text;
 
     final lines = _breakLines(
-      bodyText,
+      words,
       face,
       size,
       geometry.textWidthPt,
@@ -1205,6 +1219,82 @@ class BookLayoutEngine {
     return rivers;
   }
 
+  /// Splits a paragraph into words carrying the faces their parts are set in.
+  ///
+  /// With the emphasis convention off this is a plain whitespace split with one
+  /// segment per word, which is what it always was.
+  List<_ProseWord> _tokenise(String text, BookFormat format) {
+    final roman = BookFontFace(
+        format.typography.bodyFamily, BookFontStyleId.regular);
+    final italic = BookFontFace(
+        format.typography.bodyFamily, BookFontStyleId.italic);
+
+    final words = <_ProseWord>[];
+    var segments = <_Segment>[];
+    final buffer = StringBuffer();
+    var face = roman;
+
+    void endSegment() {
+      if (buffer.isEmpty) return;
+      segments.add(_Segment(buffer.toString(), face));
+      buffer.clear();
+    }
+
+    void endWord() {
+      endSegment();
+      if (segments.isEmpty) return;
+      words.add(_ProseWord(segments));
+      segments = <_Segment>[];
+    }
+
+    for (final span in parseProse(text, format.typography.inlineMarkup)) {
+      endSegment();
+      face = span.italic ? italic : roman;
+      // Iterated by code unit rather than by rune: every character that ends a
+      // word is in the Basic Multilingual Plane, so a surrogate pair is never
+      // split by this loop.
+      for (var i = 0; i < span.text.length; i++) {
+        final code = span.text.codeUnitAt(i);
+        if (code == 0x20 || code == 0x09 || code == 0x0A || code == 0x0D) {
+          endWord();
+          continue;
+        }
+        buffer.writeCharCode(code);
+      }
+    }
+    endWord();
+    return words;
+  }
+
+  double _wordWidth(_ProseWord word, double sizePt) {
+    var total = 0.0;
+    for (final segment in word.segments) {
+      total += metrics.advancePt(segment.text, segment.face, sizePt);
+    }
+    return total;
+  }
+
+  /// The same words with the opening character removed, for a drop cap.
+  static List<_ProseWord> _withoutFirstCharacter(List<_ProseWord> words) {
+    if (words.isEmpty) return words;
+    final first = words.first;
+    final trimmed = <_Segment>[];
+    var dropped = false;
+    for (final segment in first.segments) {
+      if (!dropped && segment.text.isNotEmpty) {
+        dropped = true;
+        final rest = segment.text.substring(1);
+        if (rest.isNotEmpty) trimmed.add(_Segment(rest, segment.face));
+        continue;
+      }
+      trimmed.add(segment);
+    }
+    return [
+      if (trimmed.isNotEmpty) _ProseWord(trimmed),
+      ...words.skip(1),
+    ];
+  }
+
   /// Turns a measured line into a positioned one, justifying when asked.
   LayoutTextLine _composeLine(
     _MeasuredLine line,
@@ -1231,15 +1321,57 @@ class BookLayoutEngine {
     // handed to a renderer as a string plus a spacing value. See
     // [LayoutTextRun.xOffsetPt] for why that spacing value cannot be trusted to
     // survive into a PDF.
+    //
+    // Both branches emit one run per stretch of a single face. With no emphasis
+    // in the line that collapses to exactly what this did before: a single run
+    // for an unjustified line, one run per word for a justified one.
     final runs = <LayoutTextRun>[];
     if (wordSpacing == 0) {
-      runs.add(LayoutTextRun(line.text, face, sizePt));
+      // Unjustified: spaces are drawn as part of the text, so consecutive
+      // segments in the same face are merged and only a change of face starts
+      // a new run.
+      final buffer = StringBuffer();
+      var runFace = line.words.isEmpty ? face : line.words.first.firstFace(face);
+      var runStart = 0.0;
+      var cursor = 0.0;
+
+      void emit(String text, BookFontFace textFace) {
+        if (text.isEmpty) return;
+        if (textFace != runFace && buffer.isNotEmpty) {
+          runs.add(LayoutTextRun(buffer.toString(), runFace, sizePt,
+              xOffsetPt: runStart));
+          buffer.clear();
+          runStart = cursor;
+        }
+        runFace = textFace;
+        buffer.write(text);
+        cursor += metrics.advancePt(text, textFace, sizePt);
+      }
+
+      for (var i = 0; i < line.words.length; i++) {
+        if (i > 0) emit(' ', face);
+        for (final segment in line.words[i].segments) {
+          emit(segment.text, segment.face);
+        }
+      }
+      if (buffer.isNotEmpty) {
+        runs.add(LayoutTextRun(buffer.toString(), runFace, sizePt,
+            xOffsetPt: runStart));
+      }
+      // A line with no emphasis in it is one run at offset zero, which is what
+      // this produced before segments existed.
     } else {
+      // Justified: the space is an offset rather than a character, so every
+      // segment is its own positioned run.
       final space = metrics.advancePt(' ', face, sizePt) + wordSpacing;
       var cursor = 0.0;
       for (final word in line.words) {
-        runs.add(LayoutTextRun(word, face, sizePt, xOffsetPt: cursor));
-        cursor += metrics.advancePt(word, face, sizePt) + space;
+        for (final segment in word.segments) {
+          runs.add(LayoutTextRun(segment.text, segment.face, sizePt,
+              xOffsetPt: cursor));
+          cursor += metrics.advancePt(segment.text, segment.face, sizePt);
+        }
+        cursor += space;
       }
     }
 
@@ -1264,7 +1396,7 @@ class BookLayoutEngine {
   /// algorithm: the difference in colour is invisible at preview zoom, and a
   /// greedy break is far easier to assert in a test.
   List<_MeasuredLine> _breakLines(
-    String text,
+    List<_ProseWord> words,
     BookFontFace face,
     double sizePt,
     double measurePt,
@@ -1272,13 +1404,15 @@ class BookLayoutEngine {
     double? narrowedWidth,
     int narrowedCount = 0,
   }) {
-    final words = text.trim().split(RegExp(r'\s+'))
-      ..removeWhere((word) => word.isEmpty);
     if (words.isEmpty) return const [];
 
+    // The gap between two words is measured in the body face even where one
+    // side of it is emphasised. A space has no slant, the choice would
+    // otherwise be arbitrary at every boundary, and the justification
+    // arithmetic below already treats it as a paragraph-level constant.
     final spaceWidth = metrics.spacePt(face, sizePt);
     final lines = <_MeasuredLine>[];
-    var current = <String>[];
+    var current = <_ProseWord>[];
     var currentWidth = 0.0;
 
     double limitFor(int lineIndex) {
@@ -1289,7 +1423,10 @@ class BookLayoutEngine {
     }
 
     for (final word in words) {
-      final wordWidth = metrics.advancePt(word, face, sizePt);
+      // Summed over the word's own segments, so an emphasised stretch is
+      // measured in the italic it will actually be set in. Measuring it as
+      // roman would break the line in the wrong place.
+      final wordWidth = _wordWidth(word, sizePt);
       final candidate = current.isEmpty
           ? wordWidth
           : currentWidth + spaceWidth + wordWidth;
@@ -1606,6 +1743,30 @@ class _BuiltPage {
   String? anchorChapterId;
 }
 
+/// One stretch of a word set in a single face.
+class _Segment {
+  const _Segment(this.text, this.face);
+
+  final String text;
+  final BookFontFace face;
+}
+
+/// A word, which is a maximal stretch of non-space characters.
+///
+/// It carries segments rather than a string because emphasis does not have to
+/// begin and end on word boundaries: in `_The Kestrel_'s deck`, `Kestrel's` is
+/// one word for breaking purposes and two segments for measuring and drawing.
+class _ProseWord {
+  const _ProseWord(this.segments);
+
+  final List<_Segment> segments;
+
+  String get text => segments.map((segment) => segment.text).join();
+
+  BookFontFace firstFace(BookFontFace fallback) =>
+      segments.isEmpty ? fallback : segments.first.face;
+}
+
 /// A line that has been broken and measured but not yet positioned.
 class _MeasuredLine {
   const _MeasuredLine({
@@ -1614,12 +1775,16 @@ class _MeasuredLine {
     required this.isLast,
   });
 
-  final List<String> words;
+  final List<_ProseWord> words;
   final double widthPt;
   final bool isLast;
 
   int get wordCount => words.length;
-  String get text => words.join(' ');
+
+  /// What a reader sees: the prose with its emphasis markers already resolved
+  /// away. Feeds running heads, the golden digest and the layout proof rules,
+  /// all of which want the words rather than the author's notation.
+  String get text => words.map((word) => word.text).join(' ');
 }
 
 class _BodyResult {

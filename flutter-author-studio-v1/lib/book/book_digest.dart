@@ -74,8 +74,17 @@ String bookDigest(PaginatedBook book) {
 }
 
 String _element(LayoutElement element) => switch (element) {
-      LayoutTextLine(:final x, :final baselineY, :final text) =>
-        'L ${_n(x)} ${_n(baselineY)} $text',
+      // Runs are listed only when a line is set in more than one *face*, so a
+      // golden pins where emphasis begins and ends. Listing them whenever
+      // there is more than one run would spell out every word of every
+      // justified line — which is most of the book, and none of it a fact
+      // worth reviewing.
+      LayoutTextLine(:final x, :final baselineY, :final text, :final runs) =>
+        runs.map((run) => run.face).toSet().length <= 1
+            ? 'L ${_n(x)} ${_n(baselineY)} $text'
+            : 'L ${_n(x)} ${_n(baselineY)} $text\n'
+                '${runs.map((run) => '    r ${_n(run.xOffsetPt)} '
+                    '${run.face.style.name} ${run.text}').join('\n')}',
       LayoutDropCap(:final x, :final baselineY, :final glyph, :final sizePt) =>
         'C ${_n(x)} ${_n(baselineY)} ${_n(sizePt)} $glyph',
       LayoutRule(:final x, :final y, :final widthPt) =>

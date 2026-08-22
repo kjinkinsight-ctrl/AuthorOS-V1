@@ -1,0 +1,77 @@
+# bookDigestVersion: 1
+# format: paperback
+# trim: 396.00x612.00pt
+# pages: 7
+# words: 46
+# blanks: 3
+# front: 6  body: 1  back: 0
+T 1 1 Chapter 1: The Arrival
+P0 frontMatter recto folio= head= block=72.00,81.00 288.00x468.00
+  L 13.32 161.15 The Widow Knife
+  L 115.43 225.87 Kali Vale
+  L 105.21 253.91 Ink & Insight
+P1 frontMatter verso blank folio= head= block=36.00,81.00 288.00x468.00
+P2 frontMatter recto folio= head= block=72.00,81.00 288.00x468.00
+  L 0.00 219.48 The Widow Knife
+  L 0.00 239.68 Copyright © 2026 Kali Vale
+  L 0.00 259.89 All rights reserved. No part of this book may be reproduced in any
+  L 0.00 272.51 form without written permission from the publisher, except brief
+  L 0.00 285.14 quotations in a review.
+  L 0.00 305.35 This is a work of fiction. Names, characters, places and incidents
+  L 0.00 317.97 are the product of the author’s imagination or are used
+  L 0.00 330.60 fictitiously.
+  L 0.00 350.81 ISBN 978-1-0000-0000-0
+  L 0.00 371.01 Ink & Insight
+P3 frontMatter verso blank folio= head= block=36.00,81.00 288.00x468.00
+P4 frontMatter recto folio=v head= block=72.00,81.00 288.00x468.00
+  L 0.00 17.71 Contents
+  L 8.80 58.65 Chapter 1: The Arrival
+  L 283.02 58.65 1
+  M 213.44 567.00 v
+P5 frontMatter verso blank folio= head= block=36.00,81.00 288.00x468.00
+P6 chapterOpener recto folio=1 head= block=72.00,81.00 288.00x468.00
+  L 0.00 128.81 Chapter 1
+  L 0.00 163.80 The Arrival
+  L 0.00 207.53 She read The Kestrel twice before the light went, and
+    r 0.00 regular She
+    r 23.70 regular read
+    r 51.05 italic The
+    r 74.60 italic Kestrel
+    r 113.52 regular twice
+    r 146.10 regular before
+    r 183.83 regular the
+    r 205.29 regular light
+    r 234.64 regular went,
+    r 268.18 regular and
+  L 0.00 222.38 thought about the Mariner and about what she had
+    r 0.00 regular thought
+    r 48.35 regular about
+    r 83.64 regular the
+    r 106.14 italic Mariner
+    r 152.34 regular and
+    r 177.34 regular about
+    r 212.64 regular what
+    r 244.58 regular she
+    r 268.19 regular had
+  L 0.00 237.23 promised. Everything, all of it. The word
+    r 0.00 regular promised.
+    r 69.31 italic Everything,
+    r 143.06 italic all
+    r 172.06 italic of
+    r 198.23 italic it.
+    r 223.89 regular The
+    r 260.72 regular word
+  L 0.00 252.08 snake_case_name meant nothing to her. She wrote it
+  L 0.00 266.93 down anyway, in the log, beside the Kestrel's heading
+    r 0.00 regular down
+    r 33.30 regular anyway,
+    r 80.95 regular in
+    r 95.49 regular the
+    r 116.48 regular log,
+    r 139.45 regular beside
+    r 176.76 regular the
+    r 197.76 italic Kestrel
+    r 232.54 regular 's
+    r 244.93 regular heading
+  L 0.00 281.78 and the date.
+  M 213.96 567.00 1

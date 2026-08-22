@@ -59,15 +59,45 @@ void main() {
       }
     });
 
-    test('an unshipped face degrades instead of failing', () {
-      final metrics = PdfBookFontMetrics(assets);
-      const italic = BookFontFace.merriweatherItalic;
+    test('every face the book can ask for is bundled', () {
+      // Phase 6 added the four italics. There is no longer any face in the
+      // vocabulary that this build cannot set, which is what lets emphasis
+      // reach the PDF at all.
+      for (final family in BookFontFamilyId.values) {
+        for (final style in BookFontStyleId.values) {
+          final face = BookFontFace(family, style);
+          expect(assets.has(face), isTrue, reason: '$face is not bundled');
+        }
+      }
+      expect(PdfBookFontMetrics(assets).substitutions, isEmpty);
+    });
 
-      final resolved = metrics.resolve(italic);
-      expect(resolved, BookFontFace.merriweatherRegular,
-          reason: 'italic is not bundled, so the upright face stands in');
-      expect(metrics.substitutions, contains(italic));
-      expect(metrics.advanceEm('text', italic), greaterThan(0));
+    test('a face a build did not ship degrades instead of failing', () {
+      // Every face ships today, so this builds a deliberately partial set
+      // rather than relying on a gap that no longer exists.
+      const missing = BookFontFace.merriweatherItalic;
+      final partial = BookFontAssets({
+        for (final face in assets.availableFaces)
+          if (face != missing) face: assets.bytesFor(face)!,
+      });
+      final metrics = PdfBookFontMetrics(partial);
+
+      expect(metrics.resolve(missing), BookFontFace.merriweatherRegular,
+          reason: 'the upright of the same family is the cheapest degradation');
+      expect(metrics.substitutions, contains(missing));
+      expect(metrics.advanceEm('text', missing), greaterThan(0));
+    });
+
+    test('an italic is a different width from its upright', () {
+      // The whole reason the line breaker measures per segment. If these were
+      // equal, emphasis could be measured as roman and still look right, and
+      // it would break in the wrong place on every other line.
+      final metrics = PdfBookFontMetrics(assets);
+      expect(
+        metrics.advanceEm('handwriting', BookFontFace.merriweatherItalic),
+        isNot(metrics.advanceEm('handwriting',
+            BookFontFace.merriweatherRegular)),
+      );
     });
 
     test('a glyph advance scales linearly with point size', () {

@@ -43,6 +43,12 @@ class GoldenBook {
   ManuscriptProjectSummary manuscript() => switch (name) {
         'pod-long' => longManuscriptFixture(paragraphs: 24),
         'bare' => longManuscriptFixture(paragraphs: 6),
+        'emphasis' => manuscriptFixtureWithProse(
+            'She read _The Kestrel_ twice before the light went, and thought '
+            'about the _Mariner_ and about what she had promised. _Everything, '
+            'all of it._ The word snake_case_name meant nothing to her. She '
+            'wrote it down anyway, in the log, beside the _Kestrel_\'s '
+            'heading and the date.'),
         _ => manuscriptFixture(),
       };
 }
@@ -74,6 +80,16 @@ final goldenBooks = <GoldenBook>[
     'ebook-fixed',
     'unmirrored margins and no blank versos',
     () => bookFixture(format: BookFormatPresets.ebook),
+  ),
+  GoldenBook(
+    'emphasis',
+    'italic runs, and the underscores that are not emphasis',
+    () => bookFixture(
+      format: BookFormatPresets.paperback.copyWith(
+        typography: BookFormatPresets.paperback.typography
+            .copyWith(inlineMarkup: BookInlineMarkup.underscoreItalic),
+      ),
+    ),
   ),
   GoldenBook(
     'bare',

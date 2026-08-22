@@ -588,6 +588,72 @@ void main() {
     expect(restored.projectId, 'project-book');
   });
 
+  testWidgets('the italics convention says what it would do before it does it',
+      (tester) async {
+    seedManuscript(manuscriptFixtureWithProse(
+        'She read _The Kestrel_ twice, then _left_.'));
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-design')));
+    await tester.pumpAndSettle();
+
+    // Off by default, and it counts what switching it on would change rather
+    // than asking the author to switch it on and go looking.
+    expect(find.textContaining('would set 2 phrases in italic'),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('book-emphasis-switch')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Set in italic in 2 places'), findsOneWidget);
+    expect((await const BookStore().load('project-book'))
+        .format.typography.inlineMarkup, BookInlineMarkup.underscoreItalic);
+  });
+
+  testWidgets('switching italics on reaches the exported book', (tester) async {
+    final saver = _MemoryBookFileSaver();
+    seedManuscript(
+        manuscriptFixtureWithProse('She read _The Kestrel_ twice.'));
+    await pumpStudio(tester, saver: saver);
+
+    await tester.tap(find.byKey(const Key('book-stage-design')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-emphasis-switch')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-export-txt')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
+
+    // Plain text keeps the author's own notation, because it is the only
+    // emphasis a text file has.
+    expect(utf8.decode(saver.bytes!), contains('_The Kestrel_'));
+  });
+
+  testWidgets('turning it off leaves the writing exactly as it was',
+      (tester) async {
+    const prose = 'She read _The Kestrel_ twice.';
+    seedManuscript(manuscriptFixtureWithProse(prose));
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-design')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-emphasis-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-emphasis-switch')));
+    await tester.pumpAndSettle();
+
+    // The convention is a reading of the prose, never a rewrite of it.
+    final manuscript =
+        await const ManuscriptStore().readStudio('project-book');
+    expect(manuscript!.chapters.first.scenes.first.content, prose);
+  });
+
   testWidgets('a chosen cover is validated, stored and shown', (tester) async {
     await pumpStudio(tester, coverPicker: () async => testPng(420, 640));
 

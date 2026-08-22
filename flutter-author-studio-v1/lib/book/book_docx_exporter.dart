@@ -28,6 +28,7 @@ import 'package:xml/xml.dart';
 
 import 'book_document.dart';
 import 'book_format.dart';
+import 'inline_markup.dart';
 
 /// What the document is for.
 enum DocxFlavour {
@@ -613,7 +614,8 @@ class BookDocxExporter {
         var atStart = true;
 
         for (final page in document.frontMatter) {
-          _matter(builder, page, atStart: atStart);
+          _matter(builder, page,
+              atStart: atStart, markup: document.inlineMarkup);
           atStart = false;
         }
 
@@ -626,13 +628,15 @@ class BookDocxExporter {
                 _paragraph(builder, 'FrontMatter', heading.subtitle.trim());
               }
             case BookChapterElement(:final chapter):
-              _chapter(builder, chapter, metrics, atStart: atStart);
+              _chapter(builder, chapter, metrics,
+                  atStart: atStart, markup: document.inlineMarkup);
           }
           atStart = false;
         }
 
         for (final page in document.backMatter) {
-          _matter(builder, page, atStart: atStart);
+          _matter(builder, page,
+              atStart: atStart, markup: document.inlineMarkup);
           atStart = false;
         }
 
@@ -648,6 +652,7 @@ class BookDocxExporter {
     BookChapterContent chapter,
     _Metrics metrics, {
     required bool atStart,
+    required BookInlineMarkup markup,
   }) {
     final number = metrics.numberLabel(chapter.number);
     final title = chapter.title.trim();
@@ -682,6 +687,7 @@ class BookDocxExporter {
           builder,
           afterBreak ? 'BodyTextFirst' : 'BodyText',
           scene.paragraphs[p],
+          markup: markup,
         );
         isFirstParagraph = false;
       }
@@ -693,6 +699,7 @@ class BookDocxExporter {
     XmlBuilder builder,
     BookMatterPage page, {
     required bool atStart,
+    required BookInlineMarkup markup,
   }) {
     // A title page is set as a title and its subordinate lines; everything
     // else is a heading over a block of text.
@@ -730,7 +737,7 @@ class BookDocxExporter {
 
     for (final paragraph in page.paragraphs) {
       _paragraph(builder, style, paragraph,
-          pageBreakBefore: broken ? null : true);
+          pageBreakBefore: broken ? null : true, markup: markup);
       broken = true;
     }
   }
@@ -787,6 +794,7 @@ class BookDocxExporter {
     bool? pageBreakBefore,
     int? spaceBefore,
     int? spaceAfter,
+    BookInlineMarkup markup = BookInlineMarkup.none,
   }) {
     builder.element('w:p', nest: () {
       builder.element('w:pPr', nest: () {
@@ -803,13 +811,26 @@ class BookDocxExporter {
           });
         }
       });
-      if (text.isNotEmpty) {
+      // One `w:r` per stretch of a single style. With no emphasis in the
+      // paragraph that is a single run, exactly as it was before.
+      for (final span in parseProse(text, markup)) {
+        if (span.text.isEmpty) continue;
         builder.element('w:r', nest: () {
+          if (span.italic) {
+            // Direct run formatting, and the one place this file uses it. A
+            // named character style would be tidier in principle and would
+            // stop an editor italicising a word by hand, which is exactly what
+            // an editor is for.
+            builder.element('w:rPr', nest: () {
+              builder.element('w:i');
+              builder.element('w:iCs');
+            });
+          }
           builder.element('w:t', attributes: {
             // Without this Word trims leading and trailing spaces, which in
             // prose is a silent change to what the author wrote.
             'xml:space': 'preserve',
-          }, nest: text);
+          }, nest: span.text);
         });
       }
     });

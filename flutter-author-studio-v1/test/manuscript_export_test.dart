@@ -4,17 +4,25 @@ import 'package:author_studio_v1/manuscript_export.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class _MemoryFileSaver implements ExportFileSaver {
+/// Implements the saver's one primitive, so the manuscript exporter's calls to
+/// `savePdf` also prove that the inherited delegation to [saveBytes] carries
+/// the right name, bytes and content type.
+class _MemoryFileSaver extends ExportFileSaver {
   String? name;
   Uint8List? bytes;
+  String? mimeType;
 
   @override
-  Future<String?> savePdf({
+  Future<String?> saveBytes({
     required String suggestedName,
     required Uint8List bytes,
+    required String mimeType,
+    required List<String> extensions,
+    String typeLabel = 'File',
   }) async {
     name = suggestedName;
     this.bytes = bytes;
+    this.mimeType = mimeType;
     return 'C:/Exports/$suggestedName';
   }
 }

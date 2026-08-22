@@ -13,6 +13,8 @@ import 'core/record_inspection.dart';
 import 'core/record_service.dart';
 import 'core/record_types.dart';
 import 'core/record_validation.dart';
+import 'core/search_models.dart';
+import 'knowledge_graph/open_in_graph.dart';
 import 'local_image.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
@@ -525,6 +527,7 @@ class CharacterBoardView extends StatefulWidget {
     required this.project,
     this.repository,
     this.onNavigate,
+    this.onOpenInGraph,
     this.branchId,
     this.branchName,
   });
@@ -532,6 +535,12 @@ class CharacterBoardView extends StatefulWidget {
   final StarterProject project;
   final DriftConnectedDomainRepository? repository;
   final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+
+  /// Asks the shell for the Knowledge Graph, focused on a record.
+  ///
+  /// Separate from [onNavigate], which names a Studio and carries no record.
+  /// Merging them would conflate "go to that Studio" with "go to this record".
+  final ValueChanged<SearchNavigationTarget>? onOpenInGraph;
   final String? branchId;
   final String? branchName;
 
@@ -943,6 +952,7 @@ class _CharacterBoardViewState extends State<CharacterBoardView> {
                               saveState: saveState,
                               onChanged: _scheduleSave,
                               onNavigate: widget.onNavigate,
+                              onOpenInGraph: widget.onOpenInGraph,
                               branchId: widget.branchId,
                               branchName: widget.branchName,
                             );
@@ -1036,6 +1046,7 @@ class _CharacterDetail extends StatelessWidget {
     required this.saveState,
     required this.onChanged,
     this.onNavigate,
+    this.onOpenInGraph,
     this.branchId,
     this.branchName,
   });
@@ -1054,6 +1065,12 @@ class _CharacterDetail extends StatelessWidget {
   final CharacterSaveState saveState;
   final ValueChanged<CharacterStudioRecord> onChanged;
   final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+
+  /// Asks the shell for the Knowledge Graph, focused on a record.
+  ///
+  /// Separate from [onNavigate], which names a Studio and carries no record.
+  /// Merging them would conflate "go to that Studio" with "go to this record".
+  final ValueChanged<SearchNavigationTarget>? onOpenInGraph;
   final String? branchId;
   final String? branchName;
 
@@ -1209,6 +1226,7 @@ class _CharacterDetail extends StatelessWidget {
               onChanged: onChanged,
               onSectionChanged: onSectionChanged,
               onNavigate: onNavigate,
+              onOpenInGraph: onOpenInGraph,
             );
             if (constraints.maxWidth < 760) {
               return Column(
@@ -1342,6 +1360,7 @@ class _CharacterSection extends StatelessWidget {
     required this.onChanged,
     required this.onSectionChanged,
     this.onNavigate,
+    this.onOpenInGraph,
   });
 
   final CharacterStudioRecord character;
@@ -1352,6 +1371,12 @@ class _CharacterSection extends StatelessWidget {
   final ValueChanged<CharacterStudioRecord> onChanged;
   final ValueChanged<String> onSectionChanged;
   final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+
+  /// Asks the shell for the Knowledge Graph, focused on a record.
+  ///
+  /// Separate from [onNavigate], which names a Studio and carries no record.
+  /// Merging them would conflate "go to that Studio" with "go to this record".
+  final ValueChanged<SearchNavigationTarget>? onOpenInGraph;
 
   @override
   Widget build(BuildContext context) {
@@ -1377,6 +1402,7 @@ class _CharacterSection extends StatelessWidget {
         service: service,
         section: sectionDefinition,
         onNavigate: onNavigate,
+        onOpenInGraph: onOpenInGraph,
       );
     }
     return _DynamicCharacterSectionEditor(
@@ -1878,11 +1904,18 @@ class _CharacterConnectionsPanel extends StatelessWidget {
     required this.service,
     required this.section,
     this.onNavigate,
+    this.onOpenInGraph,
   });
   final CharacterStudioRecord character;
   final CharacterService service;
   final RecordTemplateSection section;
   final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+
+  /// Asks the shell for the Knowledge Graph, focused on a record.
+  ///
+  /// Separate from [onNavigate], which names a Studio and carries no record.
+  /// Merging them would conflate "go to that Studio" with "go to this record".
+  final ValueChanged<SearchNavigationTarget>? onOpenInGraph;
 
   @override
   Widget build(BuildContext context) =>
@@ -1897,11 +1930,30 @@ class _CharacterConnectionsPanel extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(section.title,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w800)),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(section.title,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                  OpenInGraphButton(
+                    recordId: character.id,
+                    onOpen: onOpenInGraph == null
+                        ? null
+                        : () => onOpenInGraph!(
+                              SearchNavigationTarget(
+                                destination:
+                                    SearchDestination.knowledgeGraph,
+                                recordId: character.id,
+                                projectId: service.projectId,
+                              ),
+                            ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               if (references.isEmpty)
                 _SectionEmpty(section: _connectionEmptyMessage(section.id))

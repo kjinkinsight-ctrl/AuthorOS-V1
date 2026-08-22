@@ -2,10 +2,15 @@
 ///
 /// The conflict rule here is deliberately stricter than the one the rest of
 /// the sync uses. For a writing goal, last-writer-wins costs three numbers.
-/// For a scene it costs an author's afternoon, and AuthorOS has no prose
-/// history to recover it from: `restoreVersion` explicitly does not roll back
-/// scene text, and the only prose backup in the product is written once during
-/// the v1 migration.
+/// For a scene it costs an author's afternoon. `restoreVersion` explicitly
+/// does not roll back scene text, and the only prose backup in the product
+/// before this was written once during the v1 migration.
+///
+/// `scene_revision.dart` now keeps a local copy of a scene before a pull
+/// overwrites it, which is a second net under this one. It is not a
+/// replacement: revision history is device-local and pruned, so a device that
+/// has never opened a project has no history for it. Applying prose still has
+/// to be non-destructive in its own right.
 ///
 /// So nothing here ever destroys prose. When two devices have both changed a
 /// scene, the arriving version is applied and the local one is kept beside it

@@ -6834,6 +6834,518 @@ class ProjectRowsCompanion extends UpdateCompanion<ProjectRow> {
   }
 }
 
+class $SceneRevisionRowsTable extends SceneRevisionRows
+    with TableInfo<$SceneRevisionRowsTable, SceneRevisionRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SceneRevisionRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _projectIdMeta =
+      const VerificationMeta('projectId');
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+      'project_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _sceneIdMeta =
+      const VerificationMeta('sceneId');
+  @override
+  late final GeneratedColumn<String> sceneId = GeneratedColumn<String>(
+      'scene_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _chapterIdMeta =
+      const VerificationMeta('chapterId');
+  @override
+  late final GeneratedColumn<String> chapterId = GeneratedColumn<String>(
+      'chapter_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+      'title', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _contentMeta =
+      const VerificationMeta('content');
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+      'content', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _contentDigestMeta =
+      const VerificationMeta('contentDigest');
+  @override
+  late final GeneratedColumn<String> contentDigest = GeneratedColumn<String>(
+      'content_digest', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _wordCountMeta =
+      const VerificationMeta('wordCount');
+  @override
+  late final GeneratedColumn<int> wordCount = GeneratedColumn<int>(
+      'word_count', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _capturedAtMeta =
+      const VerificationMeta('capturedAt');
+  @override
+  late final GeneratedColumn<DateTime> capturedAt = GeneratedColumn<DateTime>(
+      'captured_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _triggerMeta =
+      const VerificationMeta('trigger');
+  @override
+  late final GeneratedColumn<String> trigger = GeneratedColumn<String>(
+      'trigger', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        projectId,
+        sceneId,
+        chapterId,
+        title,
+        content,
+        contentDigest,
+        wordCount,
+        capturedAt,
+        trigger
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'scene_revision_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<SceneRevisionRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('project_id')) {
+      context.handle(_projectIdMeta,
+          projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta));
+    } else if (isInserting) {
+      context.missing(_projectIdMeta);
+    }
+    if (data.containsKey('scene_id')) {
+      context.handle(_sceneIdMeta,
+          sceneId.isAcceptableOrUnknown(data['scene_id']!, _sceneIdMeta));
+    } else if (isInserting) {
+      context.missing(_sceneIdMeta);
+    }
+    if (data.containsKey('chapter_id')) {
+      context.handle(_chapterIdMeta,
+          chapterId.isAcceptableOrUnknown(data['chapter_id']!, _chapterIdMeta));
+    } else if (isInserting) {
+      context.missing(_chapterIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('content')) {
+      context.handle(_contentMeta,
+          content.isAcceptableOrUnknown(data['content']!, _contentMeta));
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('content_digest')) {
+      context.handle(
+          _contentDigestMeta,
+          contentDigest.isAcceptableOrUnknown(
+              data['content_digest']!, _contentDigestMeta));
+    } else if (isInserting) {
+      context.missing(_contentDigestMeta);
+    }
+    if (data.containsKey('word_count')) {
+      context.handle(_wordCountMeta,
+          wordCount.isAcceptableOrUnknown(data['word_count']!, _wordCountMeta));
+    } else if (isInserting) {
+      context.missing(_wordCountMeta);
+    }
+    if (data.containsKey('captured_at')) {
+      context.handle(
+          _capturedAtMeta,
+          capturedAt.isAcceptableOrUnknown(
+              data['captured_at']!, _capturedAtMeta));
+    } else if (isInserting) {
+      context.missing(_capturedAtMeta);
+    }
+    if (data.containsKey('trigger')) {
+      context.handle(_triggerMeta,
+          trigger.isAcceptableOrUnknown(data['trigger']!, _triggerMeta));
+    } else if (isInserting) {
+      context.missing(_triggerMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SceneRevisionRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SceneRevisionRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      projectId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}project_id'])!,
+      sceneId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}scene_id'])!,
+      chapterId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}chapter_id'])!,
+      title: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
+      content: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content'])!,
+      contentDigest: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content_digest'])!,
+      wordCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}word_count'])!,
+      capturedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}captured_at'])!,
+      trigger: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}trigger'])!,
+    );
+  }
+
+  @override
+  $SceneRevisionRowsTable createAlias(String alias) {
+    return $SceneRevisionRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SceneRevisionRow extends DataClass
+    implements Insertable<SceneRevisionRow> {
+  final String id;
+  final String projectId;
+  final String sceneId;
+  final String chapterId;
+  final String title;
+  final String content;
+  final String contentDigest;
+  final int wordCount;
+  final DateTime capturedAt;
+  final String trigger;
+  const SceneRevisionRow(
+      {required this.id,
+      required this.projectId,
+      required this.sceneId,
+      required this.chapterId,
+      required this.title,
+      required this.content,
+      required this.contentDigest,
+      required this.wordCount,
+      required this.capturedAt,
+      required this.trigger});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['project_id'] = Variable<String>(projectId);
+    map['scene_id'] = Variable<String>(sceneId);
+    map['chapter_id'] = Variable<String>(chapterId);
+    map['title'] = Variable<String>(title);
+    map['content'] = Variable<String>(content);
+    map['content_digest'] = Variable<String>(contentDigest);
+    map['word_count'] = Variable<int>(wordCount);
+    map['captured_at'] = Variable<DateTime>(capturedAt);
+    map['trigger'] = Variable<String>(trigger);
+    return map;
+  }
+
+  SceneRevisionRowsCompanion toCompanion(bool nullToAbsent) {
+    return SceneRevisionRowsCompanion(
+      id: Value(id),
+      projectId: Value(projectId),
+      sceneId: Value(sceneId),
+      chapterId: Value(chapterId),
+      title: Value(title),
+      content: Value(content),
+      contentDigest: Value(contentDigest),
+      wordCount: Value(wordCount),
+      capturedAt: Value(capturedAt),
+      trigger: Value(trigger),
+    );
+  }
+
+  factory SceneRevisionRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SceneRevisionRow(
+      id: serializer.fromJson<String>(json['id']),
+      projectId: serializer.fromJson<String>(json['projectId']),
+      sceneId: serializer.fromJson<String>(json['sceneId']),
+      chapterId: serializer.fromJson<String>(json['chapterId']),
+      title: serializer.fromJson<String>(json['title']),
+      content: serializer.fromJson<String>(json['content']),
+      contentDigest: serializer.fromJson<String>(json['contentDigest']),
+      wordCount: serializer.fromJson<int>(json['wordCount']),
+      capturedAt: serializer.fromJson<DateTime>(json['capturedAt']),
+      trigger: serializer.fromJson<String>(json['trigger']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'projectId': serializer.toJson<String>(projectId),
+      'sceneId': serializer.toJson<String>(sceneId),
+      'chapterId': serializer.toJson<String>(chapterId),
+      'title': serializer.toJson<String>(title),
+      'content': serializer.toJson<String>(content),
+      'contentDigest': serializer.toJson<String>(contentDigest),
+      'wordCount': serializer.toJson<int>(wordCount),
+      'capturedAt': serializer.toJson<DateTime>(capturedAt),
+      'trigger': serializer.toJson<String>(trigger),
+    };
+  }
+
+  SceneRevisionRow copyWith(
+          {String? id,
+          String? projectId,
+          String? sceneId,
+          String? chapterId,
+          String? title,
+          String? content,
+          String? contentDigest,
+          int? wordCount,
+          DateTime? capturedAt,
+          String? trigger}) =>
+      SceneRevisionRow(
+        id: id ?? this.id,
+        projectId: projectId ?? this.projectId,
+        sceneId: sceneId ?? this.sceneId,
+        chapterId: chapterId ?? this.chapterId,
+        title: title ?? this.title,
+        content: content ?? this.content,
+        contentDigest: contentDigest ?? this.contentDigest,
+        wordCount: wordCount ?? this.wordCount,
+        capturedAt: capturedAt ?? this.capturedAt,
+        trigger: trigger ?? this.trigger,
+      );
+  SceneRevisionRow copyWithCompanion(SceneRevisionRowsCompanion data) {
+    return SceneRevisionRow(
+      id: data.id.present ? data.id.value : this.id,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      sceneId: data.sceneId.present ? data.sceneId.value : this.sceneId,
+      chapterId: data.chapterId.present ? data.chapterId.value : this.chapterId,
+      title: data.title.present ? data.title.value : this.title,
+      content: data.content.present ? data.content.value : this.content,
+      contentDigest: data.contentDigest.present
+          ? data.contentDigest.value
+          : this.contentDigest,
+      wordCount: data.wordCount.present ? data.wordCount.value : this.wordCount,
+      capturedAt:
+          data.capturedAt.present ? data.capturedAt.value : this.capturedAt,
+      trigger: data.trigger.present ? data.trigger.value : this.trigger,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SceneRevisionRow(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('sceneId: $sceneId, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('contentDigest: $contentDigest, ')
+          ..write('wordCount: $wordCount, ')
+          ..write('capturedAt: $capturedAt, ')
+          ..write('trigger: $trigger')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, projectId, sceneId, chapterId, title,
+      content, contentDigest, wordCount, capturedAt, trigger);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SceneRevisionRow &&
+          other.id == this.id &&
+          other.projectId == this.projectId &&
+          other.sceneId == this.sceneId &&
+          other.chapterId == this.chapterId &&
+          other.title == this.title &&
+          other.content == this.content &&
+          other.contentDigest == this.contentDigest &&
+          other.wordCount == this.wordCount &&
+          other.capturedAt == this.capturedAt &&
+          other.trigger == this.trigger);
+}
+
+class SceneRevisionRowsCompanion extends UpdateCompanion<SceneRevisionRow> {
+  final Value<String> id;
+  final Value<String> projectId;
+  final Value<String> sceneId;
+  final Value<String> chapterId;
+  final Value<String> title;
+  final Value<String> content;
+  final Value<String> contentDigest;
+  final Value<int> wordCount;
+  final Value<DateTime> capturedAt;
+  final Value<String> trigger;
+  final Value<int> rowid;
+  const SceneRevisionRowsCompanion({
+    this.id = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.sceneId = const Value.absent(),
+    this.chapterId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.content = const Value.absent(),
+    this.contentDigest = const Value.absent(),
+    this.wordCount = const Value.absent(),
+    this.capturedAt = const Value.absent(),
+    this.trigger = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SceneRevisionRowsCompanion.insert({
+    required String id,
+    required String projectId,
+    required String sceneId,
+    required String chapterId,
+    required String title,
+    required String content,
+    required String contentDigest,
+    required int wordCount,
+    required DateTime capturedAt,
+    required String trigger,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        projectId = Value(projectId),
+        sceneId = Value(sceneId),
+        chapterId = Value(chapterId),
+        title = Value(title),
+        content = Value(content),
+        contentDigest = Value(contentDigest),
+        wordCount = Value(wordCount),
+        capturedAt = Value(capturedAt),
+        trigger = Value(trigger);
+  static Insertable<SceneRevisionRow> custom({
+    Expression<String>? id,
+    Expression<String>? projectId,
+    Expression<String>? sceneId,
+    Expression<String>? chapterId,
+    Expression<String>? title,
+    Expression<String>? content,
+    Expression<String>? contentDigest,
+    Expression<int>? wordCount,
+    Expression<DateTime>? capturedAt,
+    Expression<String>? trigger,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (projectId != null) 'project_id': projectId,
+      if (sceneId != null) 'scene_id': sceneId,
+      if (chapterId != null) 'chapter_id': chapterId,
+      if (title != null) 'title': title,
+      if (content != null) 'content': content,
+      if (contentDigest != null) 'content_digest': contentDigest,
+      if (wordCount != null) 'word_count': wordCount,
+      if (capturedAt != null) 'captured_at': capturedAt,
+      if (trigger != null) 'trigger': trigger,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SceneRevisionRowsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? projectId,
+      Value<String>? sceneId,
+      Value<String>? chapterId,
+      Value<String>? title,
+      Value<String>? content,
+      Value<String>? contentDigest,
+      Value<int>? wordCount,
+      Value<DateTime>? capturedAt,
+      Value<String>? trigger,
+      Value<int>? rowid}) {
+    return SceneRevisionRowsCompanion(
+      id: id ?? this.id,
+      projectId: projectId ?? this.projectId,
+      sceneId: sceneId ?? this.sceneId,
+      chapterId: chapterId ?? this.chapterId,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      contentDigest: contentDigest ?? this.contentDigest,
+      wordCount: wordCount ?? this.wordCount,
+      capturedAt: capturedAt ?? this.capturedAt,
+      trigger: trigger ?? this.trigger,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (sceneId.present) {
+      map['scene_id'] = Variable<String>(sceneId.value);
+    }
+    if (chapterId.present) {
+      map['chapter_id'] = Variable<String>(chapterId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (contentDigest.present) {
+      map['content_digest'] = Variable<String>(contentDigest.value);
+    }
+    if (wordCount.present) {
+      map['word_count'] = Variable<int>(wordCount.value);
+    }
+    if (capturedAt.present) {
+      map['captured_at'] = Variable<DateTime>(capturedAt.value);
+    }
+    if (trigger.present) {
+      map['trigger'] = Variable<String>(trigger.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SceneRevisionRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('sceneId: $sceneId, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('contentDigest: $contentDigest, ')
+          ..write('wordCount: $wordCount, ')
+          ..write('capturedAt: $capturedAt, ')
+          ..write('trigger: $trigger, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   _$AuthorOsDatabase(QueryExecutor e) : super(e);
   $AuthorOsDatabaseManager get managers => $AuthorOsDatabaseManager(this);
@@ -6863,6 +7375,8 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
       $WritingGoalRowsTable(this);
   late final $SeriesRowsTable seriesRows = $SeriesRowsTable(this);
   late final $ProjectRowsTable projectRows = $ProjectRowsTable(this);
+  late final $SceneRevisionRowsTable sceneRevisionRows =
+      $SceneRevisionRowsTable(this);
   late final Index authorRecordsType = Index('author_records_type',
       'CREATE INDEX author_records_type ON author_record_rows (type_id)');
   late final Index authorRecordsScope = Index('author_records_scope',
@@ -6927,6 +7441,11 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
       'CREATE INDEX writing_sessions_project_started ON writing_session_rows (project_id, started_at)');
   late final Index projectsSeriesPosition = Index('projects_series_position',
       'CREATE INDEX projects_series_position ON project_rows (series_id, series_position)');
+  late final Index sceneRevisionsScene = Index('scene_revisions_scene',
+      'CREATE INDEX scene_revisions_scene ON scene_revision_rows (project_id, scene_id)');
+  late final Index sceneRevisionsSceneCaptured = Index(
+      'scene_revisions_scene_captured',
+      'CREATE INDEX scene_revisions_scene_captured ON scene_revision_rows (project_id, scene_id, captured_at)');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6947,6 +7466,7 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         writingGoalRows,
         seriesRows,
         projectRows,
+        sceneRevisionRows,
         authorRecordsType,
         authorRecordsScope,
         authorRecordsProject,
@@ -6975,7 +7495,9 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         auditEventsCreated,
         writingSessionsProject,
         writingSessionsProjectStarted,
-        projectsSeriesPosition
+        projectsSeriesPosition,
+        sceneRevisionsScene,
+        sceneRevisionsSceneCaptured
       ];
 }
 
@@ -11482,6 +12004,259 @@ typedef $$ProjectRowsTableProcessedTableManager = ProcessedTableManager<
     ),
     ProjectRow,
     PrefetchHooks Function()>;
+typedef $$SceneRevisionRowsTableCreateCompanionBuilder
+    = SceneRevisionRowsCompanion Function({
+  required String id,
+  required String projectId,
+  required String sceneId,
+  required String chapterId,
+  required String title,
+  required String content,
+  required String contentDigest,
+  required int wordCount,
+  required DateTime capturedAt,
+  required String trigger,
+  Value<int> rowid,
+});
+typedef $$SceneRevisionRowsTableUpdateCompanionBuilder
+    = SceneRevisionRowsCompanion Function({
+  Value<String> id,
+  Value<String> projectId,
+  Value<String> sceneId,
+  Value<String> chapterId,
+  Value<String> title,
+  Value<String> content,
+  Value<String> contentDigest,
+  Value<int> wordCount,
+  Value<DateTime> capturedAt,
+  Value<String> trigger,
+  Value<int> rowid,
+});
+
+class $$SceneRevisionRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $SceneRevisionRowsTable> {
+  $$SceneRevisionRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get sceneId => $composableBuilder(
+      column: $table.sceneId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get chapterId => $composableBuilder(
+      column: $table.chapterId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get contentDigest => $composableBuilder(
+      column: $table.contentDigest, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get wordCount => $composableBuilder(
+      column: $table.wordCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get trigger => $composableBuilder(
+      column: $table.trigger, builder: (column) => ColumnFilters(column));
+}
+
+class $$SceneRevisionRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $SceneRevisionRowsTable> {
+  $$SceneRevisionRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get sceneId => $composableBuilder(
+      column: $table.sceneId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get chapterId => $composableBuilder(
+      column: $table.chapterId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get contentDigest => $composableBuilder(
+      column: $table.contentDigest,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get wordCount => $composableBuilder(
+      column: $table.wordCount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get trigger => $composableBuilder(
+      column: $table.trigger, builder: (column) => ColumnOrderings(column));
+}
+
+class $$SceneRevisionRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $SceneRevisionRowsTable> {
+  $$SceneRevisionRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
+
+  GeneratedColumn<String> get sceneId =>
+      $composableBuilder(column: $table.sceneId, builder: (column) => column);
+
+  GeneratedColumn<String> get chapterId =>
+      $composableBuilder(column: $table.chapterId, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<String> get contentDigest => $composableBuilder(
+      column: $table.contentDigest, builder: (column) => column);
+
+  GeneratedColumn<int> get wordCount =>
+      $composableBuilder(column: $table.wordCount, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get trigger =>
+      $composableBuilder(column: $table.trigger, builder: (column) => column);
+}
+
+class $$SceneRevisionRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $SceneRevisionRowsTable,
+    SceneRevisionRow,
+    $$SceneRevisionRowsTableFilterComposer,
+    $$SceneRevisionRowsTableOrderingComposer,
+    $$SceneRevisionRowsTableAnnotationComposer,
+    $$SceneRevisionRowsTableCreateCompanionBuilder,
+    $$SceneRevisionRowsTableUpdateCompanionBuilder,
+    (
+      SceneRevisionRow,
+      BaseReferences<_$AuthorOsDatabase, $SceneRevisionRowsTable,
+          SceneRevisionRow>
+    ),
+    SceneRevisionRow,
+    PrefetchHooks Function()> {
+  $$SceneRevisionRowsTableTableManager(
+      _$AuthorOsDatabase db, $SceneRevisionRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SceneRevisionRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SceneRevisionRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SceneRevisionRowsTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> projectId = const Value.absent(),
+            Value<String> sceneId = const Value.absent(),
+            Value<String> chapterId = const Value.absent(),
+            Value<String> title = const Value.absent(),
+            Value<String> content = const Value.absent(),
+            Value<String> contentDigest = const Value.absent(),
+            Value<int> wordCount = const Value.absent(),
+            Value<DateTime> capturedAt = const Value.absent(),
+            Value<String> trigger = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SceneRevisionRowsCompanion(
+            id: id,
+            projectId: projectId,
+            sceneId: sceneId,
+            chapterId: chapterId,
+            title: title,
+            content: content,
+            contentDigest: contentDigest,
+            wordCount: wordCount,
+            capturedAt: capturedAt,
+            trigger: trigger,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String projectId,
+            required String sceneId,
+            required String chapterId,
+            required String title,
+            required String content,
+            required String contentDigest,
+            required int wordCount,
+            required DateTime capturedAt,
+            required String trigger,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SceneRevisionRowsCompanion.insert(
+            id: id,
+            projectId: projectId,
+            sceneId: sceneId,
+            chapterId: chapterId,
+            title: title,
+            content: content,
+            contentDigest: contentDigest,
+            wordCount: wordCount,
+            capturedAt: capturedAt,
+            trigger: trigger,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SceneRevisionRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $SceneRevisionRowsTable,
+    SceneRevisionRow,
+    $$SceneRevisionRowsTableFilterComposer,
+    $$SceneRevisionRowsTableOrderingComposer,
+    $$SceneRevisionRowsTableAnnotationComposer,
+    $$SceneRevisionRowsTableCreateCompanionBuilder,
+    $$SceneRevisionRowsTableUpdateCompanionBuilder,
+    (
+      SceneRevisionRow,
+      BaseReferences<_$AuthorOsDatabase, $SceneRevisionRowsTable,
+          SceneRevisionRow>
+    ),
+    SceneRevisionRow,
+    PrefetchHooks Function()>;
 
 class $AuthorOsDatabaseManager {
   final _$AuthorOsDatabase _db;
@@ -11520,4 +12295,6 @@ class $AuthorOsDatabaseManager {
       $$SeriesRowsTableTableManager(_db, _db.seriesRows);
   $$ProjectRowsTableTableManager get projectRows =>
       $$ProjectRowsTableTableManager(_db, _db.projectRows);
+  $$SceneRevisionRowsTableTableManager get sceneRevisionRows =>
+      $$SceneRevisionRowsTableTableManager(_db, _db.sceneRevisionRows);
 }

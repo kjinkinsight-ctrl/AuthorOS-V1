@@ -17,6 +17,7 @@ import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
+import 'package:author_studio_v1/core/scene_revision.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/core/writing_series.dart';
@@ -63,6 +64,12 @@ const _auditedTables = {
   // key. A catalogue entry, not a node and not an edge — see the roster test
   // below.
   'project_rows',
+  // Prose history, from the scene-revision milestone. The first place in
+  // AuthorOS that keeps a copy of a scene's words after they are overwritten.
+  // Deliberately in this list and deliberately not graph truth: a revision is
+  // an archived body of text, and the graph has never stored prose at all —
+  // see the scene-revision test below, and R-14 in the Story Graph audit.
+  'scene_revision_rows',
 };
 
 final _timestamp = DateTime.utc(2026, 8, 21, 9);
@@ -487,6 +494,100 @@ void main() {
         .map((definition) => definition.id)
         .toList();
     expect(goalEdges, isEmpty);
+  });
+
+  test('scene revisions stay archived prose and never become graph truth',
+      () async {
+    // The question I-12 forces about a session, asked about a paragraph: is a
+    // stored copy of a scene's prose graph data? It is not — and here the
+    // answer is stronger than a judgement call. The graph has never held prose
+    // at all: `manuscriptNodeForScene` stores metadata and a word count, and
+    // R-14 in the Story Graph audit records scene text being unsearchable as a
+    // known consequence. A revision table that leaked into the graph would
+    // reverse that silently.
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
+
+    // Not a node: no foreign key into the graph's identity table.
+    final foreignKeys = await database
+        .customSelect('PRAGMA foreign_key_list(scene_revision_rows)')
+        .get();
+    expect(
+      foreignKeys,
+      isEmpty,
+      reason: 'scene_revision_rows gained a foreign key. A revision that '
+          'points into connected_entities is a graph node, not an archive.',
+    );
+
+    // A surrogate key, unlike goals: a scene keeps many revisions, and that
+    // is the entire point of the table.
+    final columns = await database
+        .customSelect('PRAGMA table_info(scene_revision_rows)')
+        .get();
+    final primaryKey = columns
+        .where((row) => row.read<int>('pk') > 0)
+        .map((row) => row.read<String>('name'))
+        .toList();
+    expect(primaryKey, ['id']);
+
+    // Not a record type, and not an endpoint of any connection.
+    expect(
+      BuiltInRecordTypes.definitions.map((definition) => definition.id),
+      isNot(anyOf(
+        contains('scene-revision'),
+        contains('sceneRevision'),
+        contains('revision'),
+      )),
+      reason: 'A stored copy of prose became a registered record type, which '
+          'would put scene text into the graph and into the search index.',
+    );
+    final revisionEdges = BuiltInConnectionTypes.definitions
+        .where((definition) =>
+            definition.sourceTypeIds.contains('scene-revision') ||
+            definition.targetTypeIds.contains('scene-revision'))
+        .map((definition) => definition.id)
+        .toList();
+    expect(revisionEdges, isEmpty);
+
+    // And writing one leaves graph truth alone.
+    final repository = DriftConnectedDomainRepository(database);
+    await repository.putSceneRevision(
+      SceneRevision(
+        id: 'rev-1',
+        projectId: 'project-a',
+        sceneId: 'scene-1',
+        chapterId: 'chapter-1',
+        title: 'The Blood Price',
+        content: 'She opened the door.',
+        wordCount: 4,
+        capturedAt: _timestamp,
+        trigger: SceneRevisionTrigger.boundary,
+      ),
+    );
+
+    for (final table in const [
+      'connected_entities',
+      'author_record_rows',
+      'manuscript_node_rows',
+      'record_link_rows',
+      'record_version_rows',
+      'audit_event_rows',
+    ]) {
+      final count = await database
+          .customSelect('SELECT COUNT(*) AS total FROM $table')
+          .getSingle();
+      expect(count.read<int>('total'), 0, reason: table);
+    }
+    final indexed = await database
+        .customSelect('SELECT COUNT(*) AS total FROM author_search')
+        .getSingle();
+    expect(
+      indexed.read<int>('total'),
+      0,
+      reason: 'Keeping a copy of a scene must not put its prose into the '
+          'search index — the manuscript itself deliberately does not.',
+    );
   });
 
   test('the project roster stays a catalogue and never becomes graph truth',

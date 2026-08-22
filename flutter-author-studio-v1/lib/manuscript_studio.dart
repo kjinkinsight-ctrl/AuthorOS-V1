@@ -11,7 +11,9 @@ import 'sync/manuscript_appliers.dart';
 import 'manuscript_workspace.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
+import 'core/scene_revision.dart';
 import 'reading_rhythm.dart';
+import 'scene_revision_service.dart';
 import 'writing_session_recorder.dart';
 
 class ManuscriptStudioView extends StatefulWidget {
@@ -26,6 +28,7 @@ class ManuscriptStudioView extends StatefulWidget {
     this.onNavigate,
     this.sessionRecorder,
     this.syncRecorder,
+    this.revisionService,
   });
 
   final StarterProject project;
@@ -54,6 +57,10 @@ class ManuscriptStudioView extends StatefulWidget {
   /// Queues and uploads this device's prose. Injectable so tests can hand in
   /// an offline transport; production leaves it null.
   final ManuscriptSyncRecorder? syncRecorder;
+
+  /// Keeps a scene's prose after it has been overwritten. Injectable so tests
+  /// can pin a clock and build a history without waiting for one.
+  final SceneRevisionService? revisionService;
 
   @override
   State<ManuscriptStudioView> createState() => _ManuscriptStudioViewState();
@@ -137,9 +144,16 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   /// so a hook inside the save would queue during a read.
   late final ManuscriptSyncRecorder _syncRecorder;
 
-  /// True while a sync is applying prose, so the resulting editor update is
-  /// not mistaken for the author typing.
+  /// True while a sync or a restore is writing prose, so the resulting editor
+  /// update is not mistaken for the author typing.
   bool _applyingRemote = false;
+
+  /// Keeps what a scene said before something replaced it.
+  ///
+  /// Driven from here for the same reason [_syncRecorder] is: the store's
+  /// `saveStudio` is called by `loadStudio` when it seeds a manuscript, so a
+  /// hook inside the save would write prose history during a read.
+  late final SceneRevisionService _revisionService;
 
   @override
   void initState() {
@@ -161,6 +175,11 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     }
     _syncRecorder = widget.syncRecorder ??
         ManuscriptSyncRecorder(store: widget.store);
+    _revisionService = widget.revisionService ??
+        SceneRevisionService(
+          projectId: widget.project.id,
+          repository: widget.repository ?? widget.store.repository,
+        );
     // Opening the manuscript is the first natural boundary: whatever the
     // author wrote elsewhere should be here before they start.
     _load().then((_) => _pullRemoteProse());
@@ -176,6 +195,10 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     // A branch makes the manuscript Canon and read-only, and nothing about it
     // is this device's to publish.
     if (manuscript == null || !_canEdit) return;
+    // Before anything leaves or arrives: keep what the scenes say now. A
+    // boundary is the last honest moment to do it — after the pull below, the
+    // prose it replaced is only recoverable from here.
+    await _captureRevisions(manuscript);
     await _syncRecorder.recordChanges(manuscript);
     await _syncRecorder.flush();
     await _pullRemoteProse();
@@ -202,6 +225,80 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     }
   }
 
+  /// Snapshots the scenes whose prose has changed since they were last kept.
+  ///
+  /// Failure here costs a snapshot, never the author's words or their save —
+  /// the manuscript is already on disk by the time this runs.
+  Future<void> _captureRevisions(ManuscriptProjectSummary manuscript) async {
+    try {
+      await _revisionService.captureBoundary(manuscript);
+    } catch (error) {
+      debugPrint('Could not keep a scene revision: $error');
+    }
+  }
+
+  /// Opens the prose history for [scene] and restores whatever the author
+  /// picks.
+  Future<void> _showSceneRevisions(ManuscriptScene scene) async {
+    final revisionId = await showDialog<String>(
+      context: context,
+      builder: (context) => _SceneRevisionDialog(
+        service: _revisionService,
+        scene: scene,
+        canRestore: _canEdit,
+      ),
+    );
+    if (revisionId == null || !mounted) return;
+    await _restoreRevision(revisionId);
+  }
+
+  /// Puts an older version of a scene's prose back.
+  ///
+  /// Three things have to happen around the replacement itself, and all three
+  /// are the same lessons the remote-apply path already learned:
+  ///
+  /// * The pending save is flushed first, so the version this restores *over*
+  ///   is the one the author can see rather than one already superseded.
+  /// * [_applyingRemote] is held for the duration, because setting the editor
+  ///   text fires the change listener and these are not words the author
+  ///   typed.
+  /// * The session recorder is told the count moved, or the next keystroke
+  ///   credits the whole difference to them.
+  Future<void> _restoreRevision(String revisionId) async {
+    await _flushSave();
+    final current = _manuscript;
+    if (current == null || !_canEdit) return;
+    ManuscriptProjectSummary? restored;
+    try {
+      restored = await _revisionService.restore(
+        manuscript: current,
+        revisionId: revisionId,
+      );
+    } catch (error) {
+      debugPrint('Could not restore a scene revision: $error');
+    }
+    if (!mounted) return;
+    if (restored == null) {
+      _report('That revision is no longer available.');
+      return;
+    }
+    _applyingRemote = true;
+    try {
+      await _sessionRecorder.noteRemoteChange(restored.wordCount);
+      await _adoptManuscript(restored);
+    } finally {
+      _applyingRemote = false;
+    }
+    await _flushSave();
+    if (mounted) _report('Restored the earlier version of this scene.');
+  }
+
+  void _report(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
   /// Adopts a manuscript that arrived from another device.
   ///
   /// Two things have to happen together. The Studio takes the new manuscript,
@@ -215,6 +312,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     if (!mounted) return;
     _applyingRemote = true;
     try {
+      // `_manuscript` is still this device's version: the store has written
+      // the arriving one, but nothing here has adopted it yet. That makes now
+      // the only moment the local prose is still readable, so it is the only
+      // moment it can be kept.
+      final local = _manuscript;
+      if (local != null) {
+        try {
+          await _revisionService.captureBeforeRemote(
+            local: local,
+            incoming: manuscript,
+          );
+        } catch (error) {
+          debugPrint('Could not keep a scene revision: $error');
+        }
+      }
       await _sessionRecorder.noteRemoteChange(manuscript.wordCount);
       await _adoptManuscript(manuscript);
     } finally {
@@ -873,6 +985,16 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     final current = _manuscript;
     if (current == null) {
       return;
+    }
+    // The one snapshot with no scene left to live in. Without it, deleting a
+    // scene is the last unrecoverable way to lose prose in AuthorOS.
+    try {
+      await _revisionService.captureScene(
+        current.sceneById(scene.id) ?? scene,
+        trigger: SceneRevisionTrigger.deletion,
+      );
+    } catch (error) {
+      debugPrint('Could not keep a scene revision: $error');
     }
     try {
       final next = await _service.deleteScene(
@@ -2175,6 +2297,12 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                 onPressed: _flushSave,
                 child: const Text('Save now'),
               ),
+              TextButton.icon(
+                key: const Key('scene-revisions-button'),
+                onPressed: () => _showSceneRevisions(scene),
+                icon: const Icon(Icons.history),
+                label: const Text('Revisions'),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -2815,4 +2943,179 @@ class _SceneSearchResult {
   final String chapterTitle;
   final String sceneTitle;
   final String preview;
+}
+
+/// One scene's prose history, and the way back to any of it.
+///
+/// Built from [SceneRevisionSummary]s rather than [SceneRevision]s: the list
+/// shows time, size and reason for every snapshot, and loading the bodies to
+/// draw it would pull every stored copy of the scene into memory to display
+/// none of them. A body is read only when the author opens one.
+class _SceneRevisionDialog extends StatefulWidget {
+  const _SceneRevisionDialog({
+    required this.service,
+    required this.scene,
+    required this.canRestore,
+  });
+
+  final SceneRevisionService service;
+  final ManuscriptScene scene;
+  final bool canRestore;
+
+  @override
+  State<_SceneRevisionDialog> createState() => _SceneRevisionDialogState();
+}
+
+class _SceneRevisionDialogState extends State<_SceneRevisionDialog> {
+  late Future<List<SceneRevisionSummary>> _history;
+  String? _openId;
+  Future<SceneRevision?>? _openBody;
+
+  @override
+  void initState() {
+    super.initState();
+    _history = widget.service.historyFor(widget.scene.id);
+  }
+
+  void _open(SceneRevisionSummary revision) {
+    setState(() {
+      _openId = revision.id;
+      _openBody = widget.service.revision(revision.id);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      key: const Key('scene-revisions-dialog'),
+      title: Text('Revisions — ${widget.scene.title}'),
+      content: SizedBox(
+        width: 560,
+        height: 420,
+        child: FutureBuilder<List<SceneRevisionSummary>>(
+          future: _history,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final revisions = snapshot.data ?? const <SceneRevisionSummary>[];
+            if (revisions.isEmpty) {
+              return const Text(
+                'No earlier versions yet. AuthorOS keeps a copy of a scene '
+                'when you leave it, before a sync replaces its words, and '
+                'before a restore or a deletion takes them away.',
+                key: Key('scene-revisions-empty'),
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: ListView.builder(
+                    key: const Key('scene-revisions-list'),
+                    itemCount: revisions.length,
+                    itemBuilder: (context, index) {
+                      final revision = revisions[index];
+                      return _RevisionTile(
+                        key: Key('scene-revision-${revision.id}'),
+                        revision: revision,
+                        currentWordCount: widget.scene.wordCount,
+                        selected: revision.id == _openId,
+                        onOpen: () => _open(revision),
+                      );
+                    },
+                  ),
+                ),
+                if (_openBody != null) ...[
+                  const Divider(),
+                  Expanded(
+                    child: FutureBuilder<SceneRevision?>(
+                      future: _openBody,
+                      builder: (context, body) {
+                        if (body.connectionState != ConnectionState.done) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        final revision = body.data;
+                        if (revision == null) {
+                          return const Text(
+                            'That revision has since been pruned.',
+                            key: Key('scene-revision-gone'),
+                          );
+                        }
+                        return SingleChildScrollView(
+                          key: const Key('scene-revision-preview'),
+                          child: Text(
+                            revision.content,
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontFamily: 'monospace'),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        FilledButton(
+          key: const Key('scene-revision-restore'),
+          // Restoring writes prose, and a branch holds the manuscript
+          // read-only. Reading the history under one is still allowed: seeing
+          // what a scene used to say changes nothing.
+          onPressed: _openId == null || !widget.canRestore
+              ? null
+              : () => Navigator.of(context).pop(_openId),
+          child: const Text('Restore this version'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RevisionTile extends StatelessWidget {
+  const _RevisionTile({
+    super.key,
+    required this.revision,
+    required this.currentWordCount,
+    required this.selected,
+    required this.onOpen,
+  });
+
+  final SceneRevisionSummary revision;
+  final int currentWordCount;
+  final bool selected;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final delta = revision.wordCount - currentWordCount;
+    final sign = delta > 0 ? '+' : '';
+    return ListTile(
+      selected: selected,
+      onTap: onOpen,
+      leading: const Icon(Icons.history_toggle_off),
+      title: Text(_revisionTimestamp(revision.capturedAt)),
+      subtitle: Text(
+        '${revision.wordCount} words'
+        '${delta == 0 ? '' : ' ($sign$delta)'} • ${revision.trigger.label}',
+      ),
+    );
+  }
+}
+
+String _revisionTimestamp(DateTime value) {
+  final local = value.toLocal();
+  String two(int input) => input.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
 }

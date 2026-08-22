@@ -11,6 +11,7 @@ import '../core/branch_domain.dart';
 import '../core/search_models.dart';
 import '../core/version_audit.dart';
 import '../core/project_roster_entry.dart';
+import '../core/scene_revision.dart';
 import '../core/starter_project.dart';
 import '../core/writing_goals.dart';
 import '../core/writing_series.dart';
@@ -322,6 +323,48 @@ class ProjectRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// Durable prose history, scene by scene.
+///
+/// The first place in AuthorOS that has ever kept a copy of a scene's words
+/// after they were overwritten. [RecordVersionRows] holds manuscript *nodes* —
+/// titles, statuses, metadata — and `ManuscriptService.restoreVersion` says in
+/// its own doc comment that it does not roll prose back, because the snapshot
+/// it stores has never contained any.
+///
+/// Append-only, like [WritingSessionRows] and for the same reason: a revision
+/// is what the scene said at a moment, not a view of current state, so writes
+/// use insert-or-ignore and no later edit can revise it. Unlike sessions it is
+/// pruned, by [SceneRevisionRetention] — history that grew without bound would
+/// eventually hold more prose than the manuscript it protects.
+///
+/// [contentDigest] is what makes the recorder cheap: it answers "has this
+/// scene changed since its last snapshot?" without reading a single stored
+/// body back out.
+///
+/// Deliberately project-scoped and deliberately not synced. See
+/// `core/scene_revision.dart` for why history stays on the device that made
+/// it.
+@TableIndex(name: 'scene_revisions_scene', columns: {#projectId, #sceneId})
+@TableIndex(
+  name: 'scene_revisions_scene_captured',
+  columns: {#projectId, #sceneId, #capturedAt},
+)
+class SceneRevisionRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get projectId => text()();
+  TextColumn get sceneId => text()();
+  TextColumn get chapterId => text()();
+  TextColumn get title => text()();
+  TextColumn get content => text()();
+  TextColumn get contentDigest => text()();
+  IntColumn get wordCount => integer()();
+  DateTimeColumn get capturedAt => dateTime()();
+  TextColumn get trigger => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     ConnectedEntities,
@@ -339,6 +382,7 @@ class ProjectRows extends Table {
     WritingGoalRows,
     SeriesRows,
     ProjectRows,
+    SceneRevisionRows,
   ],
 )
 class AuthorOsDatabase extends _$AuthorOsDatabase {
@@ -372,7 +416,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     driftWorker: Uri.parse('drift_worker.js'),
   );
 
-  static const currentSchemaVersion = 11;
+  static const currentSchemaVersion = 12;
   final int _schemaVersion;
 
   @override
@@ -468,6 +512,9 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           if (from < 11 && to >= 11) {
             await migrator.createTable(seriesRows);
             await migrator.createTable(projectRows);
+          }
+          if (from < 12 && to >= 12) {
+            await migrator.createTable(sceneRevisionRows);
           }
         },
         beforeOpen: (details) async {
@@ -1049,6 +1096,145 @@ class DriftConnectedDomainRepository {
         .get();
     return rows.map(_rosterEntryFromRow).toList();
   }
+
+  // --- Scene revision history ----------------------------------------------
+
+  /// Appends one snapshot and prunes what [retention] says is no longer worth
+  /// keeping, in a single transaction.
+  ///
+  /// Insert-or-ignore for the same reason as [putWritingSession]: a revision
+  /// is a historical fact. Pruning inside the same transaction is what keeps
+  /// the invariant "a scene's history obeys the retention policy" true at
+  /// every point a reader could observe it, rather than only after a separate
+  /// housekeeping pass that might never run.
+  Future<void> putSceneRevision(
+    SceneRevision revision, {
+    SceneRevisionRetention retention = const SceneRevisionRetention(),
+    DateTime? now,
+  }) async {
+    await database.transaction(() async {
+      await database.into(database.sceneRevisionRows).insert(
+            _sceneRevisionCompanion(revision),
+            mode: InsertMode.insertOrIgnore,
+          );
+      final summaries = await sceneRevisionSummaries(
+        revision.projectId,
+        revision.sceneId,
+      );
+      final stale = retention.idsToPrune(summaries, now ?? DateTime.now());
+      if (stale.isEmpty) return;
+      await (database.delete(database.sceneRevisionRows)
+            ..where((table) => table.id.isIn(stale)))
+          .go();
+    });
+  }
+
+  /// One scene's history, newest first, **without the prose**.
+  ///
+  /// The column list is the point. Selecting rows would load every stored copy
+  /// of the scene to draw a list that shows none of them — on a heavily
+  /// revised scene that is megabytes to render a few dozen lines. Bodies are
+  /// read one at a time, by [sceneRevision], when the author opens one.
+  Future<List<SceneRevisionSummary>> sceneRevisionSummaries(
+    String projectId,
+    String sceneId, {
+    int? limit,
+  }) async {
+    final buffer = StringBuffer(
+      'SELECT id, project_id, scene_id, chapter_id, title, content_digest, '
+      'word_count, captured_at, trigger FROM scene_revision_rows '
+      'WHERE project_id = ? AND scene_id = ? '
+      'ORDER BY captured_at DESC, id DESC',
+    );
+    if (limit != null) buffer.write(' LIMIT $limit');
+    final rows = await database.customSelect(
+      buffer.toString(),
+      variables: [Variable<String>(projectId), Variable<String>(sceneId)],
+      readsFrom: {database.sceneRevisionRows},
+    ).get();
+    return [
+      for (final row in rows)
+        SceneRevisionSummary(
+          id: row.read<String>('id'),
+          projectId: row.read<String>('project_id'),
+          sceneId: row.read<String>('scene_id'),
+          chapterId: row.read<String>('chapter_id'),
+          title: row.read<String>('title'),
+          wordCount: row.read<int>('word_count'),
+          capturedAt: row.read<DateTime>('captured_at'),
+          trigger: SceneRevisionTriggerX.fromId(row.read<String>('trigger')),
+          contentDigest: row.read<String>('content_digest'),
+        ),
+    ];
+  }
+
+  /// One stored revision, prose included.
+  Future<SceneRevision?> sceneRevision(String revisionId) async {
+    final row = await (database.select(database.sceneRevisionRows)
+          ..where((table) => table.id.equals(revisionId)))
+        .getSingleOrNull();
+    return row == null ? null : _sceneRevisionFromRow(row);
+  }
+
+  /// The digest of the newest revision of every scene in [projectId].
+  ///
+  /// This is what lets the recorder decide, for a whole manuscript at once and
+  /// without reading any prose, which scenes have actually changed since they
+  /// were last snapshotted. One query per capture rather than one per scene.
+  Future<Map<String, String>> newestSceneRevisionDigests(
+    String projectId,
+  ) async {
+    final rows = await database.customSelect(
+      'SELECT r.scene_id AS scene_id, r.content_digest AS content_digest '
+      'FROM scene_revision_rows r '
+      'JOIN (SELECT scene_id, MAX(captured_at) AS captured_at '
+      '      FROM scene_revision_rows WHERE project_id = ? '
+      '      GROUP BY scene_id) newest '
+      '  ON newest.scene_id = r.scene_id '
+      ' AND newest.captured_at = r.captured_at '
+      'WHERE r.project_id = ?',
+      variables: [Variable<String>(projectId), Variable<String>(projectId)],
+      readsFrom: {database.sceneRevisionRows},
+    ).get();
+    return {
+      for (final row in rows)
+        row.read<String>('scene_id'): row.read<String>('content_digest'),
+    };
+  }
+
+  /// Removes one project's prose history. Cleanup only — nothing in the
+  /// capture or restore path calls this.
+  Future<int> deleteSceneRevisionsForProject(String projectId) =>
+      (database.delete(database.sceneRevisionRows)
+            ..where((table) => table.projectId.equals(projectId)))
+          .go();
+
+  SceneRevisionRowsCompanion _sceneRevisionCompanion(SceneRevision revision) =>
+      SceneRevisionRowsCompanion.insert(
+        id: revision.id,
+        projectId: revision.projectId,
+        sceneId: revision.sceneId,
+        chapterId: revision.chapterId,
+        title: revision.title,
+        content: revision.content,
+        contentDigest: revision.contentDigest,
+        wordCount: revision.wordCount,
+        capturedAt: revision.capturedAt,
+        trigger: revision.trigger.id,
+      );
+
+  SceneRevision _sceneRevisionFromRow(SceneRevisionRow row) => SceneRevision(
+        id: row.id,
+        projectId: row.projectId,
+        sceneId: row.sceneId,
+        chapterId: row.chapterId,
+        title: row.title,
+        content: row.content,
+        contentDigest: row.contentDigest,
+        wordCount: row.wordCount,
+        capturedAt: row.capturedAt,
+        trigger: SceneRevisionTriggerX.fromId(row.trigger),
+      );
 
   SeriesRowsCompanion _seriesCompanion(WritingSeries series) =>
       SeriesRowsCompanion.insert(

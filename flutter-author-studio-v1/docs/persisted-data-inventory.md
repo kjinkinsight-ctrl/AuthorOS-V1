@@ -258,8 +258,11 @@ both versions and require user resolution."*
 
 Worth knowing: a conflict copy is an ordinary scene. It counts toward word
 totals and appears in exports until the author merges or deletes it. That is
-the deliberate price of never losing prose — the product has no other prose
-recovery, since `restoreVersion` does not roll back scene text.
+the deliberate price of never losing prose in a collision.
+
+It is no longer the only prose recovery, though. Scene revision history (below)
+covers the case a conflict copy cannot: an author overwriting their own words
+on one device, with no second device involved.
 
 Prose is queued at the 700ms autosave but uploaded only at natural boundaries —
 leaving a scene, closing the manuscript, backgrounding the app — so the network
@@ -285,6 +288,57 @@ manuscript and what uploads is current rather than a snapshot.
 - Treatment: operational; safe to clear, at the cost of one redundant outline
   upload
 
+## Scene revision history
+
+Prose history is **not** a preference key. It lives in the canonical AuthorOS
+database as `scene_revision_rows` (schema 12), alongside writing sessions and
+for the same reason: it is append-only historical data with a query shape
+preferences cannot serve.
+
+Until it existed, AuthorOS could not return a single overwritten word.
+`record_version_rows` stores manuscript *nodes* — titles, statuses, metadata —
+and `ManuscriptService.restoreVersion` says in its own doc comment that it does
+not roll prose back, because the snapshot it holds has never contained any. The
+only prose backup, `author_studio.manuscript_legacy_backup.{projectId}`, is
+written once during the v1 migration. Every 700ms autosave destroyed what came
+before it.
+
+**What is captured, and when.** Never on the autosave — a snapshot per keystroke
+burst would be a second copy of the novel every few seconds. Capture is an
+explicit call the Manuscript Studio makes at four moments:
+
+| Trigger | When |
+|---|---|
+| `boundary` | The author leaves a scene, closes the manuscript, or backgrounds the app |
+| `remoteApply` | Immediately before a sync writes another device's prose over this device's |
+| `restore` | Immediately before restoring an older revision, which is what makes a restore undoable |
+| `deletion` | A scene is deleted — the one snapshot with no scene left to live in |
+
+Two filters keep the history readable: empty prose is never captured, and
+prose identical to the scene's newest revision is never captured twice. Leaving
+and re-entering a scene without typing writes nothing at all.
+
+**Retention.** Unbounded history would eventually hold more prose than the
+manuscript it protects, so `SceneRevisionRetention` thins it, working
+newest-first. A revision survives if it is one of the newest 15 and within the
+last 6 hours, or if it is the first seen in its bucket — an hour within the last
+day, a day within the last month, a week beyond that. What survives is capped at
+50 per scene. The recent allowance is a budget rather than a window, which is
+what stops a dense burst of editing filling the ceiling with the last twenty
+minutes and pruning every older bucket underneath it.
+
+**Deliberately device-local.** Revisions are not a synced record type and never
+travel. Syncing them would multiply every prose upload by the retention depth to
+guard against a loss the conflict-copy rule already handles; local history
+answers the other question — "I overwrote my own scene an hour ago" — which no
+amount of syncing could.
+
+**Not graph truth.** A revision is an archived body of text. It carries no
+foreign key into `connected_entities`, is not a registered record type, is not
+an endpoint of any connection, and is never indexed into `author_search` — the
+manuscript itself deliberately keeps prose out of the search index (risk R-14),
+and a revision table that leaked into it would reverse that silently.
+
 ## Data not currently represented as durable creative storage
 
 The audit found no canonical persisted 1.x stores for:
@@ -297,7 +351,7 @@ The audit found no canonical persisted 1.x stores for:
 - book-layout specifications
 - writing-session history and heat maps
 - complete project archive manifests
-- per-entity tombstones and revision history
+- per-entity tombstones
 
 These must be introduced by the 2.0 domain rather than inferred from unrelated settings.
 

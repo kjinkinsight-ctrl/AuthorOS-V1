@@ -74,6 +74,18 @@ const _auditedTables = {
   // an archived body of text, and the graph has never stored prose at all —
   // see the scene-revision test below, and R-14 in the Story Graph audit.
   'scene_revision_rows',
+  // Each scene's *current* prose. Deliberately in this list and deliberately
+  // not graph truth: it has no entity row, no typed links and no branch
+  // overlay, and nothing traverses it. Chapters and scenes remain
+  // single-sourced in manuscript_node_rows; this holds the words those nodes
+  // stand for, apart from the graph indexes so editing a long chapter never
+  // rewrites the project graph.
+  //
+  // Note the pairing with the row above, which is the whole of the prose
+  // architecture: `scene_prose_rows` is what a scene says now,
+  // `scene_revision_rows` is what it used to say. One of each, and a test
+  // below holds the tree to exactly that.
+  'scene_prose_rows',
 };
 
 final _timestamp = DateTime.utc(2026, 8, 21, 9);

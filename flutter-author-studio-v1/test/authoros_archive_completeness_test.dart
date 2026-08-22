@@ -1,10 +1,16 @@
 /// The archive carries the whole project, not just its graph.
 ///
-/// Two things used to fall out of an `.authoros` file. Scene prose lives in
-/// the Manuscript Studio's own store rather than the database, so a restore
-/// returned a fully-connected graph of **empty scenes** (risk R-2). Writing
-/// sessions are the twelfth table but were never written to the archive at
-/// all, so a round trip lost every daily total and streak (risk R-22).
+/// Two things used to fall out of an `.authoros` file. Scene prose was absent,
+/// so a restore returned a fully-connected graph of **empty scenes** (risk
+/// R-2). Writing sessions are the twelfth table but were never written to the
+/// archive at all, so a round trip lost every daily total and streak (risk
+/// R-22).
+///
+/// Prose has since moved into the database, so R-2 is now answered by
+/// `snapshot.sceneProse` and the `content/scene-prose.jsonl` entry it writes.
+/// `data/manuscripts.jsonl` keeps the other half — the chapter and scene tree
+/// the Manuscript Studio holds outside the database — and the two do not
+/// overlap, because the store writes its blob with `includeProse: false`.
 ///
 /// These prove both survive, and that an archive written before either
 /// existed still imports.
@@ -14,6 +20,8 @@ import 'dart:typed_data';
 
 import 'package:author_studio_v1/archive/authoros_archive.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
+import 'package:author_studio_v1/core/prose_document.dart';
+import 'package:author_studio_v1/core/scene_prose.dart';
 import 'package:author_studio_v1/core/writing_session.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
@@ -85,12 +93,25 @@ void main() {
         manuscripts: manuscripts,
       );
 
-  ConnectedDomainSnapshot graphOnly({List<WritingSession> sessions = const []}) =>
+  SceneProse sceneProse(String text) => SceneProse(
+        sceneId: 'scene-1',
+        projectId: 'project-1',
+        chapterId: 'chapter-1',
+        document: ProseDocument.fromPlainText(text),
+        updatedAt: _timestamp,
+        revision: 2,
+      );
+
+  ConnectedDomainSnapshot graphOnly({
+    List<WritingSession> sessions = const [],
+    List<SceneProse> prose = const [],
+  }) =>
       ConnectedDomainSnapshot(
         records: const [],
         manuscriptNodes: const [],
         links: const [],
         writingSessions: sessions,
+        sceneProse: prose,
       );
 
   group('R-22 — writing sessions survive a round trip', () {
@@ -125,33 +146,77 @@ void main() {
     test('scene content is carried and restored', () {
       const prose = 'The harbor smelled of salt and iron that morning.';
       final bytes = export(
-        graphOnly(),
-        manuscripts: [manuscript(prose: prose).toJson()],
+        graphOnly(prose: [sceneProse(prose)]),
+        manuscripts: [manuscript(prose: '').toJson(includeProse: false)],
       );
 
-      final restored = service.importArchive(bytes).manuscripts;
+      final contents = service.importArchive(bytes);
 
-      expect(restored, hasLength(1));
-      final recovered = ManuscriptProjectSummary.fromJson(restored.single);
       // The whole point: a restore must not return an empty scene.
-      expect(recovered.chapters.single.scenes.single.content, prose);
-      expect(recovered.manuscriptTitle, 'The Blood Price');
-      expect(recovered.chapters.single.scenes.single.title, 'The Harbor');
+      expect(contents.snapshot.sceneProse, hasLength(1));
+      expect(contents.snapshot.sceneProse.single.sceneId, 'scene-1');
+      expect(contents.snapshot.sceneProse.single.plainText, prose);
+      expect(contents.snapshot.sceneProse.single.revision, 2);
     });
 
     test('prose is byte-exact, not merely present', () {
+      // A round trip that silently normalises an author's line breaks is the
+      // same bug wearing a different hat.
       const prose = 'Line one.\n\n  Indented line — with an em dash, "quotes",\n'
           'and a trailing newline.\n';
+      final bytes = export(graphOnly(prose: [sceneProse(prose)]));
+
+      expect(
+        service.importArchive(bytes).snapshot.sceneProse.single.plainText,
+        prose,
+      );
+    });
+
+    test('the manuscript entry carries the shape of the book', () {
+      // The other half of a restore: the chapter and scene tree, which lives
+      // outside the database and would otherwise have nowhere to travel.
       final bytes = export(
-        graphOnly(),
-        manuscripts: [manuscript(prose: prose).toJson()],
+        graphOnly(prose: [sceneProse('kept')]),
+        manuscripts: [manuscript(prose: '').toJson(includeProse: false)],
       );
 
       final recovered = ManuscriptProjectSummary.fromJson(
         service.importArchive(bytes).manuscripts.single,
       );
+      expect(recovered.manuscriptTitle, 'The Blood Price');
+      expect(recovered.chapters.single.scenes.single.title, 'The Harbor');
+      expect(recovered.currentSceneId, 'scene-1');
+    });
 
-      expect(recovered.chapters.single.scenes.single.content, prose);
+    test('the file holds exactly one copy of the prose', () {
+      // Two copies would let an import pick the wrong one. The store writes
+      // its blob prose-free, and this holds the format to that.
+      final bytes = export(
+        graphOnly(prose: [sceneProse('The harbor smelled of salt.')]),
+        manuscripts: [manuscript(prose: '').toJson(includeProse: false)],
+      );
+
+      final recovered = ManuscriptProjectSummary.fromJson(
+        service.importArchive(bytes).manuscripts.single,
+      );
+      expect(recovered.chapters.single.scenes.single.content, isEmpty);
+    });
+
+    test('prose survives the repository round trip too', () async {
+      final database = AuthorOsDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final repository = DriftConnectedDomainRepository(database);
+
+      await repository.replaceSnapshot(
+        graphOnly(prose: [sceneProse('Straight through the database.')]),
+      );
+      final snapshot = await repository.snapshot();
+
+      // The archive is only as complete as the snapshot feeding it.
+      expect(
+        snapshot.sceneProse.single.plainText,
+        'Straight through the database.',
+      );
     });
   });
 
@@ -164,13 +229,14 @@ void main() {
       final contents = service.importArchive(bytes);
 
       expect(contents.snapshot.writingSessions, isEmpty);
+      expect(contents.snapshot.sceneProse, isEmpty);
       expect(contents.manuscripts, isEmpty);
     });
 
     test('importSnapshot still returns just the graph', () {
       final bytes = export(
         graphOnly(sessions: [session('s-1')]),
-        manuscripts: [manuscript(prose: 'kept').toJson()],
+        manuscripts: [manuscript(prose: '').toJson(includeProse: false)],
       );
 
       // The narrower entry point keeps working for callers that only want the
@@ -183,7 +249,7 @@ void main() {
     test('integrity still covers the new entries', () {
       final bytes = export(
         graphOnly(sessions: [session('s-1')]),
-        manuscripts: [manuscript(prose: 'kept').toJson()],
+        manuscripts: [manuscript(prose: '').toJson(includeProse: false)],
       );
 
       // Flipping one byte of the zip must be rejected, not silently restored.

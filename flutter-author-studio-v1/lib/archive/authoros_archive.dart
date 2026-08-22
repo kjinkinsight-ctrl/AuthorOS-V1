@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import '../core/connected_domain.dart';
 import '../core/connection_types.dart';
 import '../core/record_types.dart';
+import '../core/scene_prose.dart';
 import '../core/branch_domain.dart';
 import '../core/version_audit.dart';
 import '../core/writing_session.dart';
@@ -105,6 +106,18 @@ class AuthorOsArchiveService {
       if (snapshot.writingSessions.isNotEmpty)
         'data/writing-sessions.jsonl': _jsonLines(
           snapshot.writingSessions.map((session) => session.toJson()),
+        ),
+      // Under content/, not data/: this is the book, not the graph that
+      // describes it. `data/manuscripts.jsonl` below carries the other half --
+      // the chapter and scene tree, which lives outside the database. The two
+      // do not overlap, because ManuscriptStore writes its blob with
+      // `includeProse: false`.
+      if (snapshot.sceneProse.isNotEmpty)
+        'content/scene-prose.jsonl': _jsonLines(
+          snapshot.sceneProse.map((prose) => {
+                'id': prose.sceneId,
+                ...prose.toJson(),
+              }),
         ),
       if (manuscripts.isNotEmpty)
         'data/manuscripts.jsonl': _jsonLines(
@@ -313,6 +326,13 @@ class AuthorOsArchiveService {
               .map(WritingSession.fromJson)
               .toList()
           : const [],
+      // Optional on read too: archives written before prose moved into the
+      // database do not carry this entry, and must still restore.
+      sceneProse: files.containsKey('content/scene-prose.jsonl')
+          ? _decodeJsonLines(files['content/scene-prose.jsonl'])
+              .map(SceneProse.fromJson)
+              .toList()
+          : const [],
     );
     InMemoryConnectedDomainRepository(initial: snapshot);
     return AuthorOsArchiveContents(
@@ -401,6 +421,7 @@ int _lineCount(Uint8List bytes) =>
 String _roleFor(String path) => switch (path) {
       'data/writing-sessions.jsonl' => 'writing-sessions',
       'data/manuscripts.jsonl' => 'manuscripts',
+      'content/scene-prose.jsonl' => 'scene-content',
       'data/records.jsonl' => 'records',
       'data/manuscript-nodes.jsonl' => 'manuscript-nodes',
       'data/links.jsonl' => 'links',

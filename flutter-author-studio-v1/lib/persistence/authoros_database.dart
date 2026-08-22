@@ -250,6 +250,38 @@ class WritingSessionRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// Binary assets an author attached to a book.
+///
+/// Cover art is the first and, in Phase 2, the only one. It lives here rather
+/// than beside the rest of the book's settings because those settings are a
+/// JSON blob in shared preferences, which on the web is `localStorage` — a
+/// roughly five-megabyte quota for the whole origin, shared with the author's
+/// prose. A cover is hundreds of kilobytes of binary, so storing it there could
+/// fail to save or crowd out the manuscript itself. The embedded database is
+/// SQLite over IndexedDB in the browser and has no such ceiling.
+///
+/// This is an authored asset, not graph truth: it is never the endpoint of a
+/// `RecordLink` and it participates in nothing. See the note beside it in
+/// `test/story_graph_architecture_test.dart`.
+class BookAssetRows extends Table {
+  TextColumn get projectId => text()();
+
+  /// Which asset this is. 'cover' today.
+  TextColumn get role => text()();
+
+  /// The IANA type, sniffed from the file's own magic bytes on import.
+  TextColumn get mediaType => text()();
+
+  BlobColumn get bytes => blob()();
+  IntColumn get width => integer().nullable()();
+  IntColumn get height => integer().nullable()();
+  DateTimeColumn get updatedAt => dateTime()();
+  TextColumn get extensionJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {projectId, role};
+}
+
 /// One project's daily, weekly, and monthly word targets.
 ///
 /// Keyed by the project id rather than a surrogate id, because a project has
@@ -381,6 +413,7 @@ class SceneRevisionRows extends Table {
     RecordVersionRows,
     AuditEventRows,
     WritingSessionRows,
+    BookAssetRows,
     WritingGoalRows,
     SeriesRows,
     ProjectRows,
@@ -418,7 +451,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     driftWorker: Uri.parse('drift_worker.js'),
   );
 
-  static const currentSchemaVersion = 13;
+  static const currentSchemaVersion = 14;
   final int _schemaVersion;
 
   @override
@@ -523,6 +556,13 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           }
           if (from < 13 && to >= 13) {
             await _createSceneProseTable();
+          }
+          // Book Studio cover art and export snapshots. Numbered 14 rather
+          // than the 10 it was written as: main claimed 10 through 13 while
+          // this branch was open, and a step keyed on a version another
+          // migration already passed would never run.
+          if (from < 14 && to >= 14) {
+            await migrator.createTable(bookAssetRows);
           }
         },
         beforeOpen: (details) async {

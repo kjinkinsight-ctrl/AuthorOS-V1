@@ -345,6 +345,7 @@ void main() {
         StudioSection.plot: StudioId.plot,
         StudioSection.timeline: StudioId.timeline,
         StudioSection.knowledgeGraph: StudioId.knowledgeGraph,
+        StudioSection.book: StudioId.book,
         StudioSection.dashboard: StudioId.shell,
         StudioSection.search: StudioId.shell,
         StudioSection.statistics: StudioId.shell,

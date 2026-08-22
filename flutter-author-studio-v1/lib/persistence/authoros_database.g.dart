@@ -5841,6 +5841,441 @@ class WritingSessionRowsCompanion extends UpdateCompanion<WritingSessionRow> {
   }
 }
 
+class $BookAssetRowsTable extends BookAssetRows
+    with TableInfo<$BookAssetRowsTable, BookAssetRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BookAssetRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _projectIdMeta =
+      const VerificationMeta('projectId');
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+      'project_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _roleMeta = const VerificationMeta('role');
+  @override
+  late final GeneratedColumn<String> role = GeneratedColumn<String>(
+      'role', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _mediaTypeMeta =
+      const VerificationMeta('mediaType');
+  @override
+  late final GeneratedColumn<String> mediaType = GeneratedColumn<String>(
+      'media_type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _bytesMeta = const VerificationMeta('bytes');
+  @override
+  late final GeneratedColumn<Uint8List> bytes = GeneratedColumn<Uint8List>(
+      'bytes', aliasedName, false,
+      type: DriftSqlType.blob, requiredDuringInsert: true);
+  static const VerificationMeta _widthMeta = const VerificationMeta('width');
+  @override
+  late final GeneratedColumn<int> width = GeneratedColumn<int>(
+      'width', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _heightMeta = const VerificationMeta('height');
+  @override
+  late final GeneratedColumn<int> height = GeneratedColumn<int>(
+      'height', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _extensionJsonMeta =
+      const VerificationMeta('extensionJson');
+  @override
+  late final GeneratedColumn<String> extensionJson = GeneratedColumn<String>(
+      'extension_json', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        projectId,
+        role,
+        mediaType,
+        bytes,
+        width,
+        height,
+        updatedAt,
+        extensionJson
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'book_asset_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<BookAssetRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('project_id')) {
+      context.handle(_projectIdMeta,
+          projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta));
+    } else if (isInserting) {
+      context.missing(_projectIdMeta);
+    }
+    if (data.containsKey('role')) {
+      context.handle(
+          _roleMeta, role.isAcceptableOrUnknown(data['role']!, _roleMeta));
+    } else if (isInserting) {
+      context.missing(_roleMeta);
+    }
+    if (data.containsKey('media_type')) {
+      context.handle(_mediaTypeMeta,
+          mediaType.isAcceptableOrUnknown(data['media_type']!, _mediaTypeMeta));
+    } else if (isInserting) {
+      context.missing(_mediaTypeMeta);
+    }
+    if (data.containsKey('bytes')) {
+      context.handle(
+          _bytesMeta, bytes.isAcceptableOrUnknown(data['bytes']!, _bytesMeta));
+    } else if (isInserting) {
+      context.missing(_bytesMeta);
+    }
+    if (data.containsKey('width')) {
+      context.handle(
+          _widthMeta, width.isAcceptableOrUnknown(data['width']!, _widthMeta));
+    }
+    if (data.containsKey('height')) {
+      context.handle(_heightMeta,
+          height.isAcceptableOrUnknown(data['height']!, _heightMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('extension_json')) {
+      context.handle(
+          _extensionJsonMeta,
+          extensionJson.isAcceptableOrUnknown(
+              data['extension_json']!, _extensionJsonMeta));
+    } else if (isInserting) {
+      context.missing(_extensionJsonMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {projectId, role};
+  @override
+  BookAssetRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BookAssetRow(
+      projectId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}project_id'])!,
+      role: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}role'])!,
+      mediaType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}media_type'])!,
+      bytes: attachedDatabase.typeMapping
+          .read(DriftSqlType.blob, data['${effectivePrefix}bytes'])!,
+      width: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}width']),
+      height: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}height']),
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+      extensionJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}extension_json'])!,
+    );
+  }
+
+  @override
+  $BookAssetRowsTable createAlias(String alias) {
+    return $BookAssetRowsTable(attachedDatabase, alias);
+  }
+}
+
+class BookAssetRow extends DataClass implements Insertable<BookAssetRow> {
+  final String projectId;
+
+  /// Which asset this is. 'cover' today.
+  final String role;
+
+  /// The IANA type, sniffed from the file's own magic bytes on import.
+  final String mediaType;
+  final Uint8List bytes;
+  final int? width;
+  final int? height;
+  final DateTime updatedAt;
+  final String extensionJson;
+  const BookAssetRow(
+      {required this.projectId,
+      required this.role,
+      required this.mediaType,
+      required this.bytes,
+      this.width,
+      this.height,
+      required this.updatedAt,
+      required this.extensionJson});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['project_id'] = Variable<String>(projectId);
+    map['role'] = Variable<String>(role);
+    map['media_type'] = Variable<String>(mediaType);
+    map['bytes'] = Variable<Uint8List>(bytes);
+    if (!nullToAbsent || width != null) {
+      map['width'] = Variable<int>(width);
+    }
+    if (!nullToAbsent || height != null) {
+      map['height'] = Variable<int>(height);
+    }
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['extension_json'] = Variable<String>(extensionJson);
+    return map;
+  }
+
+  BookAssetRowsCompanion toCompanion(bool nullToAbsent) {
+    return BookAssetRowsCompanion(
+      projectId: Value(projectId),
+      role: Value(role),
+      mediaType: Value(mediaType),
+      bytes: Value(bytes),
+      width:
+          width == null && nullToAbsent ? const Value.absent() : Value(width),
+      height:
+          height == null && nullToAbsent ? const Value.absent() : Value(height),
+      updatedAt: Value(updatedAt),
+      extensionJson: Value(extensionJson),
+    );
+  }
+
+  factory BookAssetRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BookAssetRow(
+      projectId: serializer.fromJson<String>(json['projectId']),
+      role: serializer.fromJson<String>(json['role']),
+      mediaType: serializer.fromJson<String>(json['mediaType']),
+      bytes: serializer.fromJson<Uint8List>(json['bytes']),
+      width: serializer.fromJson<int?>(json['width']),
+      height: serializer.fromJson<int?>(json['height']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      extensionJson: serializer.fromJson<String>(json['extensionJson']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'projectId': serializer.toJson<String>(projectId),
+      'role': serializer.toJson<String>(role),
+      'mediaType': serializer.toJson<String>(mediaType),
+      'bytes': serializer.toJson<Uint8List>(bytes),
+      'width': serializer.toJson<int?>(width),
+      'height': serializer.toJson<int?>(height),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'extensionJson': serializer.toJson<String>(extensionJson),
+    };
+  }
+
+  BookAssetRow copyWith(
+          {String? projectId,
+          String? role,
+          String? mediaType,
+          Uint8List? bytes,
+          Value<int?> width = const Value.absent(),
+          Value<int?> height = const Value.absent(),
+          DateTime? updatedAt,
+          String? extensionJson}) =>
+      BookAssetRow(
+        projectId: projectId ?? this.projectId,
+        role: role ?? this.role,
+        mediaType: mediaType ?? this.mediaType,
+        bytes: bytes ?? this.bytes,
+        width: width.present ? width.value : this.width,
+        height: height.present ? height.value : this.height,
+        updatedAt: updatedAt ?? this.updatedAt,
+        extensionJson: extensionJson ?? this.extensionJson,
+      );
+  BookAssetRow copyWithCompanion(BookAssetRowsCompanion data) {
+    return BookAssetRow(
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      role: data.role.present ? data.role.value : this.role,
+      mediaType: data.mediaType.present ? data.mediaType.value : this.mediaType,
+      bytes: data.bytes.present ? data.bytes.value : this.bytes,
+      width: data.width.present ? data.width.value : this.width,
+      height: data.height.present ? data.height.value : this.height,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      extensionJson: data.extensionJson.present
+          ? data.extensionJson.value
+          : this.extensionJson,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookAssetRow(')
+          ..write('projectId: $projectId, ')
+          ..write('role: $role, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('bytes: $bytes, ')
+          ..write('width: $width, ')
+          ..write('height: $height, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('extensionJson: $extensionJson')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(projectId, role, mediaType,
+      $driftBlobEquality.hash(bytes), width, height, updatedAt, extensionJson);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BookAssetRow &&
+          other.projectId == this.projectId &&
+          other.role == this.role &&
+          other.mediaType == this.mediaType &&
+          $driftBlobEquality.equals(other.bytes, this.bytes) &&
+          other.width == this.width &&
+          other.height == this.height &&
+          other.updatedAt == this.updatedAt &&
+          other.extensionJson == this.extensionJson);
+}
+
+class BookAssetRowsCompanion extends UpdateCompanion<BookAssetRow> {
+  final Value<String> projectId;
+  final Value<String> role;
+  final Value<String> mediaType;
+  final Value<Uint8List> bytes;
+  final Value<int?> width;
+  final Value<int?> height;
+  final Value<DateTime> updatedAt;
+  final Value<String> extensionJson;
+  final Value<int> rowid;
+  const BookAssetRowsCompanion({
+    this.projectId = const Value.absent(),
+    this.role = const Value.absent(),
+    this.mediaType = const Value.absent(),
+    this.bytes = const Value.absent(),
+    this.width = const Value.absent(),
+    this.height = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.extensionJson = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  BookAssetRowsCompanion.insert({
+    required String projectId,
+    required String role,
+    required String mediaType,
+    required Uint8List bytes,
+    this.width = const Value.absent(),
+    this.height = const Value.absent(),
+    required DateTime updatedAt,
+    required String extensionJson,
+    this.rowid = const Value.absent(),
+  })  : projectId = Value(projectId),
+        role = Value(role),
+        mediaType = Value(mediaType),
+        bytes = Value(bytes),
+        updatedAt = Value(updatedAt),
+        extensionJson = Value(extensionJson);
+  static Insertable<BookAssetRow> custom({
+    Expression<String>? projectId,
+    Expression<String>? role,
+    Expression<String>? mediaType,
+    Expression<Uint8List>? bytes,
+    Expression<int>? width,
+    Expression<int>? height,
+    Expression<DateTime>? updatedAt,
+    Expression<String>? extensionJson,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (projectId != null) 'project_id': projectId,
+      if (role != null) 'role': role,
+      if (mediaType != null) 'media_type': mediaType,
+      if (bytes != null) 'bytes': bytes,
+      if (width != null) 'width': width,
+      if (height != null) 'height': height,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (extensionJson != null) 'extension_json': extensionJson,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  BookAssetRowsCompanion copyWith(
+      {Value<String>? projectId,
+      Value<String>? role,
+      Value<String>? mediaType,
+      Value<Uint8List>? bytes,
+      Value<int?>? width,
+      Value<int?>? height,
+      Value<DateTime>? updatedAt,
+      Value<String>? extensionJson,
+      Value<int>? rowid}) {
+    return BookAssetRowsCompanion(
+      projectId: projectId ?? this.projectId,
+      role: role ?? this.role,
+      mediaType: mediaType ?? this.mediaType,
+      bytes: bytes ?? this.bytes,
+      width: width ?? this.width,
+      height: height ?? this.height,
+      updatedAt: updatedAt ?? this.updatedAt,
+      extensionJson: extensionJson ?? this.extensionJson,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (role.present) {
+      map['role'] = Variable<String>(role.value);
+    }
+    if (mediaType.present) {
+      map['media_type'] = Variable<String>(mediaType.value);
+    }
+    if (bytes.present) {
+      map['bytes'] = Variable<Uint8List>(bytes.value);
+    }
+    if (width.present) {
+      map['width'] = Variable<int>(width.value);
+    }
+    if (height.present) {
+      map['height'] = Variable<int>(height.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (extensionJson.present) {
+      map['extension_json'] = Variable<String>(extensionJson.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookAssetRowsCompanion(')
+          ..write('projectId: $projectId, ')
+          ..write('role: $role, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('bytes: $bytes, ')
+          ..write('width: $width, ')
+          ..write('height: $height, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('extensionJson: $extensionJson, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $WritingGoalRowsTable extends WritingGoalRows
     with TableInfo<$WritingGoalRowsTable, WritingGoalRow> {
   @override
@@ -7371,6 +7806,7 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   late final $AuditEventRowsTable auditEventRows = $AuditEventRowsTable(this);
   late final $WritingSessionRowsTable writingSessionRows =
       $WritingSessionRowsTable(this);
+  late final $BookAssetRowsTable bookAssetRows = $BookAssetRowsTable(this);
   late final $WritingGoalRowsTable writingGoalRows =
       $WritingGoalRowsTable(this);
   late final $SeriesRowsTable seriesRows = $SeriesRowsTable(this);
@@ -7463,6 +7899,7 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         recordVersionRows,
         auditEventRows,
         writingSessionRows,
+        bookAssetRows,
         writingGoalRows,
         seriesRows,
         projectRows,
@@ -11466,6 +11903,226 @@ typedef $$WritingSessionRowsTableProcessedTableManager = ProcessedTableManager<
     ),
     WritingSessionRow,
     PrefetchHooks Function()>;
+typedef $$BookAssetRowsTableCreateCompanionBuilder = BookAssetRowsCompanion
+    Function({
+  required String projectId,
+  required String role,
+  required String mediaType,
+  required Uint8List bytes,
+  Value<int?> width,
+  Value<int?> height,
+  required DateTime updatedAt,
+  required String extensionJson,
+  Value<int> rowid,
+});
+typedef $$BookAssetRowsTableUpdateCompanionBuilder = BookAssetRowsCompanion
+    Function({
+  Value<String> projectId,
+  Value<String> role,
+  Value<String> mediaType,
+  Value<Uint8List> bytes,
+  Value<int?> width,
+  Value<int?> height,
+  Value<DateTime> updatedAt,
+  Value<String> extensionJson,
+  Value<int> rowid,
+});
+
+class $$BookAssetRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $BookAssetRowsTable> {
+  $$BookAssetRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get mediaType => $composableBuilder(
+      column: $table.mediaType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<Uint8List> get bytes => $composableBuilder(
+      column: $table.bytes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get width => $composableBuilder(
+      column: $table.width, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get height => $composableBuilder(
+      column: $table.height, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get extensionJson => $composableBuilder(
+      column: $table.extensionJson, builder: (column) => ColumnFilters(column));
+}
+
+class $$BookAssetRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $BookAssetRowsTable> {
+  $$BookAssetRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get mediaType => $composableBuilder(
+      column: $table.mediaType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<Uint8List> get bytes => $composableBuilder(
+      column: $table.bytes, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get width => $composableBuilder(
+      column: $table.width, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get height => $composableBuilder(
+      column: $table.height, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get extensionJson => $composableBuilder(
+      column: $table.extensionJson,
+      builder: (column) => ColumnOrderings(column));
+}
+
+class $$BookAssetRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $BookAssetRowsTable> {
+  $$BookAssetRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
+
+  GeneratedColumn<String> get role =>
+      $composableBuilder(column: $table.role, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaType =>
+      $composableBuilder(column: $table.mediaType, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get bytes =>
+      $composableBuilder(column: $table.bytes, builder: (column) => column);
+
+  GeneratedColumn<int> get width =>
+      $composableBuilder(column: $table.width, builder: (column) => column);
+
+  GeneratedColumn<int> get height =>
+      $composableBuilder(column: $table.height, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get extensionJson => $composableBuilder(
+      column: $table.extensionJson, builder: (column) => column);
+}
+
+class $$BookAssetRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $BookAssetRowsTable,
+    BookAssetRow,
+    $$BookAssetRowsTableFilterComposer,
+    $$BookAssetRowsTableOrderingComposer,
+    $$BookAssetRowsTableAnnotationComposer,
+    $$BookAssetRowsTableCreateCompanionBuilder,
+    $$BookAssetRowsTableUpdateCompanionBuilder,
+    (
+      BookAssetRow,
+      BaseReferences<_$AuthorOsDatabase, $BookAssetRowsTable, BookAssetRow>
+    ),
+    BookAssetRow,
+    PrefetchHooks Function()> {
+  $$BookAssetRowsTableTableManager(
+      _$AuthorOsDatabase db, $BookAssetRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BookAssetRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BookAssetRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BookAssetRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> projectId = const Value.absent(),
+            Value<String> role = const Value.absent(),
+            Value<String> mediaType = const Value.absent(),
+            Value<Uint8List> bytes = const Value.absent(),
+            Value<int?> width = const Value.absent(),
+            Value<int?> height = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<String> extensionJson = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              BookAssetRowsCompanion(
+            projectId: projectId,
+            role: role,
+            mediaType: mediaType,
+            bytes: bytes,
+            width: width,
+            height: height,
+            updatedAt: updatedAt,
+            extensionJson: extensionJson,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String projectId,
+            required String role,
+            required String mediaType,
+            required Uint8List bytes,
+            Value<int?> width = const Value.absent(),
+            Value<int?> height = const Value.absent(),
+            required DateTime updatedAt,
+            required String extensionJson,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              BookAssetRowsCompanion.insert(
+            projectId: projectId,
+            role: role,
+            mediaType: mediaType,
+            bytes: bytes,
+            width: width,
+            height: height,
+            updatedAt: updatedAt,
+            extensionJson: extensionJson,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$BookAssetRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $BookAssetRowsTable,
+    BookAssetRow,
+    $$BookAssetRowsTableFilterComposer,
+    $$BookAssetRowsTableOrderingComposer,
+    $$BookAssetRowsTableAnnotationComposer,
+    $$BookAssetRowsTableCreateCompanionBuilder,
+    $$BookAssetRowsTableUpdateCompanionBuilder,
+    (
+      BookAssetRow,
+      BaseReferences<_$AuthorOsDatabase, $BookAssetRowsTable, BookAssetRow>
+    ),
+    BookAssetRow,
+    PrefetchHooks Function()>;
 typedef $$WritingGoalRowsTableCreateCompanionBuilder = WritingGoalRowsCompanion
     Function({
   required String projectId,
@@ -12289,6 +12946,8 @@ class $AuthorOsDatabaseManager {
       $$AuditEventRowsTableTableManager(_db, _db.auditEventRows);
   $$WritingSessionRowsTableTableManager get writingSessionRows =>
       $$WritingSessionRowsTableTableManager(_db, _db.writingSessionRows);
+  $$BookAssetRowsTableTableManager get bookAssetRows =>
+      $$BookAssetRowsTableTableManager(_db, _db.bookAssetRows);
   $$WritingGoalRowsTableTableManager get writingGoalRows =>
       $$WritingGoalRowsTableTableManager(_db, _db.writingGoalRows);
   $$SeriesRowsTableTableManager get seriesRows =>

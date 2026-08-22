@@ -139,6 +139,70 @@ sits close to the graph, but they are nullable soft pointers with no foreign key
 `connected_entities`. Proximity without participation. That is the shape every
 historical or operational subsystem should take, and invariant I-16 holds it there.
 
+### Applied: book presentation is outside the boundary (Book Studio Phase 1)
+
+The boundary above was first applied to a new subsystem by Book Studio Phase 1
+(`docs/book-studio-phase-1-implementation-map.md`).
+
+Book presentation data — trim size, margins, typography, chapter design, and the
+front and back matter an author switches on — fails the participation test
+outright. No `RecordLink` will ever want a copyright page as the endpoint of
+`appearsIn`, `occursAt` or `mentionedIn`. A trim size is not a thing the story is
+made of.
+
+It is therefore **outside the graph and outside the database**: `BookProject` is
+persisted as a JSON blob at `author_studio.book_studio.{projectId}`, the same
+mechanism the prose itself uses. The registered-but-never-instantiated `book`
+record type (§3.3) stays uninstantiated; instantiating it would have quietly
+resurrected withdrawn decision D-1.
+
+Two further consequences worth recording:
+
+- Making these records would have put "Copyright (c) 2026" into the `author_search`
+  FTS index beside characters and locations, and written a `record_version_rows`
+  entry every time a margin moved — reopening exactly the churn problem D-2 was
+  withdrawn for.
+- **Parts** are the one structural addition, and they are modelled as ordering
+  metadata rather than nodes: `BookPart.startsAtChapterId` holds a stable chapter
+  id in `connected_entities`. That keeps R-1 from worsening — no new node kind on
+  an upsert-only table that cannot delete — while staying forward-compatible: when
+  the graph gains `contains`/`partOf` edges (§4.3), the anchor id becomes an edge
+  with no change to the book model.
+
+Table count and schema version are unchanged at **12** and **9**; the archive
+entry count is unchanged at **10**. Book settings being outside the archive is the
+same gap as R-2, not a new one.
+
+### Applied again: cover art is an asset, not a node (Book Studio Phase 2)
+
+EPUB export needed cover art, which is the first binary an author attaches to a
+book. It gets a table — `book_asset_rows` — and the reasoning is worth recording
+because it is the first addition to the audited table set since writing sessions.
+
+It passes the same test writing sessions did, in the same direction: **proximity
+without participation**. A cover carries a `projectId`, so it sits close to the
+graph, but it is never the endpoint of a `RecordLink`, nothing traverses to it,
+and no creative record depends on it. It is an authored asset.
+
+The reason it is in the database at all, rather than beside the rest of the
+book's settings, is not architectural preference but a storage ceiling: those
+settings are a shared-preferences blob, and shared preferences on the web is
+`localStorage` — roughly five megabytes for the whole origin, shared with the
+author's prose. A cover is hundreds of kilobytes of binary. Keeping it there
+risks failing to save, or crowding out the manuscript.
+
+Table count grows by one and schema version moves **13 → 14**. The addition is
+declared in `_auditedTables` with its rationale, as that test requires.
+
+(It was written as 9 → 10. `main` claimed steps 10 through 13 while this branch
+was open, and a migration step keyed on a version another migration has already
+passed would never run, so the step was renumbered when the branches met.) Graph
+truth is unchanged: no new node kind, no new edge table, and `record_link_rows`
+remains the only edge table.
+
+The archive entry count is still **10**. Cover bytes join book settings and scene
+prose outside the `.authoros` archive — the same gap as R-2, now slightly wider.
+
 ### Phase plan superseded
 
 §20's Phase 0 was written for D-1 and no longer applies. The live plan is:

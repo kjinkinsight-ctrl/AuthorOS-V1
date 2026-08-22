@@ -58,7 +58,11 @@ void main() {
   }
 
   Future<void> pumpStudio(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1400);
+    // Tall enough to hold the whole Studio page: the toolbar, the canvas and
+    // every panel below it. The map itself sizes from the canvas box, not from
+    // this, so a taller fake view changes what is reachable in a test and
+    // nothing about the layout under test.
+    tester.view.physicalSize = const Size(1400, 2600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -229,7 +233,9 @@ void main() {
         'map-layer-base',
         'map-layer-terrain',
         'map-layer-regions',
+        'map-layer-borders',
         'map-layer-assets',
+        'map-layer-worldRoutes',
         'map-layer-locations',
         'map-layer-markers',
         'map-layer-storyPaths',

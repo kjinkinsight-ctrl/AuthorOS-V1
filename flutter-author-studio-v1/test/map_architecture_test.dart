@@ -4,6 +4,7 @@ import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/world_record_types.dart';
 import 'package:author_studio_v1/map_overlay_service.dart';
+import 'package:author_studio_v1/map_world_service.dart';
 import 'package:author_studio_v1/map_service.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/world_service.dart';
@@ -30,6 +31,11 @@ void main() {
     // themes and vocabularies applies to it unchanged.
     'lib/map_overlays.dart',
     'lib/map_overlay_service.dart',
+    // Phase 5 world state, territories, routes and travel. Same rules again: a
+    // world state is a reading, so it may own no store, no theme and no
+    // vocabulary of its own.
+    'lib/map_world.dart',
+    'lib/map_world_service.dart',
   ];
 
   group('one persistence system', () {
@@ -439,12 +445,16 @@ void main() {
       // a forest reads over its territory, and below the pins that name places.
       // Phase 4 added two more: story paths draw beneath the overlays whose
       // stops they join, and both sit above the world they are read against and
-      // below selection, which must always stay visible.
+      // below selection, which must always stay visible. Phase 5 added borders
+      // over the ground they divide, and routes over the scenery but under the
+      // places they join.
       expect(MapLayer.values.map((layer) => layer.name), [
         'base',
         'terrain',
         'regions',
+        'borders',
         'assets',
+        'worldRoutes',
         'locations',
         'markers',
         'storyPaths',
@@ -769,14 +779,146 @@ void main() {
     });
   });
 
+  group('Phase 5 — world simulation', () {
+    test('the world layer owns no world of its own', () {
+      for (final path in const [
+        'lib/map_world.dart',
+        'lib/map_world_service.dart',
+      ]) {
+        final source = read(path);
+        for (final banned in const [
+          'class WorldStore',
+          'class MapWorldDatabase',
+          'class MapFaction ',
+          'class MapCharacterRecord',
+          'class MapTimelineEvent',
+          'world_state_rows',
+          'Table',
+          'SharedPreferences',
+        ]) {
+          expect(source, isNot(contains(banned)),
+              reason: '$path builds a second world model');
+        }
+      }
+    });
+
+    test('the world service is read-only by construction', () {
+      final service = read('lib/map_world_service.dart');
+      for (final banned in const [
+        'createRecord',
+        'updateRecord',
+        'archiveRecord',
+        'deleteRecord',
+        'putRecord',
+        'putManuscriptNodes',
+        'RecordService',
+        'ConnectionEngine',
+        '.connect(',
+        'disconnect',
+        'Future<void> save',
+      ]) {
+        expect(service, isNot(contains(banned)),
+            reason: 'the world service performs $banned');
+      }
+      expect(service, contains('repository.recordsByProject'));
+      expect(service, contains('repository.backlinks'));
+    });
+
+    test('the world domain is deterministic and free of Flutter', () {
+      final domain = read('lib/map_world.dart');
+      expect(domain, isNot(contains('package:flutter/')));
+      for (final banned in const [
+        'Random(',
+        'DateTime.now()',
+        'Future<',
+        'async',
+      ]) {
+        expect(domain, isNot(contains(banned)),
+            reason: 'the world domain is not deterministic: $banned');
+      }
+    });
+
+    test('every link the world layer reads is a canonical link type', () {
+      final registry = BuiltInConnectionTypes.registry();
+      for (final typeId in MapWorldLinks.all) {
+        expect(() => registry.resolve(typeId), returnsNormally,
+            reason: '$typeId is not a link type AuthorOS already defines');
+      }
+    });
+
+    test('every type the world layer reads is a canonical record type', () {
+      final registry = BuiltInRecordTypes.registry();
+      final known = {
+        for (final definition in registry.definitions) definition.id,
+      };
+      expect(known, contains(MapWorldTypes.resource));
+      expect(known, contains(MapWorldTypes.border));
+      for (final typeId in MapWorldTypes.factions) {
+        expect(known, contains(typeId), reason: '$typeId is not a record type');
+      }
+      for (final typeId in MapWorldTypes.routes) {
+        expect(known, contains(typeId), reason: '$typeId is not a record type');
+      }
+    });
+
+    test('the world layer is scoped to one project throughout', () {
+      final service = read('lib/map_world_service.dart');
+      expect(service, contains('link.scopeId == projectId'));
+      expect(service, contains('recordsByProject(projectId)'));
+    });
+
+    test('travel refuses rather than fabricates', () {
+      final domain = read('lib/map_world.dart');
+      expect(domain, contains('MapTravelEstimate.unavailable'));
+      // The calculator returns null for a leg it cannot cost, and a leg it
+      // cannot cost must not fall back to a default distance.
+      expect(domain, isNot(contains('distance ?? ')));
+      expect(domain, isNot(contains('statedTravelDays ?? ')));
+    });
+
+    test('the view reads the world and writes none of it', () {
+      final view = read('lib/map_studio_view.dart');
+      for (final banned in const [
+        'worldService.create',
+        'worldService.update',
+        'worldService.save',
+        'service.setTerritory',
+        'service.setBorder',
+        'MapWorldState(',
+        'MapSettlement(',
+        'MapTerritory(',
+        'MapWorldRoute(',
+      ]) {
+        expect(view, isNot(contains(banned)),
+            reason: 'the view invents world data with $banned');
+      }
+      expect(view, contains('worldService.loadWorldState'));
+    });
+
+    test('Phases 3 and 4 are still standing underneath', () {
+      final view = read('lib/map_studio_view.dart');
+      for (final api in const [
+        '_TerrainPainter',
+        '_assetIcon',
+        '_overlayIcon',
+        '_JourneyPainter',
+        'overlayService.loadOverlays',
+        'MapVisualStyle',
+      ]) {
+        expect(view, contains(api), reason: 'an earlier phase lost $api');
+      }
+    });
+  });
+
   group('phase boundary', () {
     test('the service exposes no later-phase entry point', () {
       final service = read('lib/map_service.dart');
       for (final api in const [
         // Terrain and brushes moved into scope with Phase 3, overlays with
-        // Phase 4. The boundary this test defends is now Phase 5 and later --
-        // and note that MapService still has no overlay method of any kind,
-        // because overlays are read through their own read-only service.
+        // Phase 4, world state with Phase 5. The boundary this test defends is
+        // now Phase 6 and later -- and note that MapService still has no
+        // overlay or world method of any kind, because both are read through
+        // their own read-only services.
         'exportMap',
         'shareMap',
         'publishMap',
@@ -802,11 +944,12 @@ void main() {
       }
     });
 
-    test('no Phase 5 or later API has been introduced anywhere', () {
-      // Phase 4 legitimately crossed the old line: story, character, timeline
-      // and manuscript overlays are in scope now, so those names are gone from
-      // this list rather than the list being deleted. What is banned is what is
-      // still ahead -- simulation, export, printing, sharing and community.
+    test('no Phase 6 or later API has been introduced anywhere', () {
+      // Phase 5 legitimately crossed the old line: world state, territories,
+      // routes and travel are in scope now, so the simulation names are gone
+      // from this list rather than the list being deleted. What is banned is
+      // what is still ahead -- presentation, export, printing, reader maps,
+      // spoiler filtering, sharing and community.
       for (final path in mapFiles) {
         final source = read(path);
         for (final banned in const [
@@ -816,12 +959,13 @@ void main() {
           'publishMap',
           'communityMap',
           'marketplace',
-          'weatherSimulation',
-          'populationSimulation',
-          'politicalSimulation',
+          'PresentationMode',
+          'ReaderMap',
+          'SpoilerLevel',
+          'MapExportPreset',
         ]) {
           expect(source, isNot(contains(banned)),
-              reason: '\$path introduces the Phase 5+ API \$banned');
+              reason: '\$path introduces the Phase 6+ API \$banned');
         }
       }
     });

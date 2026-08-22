@@ -344,11 +344,15 @@ void main() {
         StudioSection.world: StudioId.world,
         StudioSection.plot: StudioId.plot,
         StudioSection.timeline: StudioId.timeline,
+        StudioSection.knowledgeGraph: StudioId.knowledgeGraph,
         StudioSection.dashboard: StudioId.shell,
         StudioSection.search: StudioId.shell,
         StudioSection.statistics: StudioId.shell,
         StudioSection.backup: StudioId.shell,
         StudioSection.projects: StudioId.shell,
+        // `series` sits with `projects`: both are the author's catalogue of
+        // work rather than a Studio with a palette of its own.
+        StudioSection.series: StudioId.shell,
         StudioSection.ideas: StudioId.shell,
         StudioSection.notes: StudioId.shell,
         StudioSection.settings: StudioId.shell,

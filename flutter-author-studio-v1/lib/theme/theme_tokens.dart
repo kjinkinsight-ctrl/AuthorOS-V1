@@ -241,6 +241,7 @@ class StudioId {
   static const manuscript = StudioId('manuscript');
   static const analytics = StudioId('analytics');
   static const research = StudioId('research');
+  static const knowledgeGraph = StudioId('knowledge_graph');
 
   @override
   bool operator ==(Object other) => other is StudioId && other.value == value;

@@ -110,6 +110,20 @@ class WritingCalendar {
   /// Whether two instants fall on the same local calendar day.
   static bool isSameDay(DateTime a, DateTime b) => dayOf(a) == dayOf(b);
 
+  /// Whole calendar days from [from]'s local day to [to]'s local day.
+  ///
+  /// Counted between UTC-normalized midnights rather than by subtracting the
+  /// two instants: a daylight-saving day is 23 or 25 hours long, and
+  /// `difference().inDays` would truncate one of those to the wrong count.
+  /// Negative when [to] falls before [from].
+  static int daysBetween(DateTime from, DateTime to) {
+    final start = dayOf(from);
+    final end = dayOf(to);
+    return DateTime.utc(end.year, end.month, end.day)
+        .difference(DateTime.utc(start.year, start.month, start.day))
+        .inDays;
+  }
+
   /// The local calendar day [days] after [day].
   ///
   /// Built through the calendar constructor rather than [Duration] arithmetic

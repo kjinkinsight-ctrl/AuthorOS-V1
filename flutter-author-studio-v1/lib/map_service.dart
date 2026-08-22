@@ -18,9 +18,11 @@ import 'core/version_audit.dart';
 import 'core/version_audit_service.dart';
 import 'core/world_record_types.dart';
 import 'map_domain.dart';
+import 'map_terrain.dart';
 import 'persistence/authoros_database.dart';
 
 export 'map_domain.dart';
+export 'map_terrain.dart';
 
 /// The values needed to create or re-describe a map.
 class MapDraft {
@@ -607,7 +609,382 @@ class MapService {
     ];
   }
 
+  // -------------------------------------------------- terrain and scenery ---
+  //
+  // Phase 3 stores how a map *looks* in fields on the map record itself. It is
+  // presentation data: terrain, scenery and styling are never AuthorRecords and
+  // never endpoints of a RecordLink, so a densely painted map adds nothing to
+  // the story graph. A place a story turns on is a location or a region, which
+  // Phase 1 already provides and which are graph entities.
+
+  /// Replaces a map's painted ground.
+  Future<MapSummary> setTerrain(
+    String id,
+    MapTerrainGrid terrain, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields);
+    if (terrain.isEmpty && terrain.cellCount == 0) {
+      fields.remove(MapVisualFields.terrain);
+    } else {
+      fields[MapVisualFields.terrain] = terrain.toJson();
+    }
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// Applies one brush stroke at a map-space position.
+  ///
+  /// The pointer's pixels were converted by [MapProjection] before they reached
+  /// here, and the brush radius is in map units, so the same stroke covers the
+  /// same ground at any zoom.
+  Future<MapSummary> paintTerrain(
+    String id,
+    MapTerrainBrush brush,
+    MapPosition position, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final extent = MapExtent.fromRecord(existing);
+    var terrain = MapTerrainGrid.read(existing.fields);
+    if (terrain.cellCount == 0) {
+      terrain = MapTerrainGrid.empty();
+    }
+    final painted = terrain.painted(
+      brush,
+      position.clampTo(extent),
+      extent,
+    );
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.terrain] = painted.toJson();
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// Applies a whole brush stroke in one write.
+  ///
+  /// A stroke is one editing act, so it is one record revision and one audit
+  /// event -- not one per pointer move. The canvas previews the stroke locally
+  /// while the writer drags and sends it here on release.
+  Future<MapSummary> paintTerrainStroke(
+    String id,
+    MapTerrainBrush brush,
+    List<MapPosition> positions, {
+    DateTime? timestamp,
+  }) async {
+    if (positions.isEmpty) return MapSummary(record: await _requireMap(id));
+    final existing = await _requireMap(id);
+    final extent = MapExtent.fromRecord(existing);
+    var terrain = MapTerrainGrid.read(existing.fields);
+    if (terrain.cellCount == 0) {
+      terrain = MapTerrainGrid.empty();
+    }
+    for (final position in positions) {
+      terrain = terrain.painted(brush, position.clampTo(extent), extent);
+    }
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.terrain] = terrain.toJson();
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// Floods the whole map with one kind — the usual way to start.
+  Future<MapSummary> fillTerrain(
+    String id,
+    MapTerrainKind kind, {
+    int resolution = MapTerrainGrid.defaultResolution,
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    var terrain = MapTerrainGrid.read(existing.fields);
+    if (terrain.cellCount == 0) {
+      terrain = MapTerrainGrid.empty(columns: resolution, rows: resolution);
+    }
+    return setTerrain(id, terrain.filled(kind), timestamp: timestamp);
+  }
+
+  /// Returns the map to unpainted ground. Removes the field entirely rather
+  /// than storing an empty grid, so an unpainted map costs nothing.
+  Future<MapSummary> clearTerrain(String id, {DateTime? timestamp}) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..remove(MapVisualFields.terrain);
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  Future<MapTerrainGrid> terrainFor(String id) async =>
+      MapTerrainGrid.read((await _requireMap(id)).fields);
+
+  /// Replaces the biome vocabulary this map recognises.
+  Future<MapSummary> setBiomes(
+    String id,
+    List<MapBiome> biomes, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.biomes] = [
+        for (final biome in biomes) biome.toJson(),
+      ];
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  Future<List<MapBiome>> biomesFor(String id) async =>
+      MapBiome.read((await _requireMap(id)).fields);
+
+  /// Rewrites the map's visual styling.
+  Future<MapSummary> setVisualStyle(
+    String id,
+    MapVisualStyle style, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.style] = style.toJson();
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  Future<MapVisualStyle> visualStyleFor(String id) async =>
+      MapVisualStyle.read((await _requireMap(id)).fields);
+
+  // ------------------------------------------------------------- scenery ----
+
+  /// Places a visual asset on the map.
+  Future<MapSummary> addAsset(
+    String id,
+    MapAssetInstance asset, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    if (asset.id.trim().isEmpty) {
+      throw ArgumentError('An asset needs an id.');
+    }
+    if (MapAssetDefinition.byId(asset.definitionId) == null) {
+      throw ArgumentError.value(
+        asset.definitionId,
+        'definitionId',
+        'is not in the asset library',
+      );
+    }
+    final extent = MapExtent.fromRecord(existing);
+    final assets = MapAssetInstance.read(existing.fields);
+    if (assets.any((item) => item.id == asset.id)) {
+      throw MapStudioException('Asset ${asset.id} is already on $id.');
+    }
+    final placed = asset.copyWith(position: asset.position.clampTo(extent));
+    return _writeAssets(existing, [...assets, placed], timestamp);
+  }
+
+  /// Moves an asset to a map-space position, clamped into the map.
+  Future<MapSummary> moveAsset(
+    String id,
+    String assetId,
+    MapPosition position, {
+    DateTime? timestamp,
+  }) =>
+      _updateAsset(
+        id,
+        assetId,
+        (asset, extent) => asset.copyWith(position: position.clampTo(extent)),
+        timestamp: timestamp,
+      );
+
+  /// Rotates, scales, re-layers or relabels an asset.
+  Future<MapSummary> transformAsset(
+    String id,
+    String assetId, {
+    double? rotation,
+    double? scale,
+    int? layer,
+    String? label,
+    DateTime? timestamp,
+  }) =>
+      _updateAsset(
+        id,
+        assetId,
+        (asset, _) => asset.copyWith(
+          rotation: rotation,
+          scale: scale,
+          layer: layer,
+          label: label,
+        ),
+        timestamp: timestamp,
+      );
+
+  Future<MapSummary> removeAsset(
+    String id,
+    String assetId, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final assets = MapAssetInstance.read(existing.fields);
+    if (!assets.any((item) => item.id == assetId)) {
+      throw MapStudioException('Asset $assetId is not on $id.');
+    }
+    return _writeAssets(
+      existing,
+      [for (final item in assets) if (item.id != assetId) item],
+      timestamp,
+    );
+  }
+
+  Future<List<MapAssetInstance>> assetsFor(String id) async =>
+      MapAssetInstance.inDrawOrder(
+        MapAssetInstance.read((await _requireMap(id)).fields),
+      );
+
+  Future<MapSummary> _updateAsset(
+    String id,
+    String assetId,
+    MapAssetInstance Function(MapAssetInstance asset, MapExtent extent) change, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final extent = MapExtent.fromRecord(existing);
+    final assets = MapAssetInstance.read(existing.fields);
+    if (!assets.any((item) => item.id == assetId)) {
+      throw MapStudioException('Asset $assetId is not on $id.');
+    }
+    return _writeAssets(
+      existing,
+      [
+        for (final item in assets)
+          if (item.id == assetId) change(item, extent) else item,
+      ],
+      timestamp,
+    );
+  }
+
+  Future<MapSummary> _writeAssets(
+    AuthorRecord existing,
+    List<MapAssetInstance> assets,
+    DateTime? timestamp,
+  ) async {
+    final fields = Map<String, Object?>.from(existing.fields);
+    if (assets.isEmpty) {
+      fields.remove(MapVisualFields.assets);
+    } else {
+      fields[MapVisualFields.assets] = [
+        for (final asset in MapAssetInstance.inDrawOrder(assets))
+          asset.toJson(),
+      ];
+    }
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// One write path for every Phase 3 change, so styling inherits the same
+  /// revisioning, version snapshots and audit events as everything else.
+  Future<AuthorRecord> _write(
+    AuthorRecord existing,
+    Map<String, Object?> fields,
+    DateTime? timestamp,
+  ) =>
+      records.updateRecord(
+        existing.copyWith(
+          fields: fields,
+          updatedAt: (timestamp ?? DateTime.now()).toUtc(),
+        ),
+      );
+
   // ------------------------------------------------------------- markers ----
+
+  /// Marks [recordId] as becoming known to the reader in manuscript node
+  /// [nodeId], by writing the canonical `revealedIn` relationship.
+  ///
+  /// **The only write in the whole of Phase 6.** Presentation, projection,
+  /// export and reader filtering are read-only by construction; this is the one
+  /// place a reveal comes into existence, and it exists only because an author
+  /// asked for it. Nothing infers a reveal point, and nothing creates one as a
+  /// side effect of drawing, exporting or opening anything.
+  ///
+  /// The relationship is the one AuthorOS already defines — "Revealed in",
+  /// inverse "Reveals" — written through the same [ConnectionEngine] as every
+  /// other Map Studio link, so it validates, versions and audits like any
+  /// other. There is no second spoiler system and no Map-owned reveal store.
+  ///
+  /// [nodeId] must be a manuscript node of a type a reveal can point at. The
+  /// registry defines `revealedIn` with wildcard endpoints, so it would accept
+  /// anything at all; the discipline has to come from here. A reveal that
+  /// pointed at a character rather than a scene would order by nothing and
+  /// filter by nothing, so it is refused rather than stored.
+  ///
+  /// Reversible by [removeRevealPoint], which deletes the link outright.
+  Future<RecordLink> addRevealPoint({
+    required String recordId,
+    required String nodeId,
+    DateTime? timestamp,
+  }) async {
+    final record = await records.getRecord(recordId);
+    if (record == null || (record.projectId ?? record.scopeId) != projectId) {
+      throw MapStudioException('$recordId is not a record in $projectId.');
+    }
+    final node = await repository.manuscriptNodeById(nodeId);
+    if (node == null || node.projectId != projectId) {
+      throw MapStudioException(
+        '$nodeId is not a manuscript node in $projectId.',
+      );
+    }
+    if (!MapTypes.revealTargetTypes.contains(node.nodeType)) {
+      throw MapStudioException(
+        'A reveal point must be a ${MapTypes.revealTargetTypes.join(', ')} — '
+        '$nodeId is a ${node.nodeType}.',
+      );
+    }
+    // Source is the thing revealed, target the place it is revealed: "the
+    // Drowned City is revealed in Chapter 7", which is the direction the
+    // relationship's own label reads in.
+    return connections.connect(
+      sourceId: recordId,
+      targetId: nodeId,
+      typeId: MapTypes.revealedIn,
+      timestamp: timestamp,
+    );
+  }
+
+  /// Undoes [addRevealPoint], returning true where there was one to undo.
+  ///
+  /// A reveal point is an editorial decision, and editorial decisions get
+  /// changed. Removing one restores the record to "the author has not said when
+  /// this becomes known", which every reader level below the author's own
+  /// treats as hidden — so unrevealing is safe by the same rule that makes an
+  /// untouched project safe.
+  Future<bool> removeRevealPoint({
+    required String recordId,
+    required String nodeId,
+    DateTime? timestamp,
+  }) async {
+    final link = await _revealLink(recordId, nodeId);
+    if (link == null) return false;
+    await connections.disconnect(link.id, timestamp: timestamp);
+    return true;
+  }
+
+  /// Every reveal point on [recordId], earliest first by manuscript order.
+  ///
+  /// Read-only, and returns the links themselves so a caller can show the
+  /// author what exists and remove any one of them.
+  Future<List<MapRevealLink>> revealPointsFor(String recordId) async {
+    final links = await repository.outgoingLinks(recordId);
+    final reveals = <MapRevealLink>[];
+    for (final link in links) {
+      if (link.scopeId != projectId) continue;
+      if (link.typeId != MapTypes.revealedIn) continue;
+      final node = await repository.manuscriptNodeById(link.targetId);
+      if (node == null) continue;
+      reveals.add(MapRevealLink(link: link, node: node));
+    }
+    reveals.sort((a, b) => a.node.id.compareTo(b.node.id));
+    return reveals;
+  }
+
+  Future<RecordLink?> _revealLink(String recordId, String nodeId) async {
+    for (final link in await repository.outgoingLinks(recordId)) {
+      if (link.scopeId == projectId &&
+          link.typeId == MapTypes.revealedIn &&
+          link.targetId == nodeId) {
+        return link;
+      }
+    }
+    return null;
+  }
 
   Future<MapMarkerView> createMarker(
     MapMarkerDraft draft, {

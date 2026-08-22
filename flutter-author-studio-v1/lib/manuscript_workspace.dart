@@ -5,6 +5,7 @@ import 'core/connected_domain.dart';
 import 'core/record_validation.dart';
 import 'core/search_models.dart';
 import 'core/version_audit.dart';
+import 'entity_suggestions.dart';
 import 'manuscript_continuity.dart';
 import 'manuscript_service.dart';
 import 'manuscript_store.dart';
@@ -70,6 +71,7 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
 
   Future<List<ManuscriptConnection>>? _connections;
   Future<ManuscriptContinuityReport>? _continuity;
+  Future<List<EntitySuggestion>>? _suggestions;
   Future<ManuscriptNodeInspection?>? _inspection;
   Future<List<RecordVersion>>? _history;
 
@@ -110,7 +112,54 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
       );
       _inspection = service.inspectNode(widget.manuscript, widget.nodeId);
       _history = service.historyFor(widget.nodeId);
+      // Deliberately not started here. Scanning prose is the most expensive
+      // read in this panel and most reloads are autosaves, so it waits until
+      // the Continuity tab is actually on screen.
+      _suggestions = null;
     });
+  }
+
+  /// Scans this node's prose for entities nothing has connected yet.
+  ///
+  /// A failed scan is not worth interrupting the author over — the panel just
+  /// shows no suggestions — so it resolves to an empty list rather than
+  /// throwing into the widget tree.
+  Future<List<EntitySuggestion>> _scanForSuggestions() async {
+    try {
+      return widget.nodeKind == ManuscriptNodeKind.scene
+          ? await _suggestionService.forScene(widget.manuscript, widget.nodeId)
+          : await _suggestionService.forChapter(
+              widget.manuscript,
+              widget.nodeId,
+            );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  EntitySuggestionService get _suggestionService => EntitySuggestionService(
+        projectId: widget.service.projectId,
+        repository: widget.service.repository,
+      );
+
+  /// Connects a recognised entity to this scene.
+  ///
+  /// Only ever called from the author's own tap. Recognition suggests; it
+  /// never links on its own.
+  Future<void> _linkSuggestion(EntitySuggestion suggestion) async {
+    try {
+      await _suggestionService.link(suggestion);
+      _report('Linked ${suggestion.entityTitle}.');
+      _reload();
+    } catch (error) {
+      _report('$error');
+    }
+  }
+
+  Future<void> _ignoreSuggestion(EntitySuggestion suggestion) async {
+    await _suggestionService.ignore(suggestion);
+    _report('Dismissed "${suggestion.matchedName}".');
+    _reload();
   }
 
   void _report(String message) {
@@ -324,6 +373,79 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
                   canResolve: widget.service.canEditCanon,
                   onResolve: () => _resolveContinuity(report, issue),
                 ),
+              // Below the issues on purpose: a continuity problem is something
+              // that is wrong, while a suggestion is only something that could
+              // be recorded. The urgent list stays at the top.
+              _buildSuggestions(),
+            ],
+          );
+        },
+      );
+
+  /// Entities the prose names that nothing has connected yet.
+  ///
+  /// Suggestions only. Nothing here is linked until the author taps Link, and
+  /// Ignore is remembered so a dismissed name stays dismissed.
+  Widget _buildSuggestions() => FutureBuilder<List<EntitySuggestion>>(
+        future: _suggestions ??= _scanForSuggestions(),
+        builder: (context, snapshot) {
+          final found = snapshot.data ?? const <EntitySuggestion>[];
+          final open = found
+              .where((each) => each.state != EntityRecognitionState.confirmed)
+              .toList();
+          if (open.isEmpty) return const SizedBox.shrink();
+          return Column(
+            key: const Key('manuscript-suggestions'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 12),
+              Text(
+                'Named in this scene',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              for (final suggestion in open)
+                Card(
+                  key: ValueKey('manuscript-suggestion-${suggestion.key}'),
+                  child: ListTile(
+                    dense: true,
+                    title: Text(
+                      suggestion.isAmbiguous
+                          ? '"${suggestion.matchedName}" could be '
+                              '${suggestion.candidateIds.length} entries'
+                          : suggestion.entityTitle,
+                    ),
+                    subtitle: Text(
+                      suggestion.isAmbiguous
+                          ? 'Open the Codex to say which one you mean.'
+                          : 'Mentioned as "${suggestion.matchedName}" with no '
+                              'connection recorded.',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!suggestion.isAmbiguous)
+                          TextButton(
+                            key: ValueKey(
+                              'manuscript-suggestion-link-${suggestion.key}',
+                            ),
+                            onPressed: widget.service.canEditCanon
+                                ? () => _linkSuggestion(suggestion)
+                                : null,
+                            child: const Text('Link'),
+                          ),
+                        TextButton(
+                          key: ValueKey(
+                            'manuscript-suggestion-ignore-${suggestion.key}',
+                          ),
+                          onPressed: () => _ignoreSuggestion(suggestion),
+                          child: const Text('Ignore'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
             ],
           );
         },

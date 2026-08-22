@@ -9,6 +9,8 @@ import 'core/connection_types.dart';
 import 'core/record_inspection.dart';
 import 'core/record_types.dart';
 import 'core/record_validation.dart';
+import 'core/story_graph.dart';
+import 'core/story_graph_service.dart';
 import 'core/search_models.dart';
 import 'core/story_codex_domain.dart';
 import 'core/template_engine.dart';
@@ -48,12 +50,18 @@ class StoryCodexWorkspace extends StatefulWidget {
     required this.projectId,
     this.repository,
     this.onNavigate,
+    this.focusRecordId,
     this.continuity = const CodexContinuityIntelligence(),
   });
 
   final String projectId;
   final DriftConnectedDomainRepository? repository;
   final ValueChanged<CodexNavigationRequest>? onNavigate;
+  /// A record to open on, when the author arrived by following a connection.
+  ///
+  /// A request, not a guarantee: an id this Studio does not hold leaves the
+  /// existing selection alone.
+  final String? focusRecordId;
   final CodexContinuityIntelligence continuity;
 
   @override
@@ -151,6 +159,10 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         if (selectedId != null &&
             !allEntries.any((entry) => entry.id == selectedId)) {
           selectedId = null;
+        }
+        final focus = widget.focusRecordId;
+        if (focus != null && allEntries.any((entry) => entry.id == focus)) {
+          selectedId = focus;
         }
       });
     } catch (caught) {
@@ -377,6 +389,18 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
     ));
   }
 
+  /// Hands a graph node off to the Studio that owns it.
+  ///
+  /// [_navigate] takes an [AuthorRecord], which a scene or chapter is not.
+  void _navigateNode(StoryGraphNode node) {
+    widget.onNavigate?.call(CodexNavigationRequest(
+      destination: searchDestinationForType(node.typeId),
+      recordId: node.id,
+      recordType: node.typeId,
+      title: node.title,
+    ));
+  }
+
   void _navigate(AuthorRecord record) {
     widget.onNavigate?.call(CodexNavigationRequest(
       destination: searchDestinationForType(record.typeId),
@@ -482,6 +506,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                     onRestore: () => _restore(entry),
                     onConfirm: _confirm,
                     onNavigate: _navigate,
+                    onNavigateNode: _navigateNode,
                     onOpenInGraph: _openInGraph,
                     onOpenEntry: (id) => setState(() => selectedId = id),
                   );
@@ -1240,6 +1265,7 @@ class _CodexEntryPane extends StatefulWidget {
     required this.onRestore,
     required this.onConfirm,
     required this.onNavigate,
+    required this.onNavigateNode,
     required this.onOpenInGraph,
     required this.onOpenEntry,
   });
@@ -1270,6 +1296,11 @@ class _CodexEntryPane extends StatefulWidget {
     required String confirmLabel,
   }) onConfirm;
   final ValueChanged<AuthorRecord> onNavigate;
+
+  /// The same hand-off for a graph node, which may be a scene or a chapter —
+  /// [onNavigate] cannot express those, because they are manuscript nodes
+  /// rather than records.
+  final ValueChanged<StoryGraphNode> onNavigateNode;
   final ValueChanged<AuthorRecord> onOpenInGraph;
   final ValueChanged<String> onOpenEntry;
 
@@ -1428,13 +1459,27 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
   /// relationship list renders from one settled future.
   Future<List<_CodexRelationshipView>> _loadRelationships() async {
     final links = await widget.service.getCodexConnections(widget.entry.id);
+    // Resolved through the Story Graph rather than recordById: a link to a
+    // scene came back null and the tile rendered the raw id followed by
+    // "record unavailable" — while the empty state above promises the author
+    // they can connect entries to manuscript records.
+    final neighbourhood = await StoryGraphService(
+      projectId: widget.service.projectId,
+      repository: widget.service.repository,
+    ).getNeighbours(widget.entry.id,
+      filter: StoryGraphFilter.everyRelationship,
+    );
+    final byId = {
+      for (final node in neighbourhood?.neighbours ?? const <StoryGraphNode>[])
+        node.id: node,
+    };
     final views = <_CodexRelationshipView>[];
     for (final link in links) {
       final otherId =
           link.sourceId == widget.entry.id ? link.targetId : link.sourceId;
       views.add(_CodexRelationshipView(
         link: link,
-        other: await widget.service.repository.recordById(otherId),
+        other: byId[otherId],
         otherId: otherId,
       ));
     }
@@ -2461,7 +2506,7 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
                           widget.onOpenEntry(record.id);
                           return;
                         }
-                        widget.onNavigate(record);
+                        widget.onNavigateNode(record);
                       },
                       onEdit: () => _editRelationship(view.link),
                       onRemove: () => _removeRelationship(view.link),
@@ -2762,7 +2807,7 @@ class _CodexRelationshipView {
   });
 
   final RecordLink link;
-  final AuthorRecord? other;
+  final StoryGraphNode? other;
   final String otherId;
 }
 
@@ -2776,7 +2821,7 @@ class _CodexRelationshipTile extends StatelessWidget {
   });
 
   final _CodexRelationshipView view;
-  final ValueChanged<AuthorRecord> onOpen;
+  final ValueChanged<StoryGraphNode> onOpen;
   final VoidCallback onEdit;
   final VoidCallback onRemove;
 

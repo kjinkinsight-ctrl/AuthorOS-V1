@@ -10,6 +10,8 @@ import 'core/built_in_record_types.dart';
 import 'core/character_record_types.dart';
 import 'core/connected_domain.dart';
 import 'core/record_inspection.dart';
+import 'core/story_graph.dart';
+import 'core/story_graph_service.dart';
 import 'core/record_service.dart';
 import 'core/record_types.dart';
 import 'core/record_validation.dart';
@@ -528,13 +530,19 @@ class CharacterBoardView extends StatefulWidget {
     this.repository,
     this.onNavigate,
     this.onOpenInGraph,
+    this.focusRecordId,
     this.branchId,
     this.branchName,
   });
 
   final StarterProject project;
   final DriftConnectedDomainRepository? repository;
-  final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+  final ValueChanged<CharacterNavigationRequest>? onNavigate;
+  /// A record to open on, when the author arrived by following a connection.
+  ///
+  /// A request, not a guarantee: an id this Studio does not hold leaves the
+  /// existing selection alone.
+  final String? focusRecordId;
 
   /// Asks the shell for the Knowledge Graph, focused on a record.
   ///
@@ -592,7 +600,11 @@ class _CharacterBoardViewState extends State<CharacterBoardView> {
     if (!mounted) return;
     setState(() {
       characters = loaded;
-      selected = loaded.where((item) => !item.isArchived).firstOrNull ??
+      final focus = widget.focusRecordId;
+      selected = (focus == null
+              ? null
+              : loaded.where((item) => item.id == focus).firstOrNull) ??
+          loaded.where((item) => !item.isArchived).firstOrNull ??
           loaded.firstOrNull;
       loading = false;
     });
@@ -1064,7 +1076,7 @@ class _CharacterDetail extends StatelessWidget {
   final VoidCallback onHistory;
   final CharacterSaveState saveState;
   final ValueChanged<CharacterStudioRecord> onChanged;
-  final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+  final ValueChanged<CharacterNavigationRequest>? onNavigate;
 
   /// Asks the shell for the Knowledge Graph, focused on a record.
   ///
@@ -1370,7 +1382,7 @@ class _CharacterSection extends StatelessWidget {
   final CharacterService service;
   final ValueChanged<CharacterStudioRecord> onChanged;
   final ValueChanged<String> onSectionChanged;
-  final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+  final ValueChanged<CharacterNavigationRequest>? onNavigate;
 
   /// Asks the shell for the Knowledge Graph, focused on a record.
   ///
@@ -1588,16 +1600,44 @@ class _RelationshipWorkspace extends StatefulWidget {
 class _RelationshipWorkspaceState extends State<_RelationshipWorkspace> {
   late Future<List<RecordLink>> relationships;
 
+  /// Titles for whatever the relationships point at, both node kinds.
+  ///
+  /// Each row used to resolve its own title with `recordById` inside a nested
+  /// FutureBuilder, falling back to `link.typeId` when that returned null — so
+  /// a relationship pointing at a scene displayed the literal word
+  /// "appearsIn" where the scene's title belonged.
+  Map<String, StoryGraphNode> _nodes = const {};
+
+  Future<List<RecordLink>> _load() async {
+    final links =
+        await widget.service.getCharacterRelationships(widget.character.id);
+    final neighbourhood = await StoryGraphService(
+      projectId: widget.service.projectId,
+      repository: widget.service.repository,
+    ).getNeighbours(
+      widget.character.id,
+      filter: StoryGraphFilter.everyRelationship,
+    );
+    if (mounted) {
+      setState(() {
+        _nodes = {
+          for (final node
+              in neighbourhood?.neighbours ?? const <StoryGraphNode>[])
+            node.id: node,
+        };
+      });
+    }
+    return links;
+  }
+
   @override
   void initState() {
     super.initState();
-    relationships =
-        widget.service.getCharacterRelationships(widget.character.id);
+    relationships = _load();
   }
 
   void _reload() => setState(() {
-        relationships =
-            widget.service.getCharacterRelationships(widget.character.id);
+        relationships = _load();
       });
 
   Future<void> _edit([RecordLink? existing]) async {
@@ -1684,15 +1724,15 @@ class _RelationshipWorkspaceState extends State<_RelationshipWorkspace> {
                       child: ListTile(
                         key: Key('relationship-link-${link.id}'),
                         leading: const Icon(Icons.people_outline_rounded),
-                        title: FutureBuilder<AuthorRecord?>(
-                          future: widget.service.repository.recordById(
-                            link.sourceId == widget.character.id
-                                ? link.targetId
-                                : link.sourceId,
-                          ),
-                          builder: (context, record) => Text(
-                            record.data?.title ?? link.typeId,
-                          ),
+                        title: Text(
+                          _nodes[link.sourceId == widget.character.id
+                                      ? link.targetId
+                                      : link.sourceId]
+                                  ?.title ??
+                              // Still resolving, or genuinely gone. The
+                              // relationship type is never a substitute for a
+                              // name.
+                              'Loading…',
                         ),
                         subtitle: Text([
                           link.typeId,
@@ -1909,7 +1949,7 @@ class _CharacterConnectionsPanel extends StatelessWidget {
   final CharacterStudioRecord character;
   final CharacterService service;
   final RecordTemplateSection section;
-  final ValueChanged<CharacterWorkspaceDestination>? onNavigate;
+  final ValueChanged<CharacterNavigationRequest>? onNavigate;
 
   /// Asks the shell for the Knowledge Graph, focused on a record.
   ///
@@ -1967,7 +2007,12 @@ class _CharacterConnectionsPanel extends StatelessWidget {
                           '${reference.connectionType} · ${reference.incoming ? 'Incoming' : 'Outgoing'}'),
                       onTap: () {
                         final destination = _destinationForReference(reference);
-                        if (destination != null) onNavigate?.call(destination);
+                        if (destination != null) {
+                          onNavigate?.call(CharacterNavigationRequest(
+                            destination: destination,
+                            recordId: reference.entity.id,
+                          ));
+                        }
                       },
                     )),
             ],
@@ -2005,6 +2050,24 @@ String _connectionEmptyMessage(String section) => switch (section) {
         'World records yet. Connect places, cultures, magic, or technology',
       _ => '$section connections yet',
     };
+
+/// Where a character's connection leads, and what to open when it gets there.
+///
+/// Character Studio emitted a bare [CharacterWorkspaceDestination], so
+/// following a connection opened the right Studio and then showed whatever was
+/// last selected there. The reference already knows which entity it points at;
+/// this carries that identity with it.
+class CharacterNavigationRequest {
+  const CharacterNavigationRequest({
+    required this.destination,
+    required this.recordId,
+  });
+
+  final CharacterWorkspaceDestination destination;
+
+  /// The record or manuscript node to open.
+  final String recordId;
+}
 
 CharacterWorkspaceDestination? _destinationForReference(
         ReferenceInspection reference) =>

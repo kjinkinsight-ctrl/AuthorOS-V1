@@ -617,29 +617,35 @@ class AnalyticsService {
   ///
   /// Public because the World Board needs the same manuscript to name its
   /// chapters, and a second seeding routine over there would be a second way
-  /// for a project to have chapters. It reads; it never writes.
-  Future<ManuscriptProjectSummary> loadManuscript() async {
-    final migrated = await manuscriptStore.loadLegacyChapterSeeds(project.id);
-    final seeds = migrated.isNotEmpty
-        ? migrated
-        : project.chapters
-            .map(
-              (chapter) => ManuscriptChapterSeed(
-                title: chapter.title,
-                prompt: chapter.prompt,
-                status: chapter.status,
-                scenes: chapter.scenes,
-                linkedChapterIds: chapter.linkedChapterIds,
-              ),
-            )
-            .toList();
-    return manuscriptStore.loadStudio(
-      project.id,
-      manuscriptTitle: project.title,
-      defaultChapters: seeds,
-      firstSceneTitle: project.firstSceneTitle,
-    );
-  }
+  /// for a project to have chapters.
+  ///
+  /// It reads; it never writes. That is now true. It previously called
+  /// `ManuscriptStore.loadStudio`, which seeds a starter manuscript and saves
+  /// it when a project has none — and saving projects chapter and scene nodes
+  /// into `connected_entities` and `manuscript_node_rows`. Opening the
+  /// Analytics dashboard or the World Board on a fresh project therefore
+  /// created graph nodes, with version and audit entries describing edits the
+  /// author never made.
+  ///
+  /// A project with no manuscript now reports an empty one. Seeding stays with
+  /// Manuscript Studio, where the author opening the manuscript is the act
+  /// that should create it.
+  Future<ManuscriptProjectSummary> loadManuscript() async =>
+      await manuscriptStore.readStudio(project.id) ?? _emptyManuscript();
+
+  ManuscriptProjectSummary _emptyManuscript() => ManuscriptProjectSummary(
+        projectId: project.id,
+        manuscriptTitle: project.title,
+        chapters: const [],
+        currentChapterId: '',
+        currentSceneId: '',
+        // A manuscript that does not exist has no meaningful timestamps. The
+        // epoch is the honest stand-in; inventing "now" would make an absent
+        // manuscript look freshly edited in every report that reads it.
+        createdAt: DateTime.utc(1970),
+        updatedAt: DateTime.utc(1970),
+        version: 1,
+      );
 
   /// Characters as the Characters Studio lists them: project-scoped records
   /// of the character type that have not been deleted.

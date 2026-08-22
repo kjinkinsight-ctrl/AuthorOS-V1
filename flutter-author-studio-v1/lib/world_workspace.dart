@@ -75,12 +75,18 @@ class WorldWorkspace extends StatefulWidget {
     required this.projectId,
     this.repository,
     this.onNavigate,
+    this.focusRecordId,
     this.continuity = const WorldContinuityIntelligence(),
   });
 
   final String projectId;
   final DriftConnectedDomainRepository? repository;
   final ValueChanged<WorldNavigationRequest>? onNavigate;
+  /// A record to open on, when the author arrived by following a connection.
+  ///
+  /// A request, not a guarantee: an id this Studio does not hold leaves the
+  /// existing selection alone.
+  final String? focusRecordId;
   final WorldContinuityIntelligence continuity;
 
   @override
@@ -183,6 +189,10 @@ class _WorldWorkspaceState extends State<WorldWorkspace> {
         if (selectedId != null &&
             !records.any((record) => record.id == selectedId)) {
           selectedId = null;
+        }
+        final focus = widget.focusRecordId;
+        if (focus != null && records.any((record) => record.id == focus)) {
+          selectedId = focus;
         }
       });
     } catch (caught) {

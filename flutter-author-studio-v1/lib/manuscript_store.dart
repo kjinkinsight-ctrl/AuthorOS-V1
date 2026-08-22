@@ -636,22 +636,42 @@ class ManuscriptStore {
     return seeds;
   }
 
+  /// The stored manuscript, or null when this project has never had one.
+  ///
+  /// The read-only half of [loadStudio]. [loadStudio] seeds a starter
+  /// manuscript and saves it when nothing is stored, and saving projects
+  /// chapter and scene nodes into the connected store — so calling it turns a
+  /// read into a write. That is right when the author opens Manuscript Studio
+  /// and wrong everywhere else: opening a dashboard should not create graph
+  /// nodes for prose the author has never written, particularly since those
+  /// nodes then carry version and audit history describing edits that never
+  /// happened.
+  ///
+  /// Callers that only report on the manuscript should use this and treat null
+  /// as "no manuscript yet".
+  Future<ManuscriptProjectSummary?> readStudio(String projectId) async {
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_studioKey(projectId));
+    if (encoded == null || encoded.isEmpty) return null;
+    try {
+      return ManuscriptProjectSummary.fromJson(
+        jsonDecode(encoded) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      // A malformed blob is not "no manuscript" — the seeding path in
+      // loadStudio still has the legacy text to recover from.
+      return null;
+    }
+  }
+
   Future<ManuscriptProjectSummary> loadStudio(
     String projectId, {
     required String manuscriptTitle,
     required List<ManuscriptChapterSeed> defaultChapters,
     String firstSceneTitle = 'Opening Scene',
   }) async {
-    final preferences = await SharedPreferences.getInstance();
-    final encoded = preferences.getString(_studioKey(projectId));
-    if (encoded != null && encoded.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(encoded) as Map<String, dynamic>;
-        return ManuscriptProjectSummary.fromJson(decoded);
-      } catch (_) {
-        // Fallback to migration path if the structured blob is malformed.
-      }
-    }
+    final stored = await readStudio(projectId);
+    if (stored != null) return stored;
 
     final migrated = await _migrateLegacyToStudio(
       projectId,

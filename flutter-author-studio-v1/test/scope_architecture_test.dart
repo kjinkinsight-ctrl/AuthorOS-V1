@@ -14,7 +14,6 @@ library;
 import 'dart:io';
 
 import 'package:author_studio_v1/core/built_in_connection_types.dart';
-import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/codex_intelligence.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/entity_recognition.dart';
@@ -24,6 +23,8 @@ import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'fixtures/series_fixture.dart';
 
 Iterable<File> get _libSources => Directory('lib')
     .listSync(recursive: true)
@@ -42,44 +43,110 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('series scope is an AuthorRecord, not a store of its own', () async {
-    // `series_rows` exists and is NOT this layer's. It arrived with the project
-    // roster and holds a series' planning attributes — its name, and the word
-    // target a joining book inherits. Series *scope* is a different thing: the
-    // record scope that lets canon be shared between books, which is an
-    // AuthorRecord so it inherits validation, versioning, audit, safe-delete
-    // and graph node-hood.
-    //
-    // Two systems naming the same word is a real hazard, and the reconciliation
-    // is the last assertion here: scope never mints an identity it could not
-    // have been handed. See the open question in the implementation map.
+  test('the roster owns series identity and the Codex mints none', () async {
+    // Q-S1, locked. `series_rows` is the one place a series is named, and the
+    // Codex consumes that id. This is the assertion that would have caught the
+    // divergence had it existed when the two systems were built in parallel.
+    final offenders = <String>[];
+    for (final file in _libSources) {
+      // `writing_series.dart` defines the generator; `main.dart` is the
+      // Projects Studio, the one screen where an author names a series.
+      // Everywhere else, minting one is the divergence this test exists for.
+      if (file.path.endsWith('core/writing_series.dart')) continue;
+      if (file.path.endsWith('main.dart')) continue;
+      final source = file.readAsStringSync();
+      if (source.contains('WritingSeriesId.create(') ||
+          source.contains("'series-\${") ||
+          source.contains("'series_\${")) {
+        offenders.add(file.path);
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'series identity is created in the Projects Studio, nowhere else');
+
+    // The Codex cannot create, rename, enrol or withdraw. Those are the roster's.
+    final scopeSource = File('lib/core/series_scope.dart').readAsStringSync();
+    for (final gone in const [
+      'createSeries',
+      'Future<ScopeChain> enrol',
+      'Future<ScopeChain> withdraw',
+    ]) {
+      expect(scopeSource.contains(gone), isFalse,
+          reason: 'series authoring belongs to the roster ($gone)');
+    }
+
+    // Scope still adds no store of its own.
     final rows = await database.customSelect(
       "SELECT name FROM sqlite_master WHERE type = 'table'",
     ).get();
     final names = rows.map((row) => row.read<String>('name')).toSet();
-
     for (final forbidden in const [
       'series_scope_rows',
       'universe_rows',
       'scope_rows',
       'series_member_rows',
     ]) {
-      expect(names, isNot(contains(forbidden)),
-          reason: 'series scope must not grow a private store');
+      expect(names, isNot(contains(forbidden)));
     }
+  });
 
-    expect(BuiltInRecordTypes.registry().resolve(kSeriesRecordTypeId).id,
-        kSeriesRecordTypeId,
-        reason: 'a series must stay an ordinary registered record type');
+  test('membership has exactly one source of truth', () async {
+    // The roster row is the truth. A `project` record carrying a stale
+    // series_id must not be able to contradict it, or the Codex and the
+    // Projects Studio will disagree about what series a book is in.
+    await enrolStandalone(repository, 'book-1');
+    final now = DateTime.utc(2026, 8, 22);
+    await repository.putRecordsAndLinks(
+      records: [
+        AuthorRecord(
+          id: 'book-1',
+          typeId: kProjectRecordTypeId,
+          scopeType: RecordScopeType.project,
+          scopeId: 'book-1',
+          projectId: 'book-1',
+          seriesId: 'series_that_the_roster_never_heard_of',
+          title: 'Ash',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+      links: const [],
+    );
 
-    // Scope accepts an identity from outside, so a roster series and a scope
-    // series can be made one id without changing this layer.
-    final scope = await SeriesScopeService(
-      projectId: 'book-1',
-      repository: repository,
-    ).createSeries(title: 'Endovier', id: 'roster-series-7');
-    expect(scope.id, 'roster-series-7');
-    expect(scope.record.scopeId, 'roster-series-7');
+    final chain =
+        await ScopeResolver(projectId: 'book-1', repository: repository).chain();
+    expect(chain.isStandalone, isTrue,
+        reason: 'the record is a mirror; the roster row is the truth');
+  });
+
+  test('deleting a series never strands its canon', () async {
+    final series = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
+    final now = DateTime.utc(2026, 8, 22);
+    await repository.putRecordsAndLinks(
+      records: [
+        AuthorRecord(
+          id: 'kael',
+          typeId: 'faction',
+          scopeType: RecordScopeType.project,
+          scopeId: 'book-1',
+          projectId: 'book-1',
+          title: 'Kael',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+      links: const [],
+    );
+    final scope =
+        SeriesScopeService(projectId: 'book-1', repository: repository);
+    await scope.promoteToSeries('kael');
+
+    await scope.releaseSeries(series.id);
+
+    expect(await repository.recordsInSeriesScope(series.id), isEmpty);
+    expect(await repository.recordById('kael'), isNotNull,
+        reason: 'releasing a series must never delete a record');
   });
 
   test('there is exactly one scope-resolution path', () {
@@ -90,8 +157,14 @@ void main() {
       // is a second resolver, and the two will disagree.
       if (file.path.endsWith('scope_resolver.dart')) continue;
       if (file.path.endsWith('persistence/authoros_database.dart')) continue;
+      // The roster store is the roster's own service; reading its own rows is
+      // not a second resolver.
+      if (file.path.endsWith('project_roster_store.dart')) continue;
+      if (file.path.endsWith('sync/sync_appliers.dart')) continue;
+      if (file.path.endsWith('series_analytics_service.dart')) continue;
       final source = file.readAsStringSync();
-      if (source.contains('projectsInSeries(')) {
+      if (source.contains('projectRosterEntry(') ||
+          source.contains('booksInSeries(')) {
         offenders.add(file.path);
       }
     }
@@ -155,7 +228,8 @@ void main() {
       projectId: 'book-1',
       repository: repository,
     );
-    final created = await series.createSeries(title: 'Endovier');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
     final now = DateTime.utc(2026, 8, 22);
     await repository.putRecordsAndLinks(
       records: [
@@ -195,7 +269,10 @@ void main() {
       reason: 'promotion must not become a hole in project isolation',
     );
 
-    expect(created.record.scopeType, RecordScopeType.series);
+    final promoted = await repository.recordById('kael');
+    expect(promoted!.scopeType, RecordScopeType.series);
+    expect(promoted.scopeId, created.id,
+        reason: 'the promoted record hangs on the roster\'s series id');
   });
 
   test('a record has exactly one history partition', () async {
@@ -203,7 +280,8 @@ void main() {
       projectId: 'book-1',
       repository: repository,
     );
-    final created = await series.createSeries(title: 'Endovier');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
     final now = DateTime.utc(2026, 8, 22);
     await repository.putRecordsAndLinks(
       records: [
@@ -221,8 +299,8 @@ void main() {
       links: const [],
     );
     await series.promoteToSeries('kael');
-    await SeriesScopeService(projectId: 'book-2', repository: repository)
-        .enrol(created.id);
+    await enrolInSeries(repository,
+        seriesId: created.id, projectIds: ['book-1', 'book-2']);
     await series.demoteToProject('kael');
 
     final partitions = await database.customSelect(

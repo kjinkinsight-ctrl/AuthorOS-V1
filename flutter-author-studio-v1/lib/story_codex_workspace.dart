@@ -15,6 +15,7 @@ import 'core/search_models.dart';
 import 'codex_suggestions.dart';
 import 'core/codex_intelligence.dart';
 import 'core/series_scope.dart';
+import 'core/writing_series.dart';
 import 'core/story_codex_domain.dart';
 import 'core/template_engine.dart';
 import 'core/universal_search.dart';
@@ -89,7 +90,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
   List<CodexSavedView> savedViews = const [];
   List<StoryBranch> branches = const [];
   ScopeChain scopeChain = const ScopeChain(projectId: '');
-  SeriesScope? currentSeries;
+  WritingSeries? currentSeries;
   /// The last sweep, or [CodexSuggestionSweep.empty] before one has run.
   ///
   /// Sweeping reads every entry and every scene, so it is not part of opening
@@ -171,7 +172,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         templateReports =
             results[8] as Map<String, TemplateCompatibilityReport>;
         scopeChain = results[9] as ScopeChain;
-        currentSeries = results[10] as SeriesScope?;
+        currentSeries = results[10] as WritingSeries?;
         loading = false;
         loadError = null;
         if (selectedId != null &&
@@ -331,7 +332,6 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         success: 'Restored ${entry.title}',
       );
 
-  /// Starts a series and enrols this book in it.
   /// Applies a recommendation, using the same path the per-entry Continuity
   /// tab has always used.
   ///
@@ -448,96 +448,6 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
     await service.suggestions.restoreDismissed();
     if (!mounted) return;
     await _refreshSuggestions();
-  }
-
-  Future<void> _startSeries() async {
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => const _CodexNameDialog(
-        title: 'Start a series',
-        label: 'Series name',
-        confirmLabel: 'Start series',
-        fieldKey: Key('codex-series-name-field'),
-        confirmKey: Key('codex-series-confirm'),
-        message: 'Entries you share with the series stay readable from every '
-            'book in it. This book keeps everything it already has.',
-      ),
-    );
-    if (name == null || name.isEmpty) return;
-    await _mutate(
-      () => service.series.createSeries(title: name),
-      success: '$name is now this book\'s series.',
-    );
-  }
-
-  /// Enrols this book in a series that already exists.
-  Future<void> _joinSeries(String seriesId, String seriesName) async {
-    final confirmed = await _confirm(
-      title: 'Join $seriesName?',
-      message: 'This book will read $seriesName\'s shared canon alongside its '
-          'own entries. Nothing this book owns is changed.',
-      confirmLabel: 'Join',
-    );
-    if (!confirmed) return;
-    await _mutate(
-      () => service.series.enrol(seriesId),
-      success: 'This book is part of $seriesName.',
-    );
-  }
-
-  Future<void> _leaveSeries(String seriesName) async {
-    final confirmed = await _confirm(
-      title: 'Leave $seriesName?',
-      message: 'This book stops seeing $seriesName\'s shared canon. Entries '
-          'this book shared stay in the series.',
-      confirmLabel: 'Leave',
-    );
-    if (!confirmed) return;
-    await _mutate(
-      () => service.series.withdraw(),
-      success: 'This book is standalone again.',
-    );
-  }
-
-  Future<void> _openSeriesMenu() async {
-    final available = (await service.series.allSeries())
-        .where((series) => series.id != scopeChain.seriesId)
-        .toList();
-    if (!mounted) return;
-    final chosen = await showDialog<String>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        key: const Key('codex-series-menu'),
-        title: const Text('Series'),
-        children: [
-          SimpleDialogOption(
-            key: const Key('codex-series-start'),
-            onPressed: () => Navigator.pop(context, _startSeriesValue),
-            child: const Text('Start a new series'),
-          ),
-          for (final series in available)
-            SimpleDialogOption(
-              key: Key('codex-series-join-${series.id}'),
-              onPressed: () => Navigator.pop(context, series.id),
-              child: Text('Join ${series.title}'),
-            ),
-          if (currentSeries != null)
-            SimpleDialogOption(
-              key: const Key('codex-series-leave'),
-              onPressed: () => Navigator.pop(context, _leaveSeriesValue),
-              child: Text('Leave ${currentSeries!.title}'),
-            ),
-        ],
-      ),
-    );
-    if (chosen == null || !mounted) return;
-    if (chosen == _startSeriesValue) return _startSeries();
-    if (chosen == _leaveSeriesValue) {
-      return _leaveSeries(currentSeries?.title ?? 'this series');
-    }
-    final match =
-        available.where((series) => series.id == chosen).firstOrNull;
-    if (match != null) await _joinSeries(match.id, match.title);
   }
 
   Future<void> _saveCurrentView() async {
@@ -842,7 +752,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                 Text(
                   '${allEntries.length} connected knowledge record'
                   '${allEntries.length == 1 ? '' : 's'} '
-                  '${currentSeries == null ? 'in this book.' : 'in this book and ${currentSeries!.title}.'}',
+                  '${currentSeries == null ? 'in this book.' : 'in this book and ${currentSeries!.name}.'}',
                   style: theme.textTheme.bodyMedium,
                 ),
               ],
@@ -897,12 +807,16 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                   ),
                   label: Text(showSuggestions ? 'Back to entries' : 'Suggestions'),
                 ),
-                OutlinedButton.icon(
-                  key: const Key('codex-series-button'),
-                  onPressed: _openSeriesMenu,
-                  icon: const Icon(Icons.auto_stories_outlined),
-                  label: Text(currentSeries?.title ?? 'Series'),
-                ),
+                // Read-only, and deliberately so. The Projects Studio owns
+                // series identity and membership (Q-S1); the Codex shows which
+                // series this book is in and reads its shared canon. Offering
+                // to start one here is what produced two ids for one word.
+                if (currentSeries != null)
+                  Chip(
+                    key: const Key('codex-series-chip'),
+                    avatar: const Icon(Icons.auto_stories_outlined, size: 16),
+                    label: Text(currentSeries!.name),
+                  ),
                 FilledButton.icon(
                   key: const Key('codex-new-entry-button'),
                   onPressed: templates.isEmpty ? null : _createEntry,
@@ -933,8 +847,6 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
 }
 
 const _canonBranchValue = '__canon__';
-const _startSeriesValue = '__start_series__';
-const _leaveSeriesValue = '__leave_series__';
 
 // ---------------------------------------------------------------------------
 // Filter rail and saved views

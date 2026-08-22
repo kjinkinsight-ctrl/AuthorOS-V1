@@ -243,6 +243,38 @@ class WritingSessionRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// Binary assets an author attached to a book.
+///
+/// Cover art is the first and, in Phase 2, the only one. It lives here rather
+/// than beside the rest of the book's settings because those settings are a
+/// JSON blob in shared preferences, which on the web is `localStorage` — a
+/// roughly five-megabyte quota for the whole origin, shared with the author's
+/// prose. A cover is hundreds of kilobytes of binary, so storing it there could
+/// fail to save or crowd out the manuscript itself. The embedded database is
+/// SQLite over IndexedDB in the browser and has no such ceiling.
+///
+/// This is an authored asset, not graph truth: it is never the endpoint of a
+/// `RecordLink` and it participates in nothing. See the note beside it in
+/// `test/story_graph_architecture_test.dart`.
+class BookAssetRows extends Table {
+  TextColumn get projectId => text()();
+
+  /// Which asset this is. 'cover' today.
+  TextColumn get role => text()();
+
+  /// The IANA type, sniffed from the file's own magic bytes on import.
+  TextColumn get mediaType => text()();
+
+  BlobColumn get bytes => blob()();
+  IntColumn get width => integer().nullable()();
+  IntColumn get height => integer().nullable()();
+  DateTimeColumn get updatedAt => dateTime()();
+  TextColumn get extensionJson => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {projectId, role};
+}
+
 @DriftDatabase(
   tables: [
     ConnectedEntities,
@@ -257,6 +289,7 @@ class WritingSessionRows extends Table {
     RecordVersionRows,
     AuditEventRows,
     WritingSessionRows,
+    BookAssetRows,
   ],
 )
 class AuthorOsDatabase extends _$AuthorOsDatabase {
@@ -290,7 +323,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     driftWorker: Uri.parse('drift_worker.js'),
   );
 
-  static const currentSchemaVersion = 9;
+  static const currentSchemaVersion = 10;
   final int _schemaVersion;
 
   @override
@@ -379,6 +412,9 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           }
           if (from < 9 && to >= 9) {
             await migrator.createTable(writingSessionRows);
+          }
+          if (from < 10 && to >= 10) {
+            await migrator.createTable(bookAssetRows);
           }
         },
         beforeOpen: (details) async {

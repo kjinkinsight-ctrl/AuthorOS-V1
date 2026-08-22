@@ -53,6 +53,26 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
   `author_studio.book_studio_backup.{projectId}` key written on first overwrite
 - 2.0 destination: project presentation settings, alongside the manuscript
 - Fixture coverage: seeded defaults, malformed blob, foreign `projectId`, backup
+- Note: also carries `epub` — the reflowable settings, kept apart from `format`
+  because trim, margins and folios mean nothing once a reader reflows the text
+
+### `book_asset_rows` (embedded database, not SharedPreferences)
+
+- Owner: `BookCoverStore`
+- Storage type: SQLite table, `(projectId, role)` primary key
+- Columns: `projectId`, `role` (`cover`), `mediaType`, `bytes`, `width`,
+  `height`, `updatedAt`, `extensionJson`
+- Why not SharedPreferences: on the web that is `localStorage`, roughly five
+  megabytes for the whole origin and shared with the author's prose. A cover is
+  hundreds of kilobytes of binary; storing it there can fail to save or crowd out
+  the manuscript. The embedded database is IndexedDB-backed in the browser.
+- Note: bytes are stored exactly as the author supplied them. Re-encoding would
+  mean PNG only, which makes a photographic cover larger, not smaller.
+- Risk: outside the `.authoros` archive, widening the same gap as scene prose
+  (R-2)
+- 2.0 destination: the Asset model in master plan §6.6
+- Fixture coverage: sniffing, every rejection path, round trip, replacement,
+  per-project isolation, schema 9 to 10 migration on a real file
 
 ### `author_studio.manuscript_studio.{projectId}`
 

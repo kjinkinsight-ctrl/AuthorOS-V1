@@ -156,6 +156,32 @@ Table count and schema version are unchanged at **12** and **9**; the archive
 entry count is unchanged at **10**. Book settings being outside the archive is the
 same gap as R-2, not a new one.
 
+### Applied again: cover art is an asset, not a node (Book Studio Phase 2)
+
+EPUB export needed cover art, which is the first binary an author attaches to a
+book. It gets a table — `book_asset_rows` — and the reasoning is worth recording
+because it is the first addition to the audited table set since writing sessions.
+
+It passes the same test writing sessions did, in the same direction: **proximity
+without participation**. A cover carries a `projectId`, so it sits close to the
+graph, but it is never the endpoint of a `RecordLink`, nothing traverses to it,
+and no creative record depends on it. It is an authored asset.
+
+The reason it is in the database at all, rather than beside the rest of the
+book's settings, is not architectural preference but a storage ceiling: those
+settings are a shared-preferences blob, and shared preferences on the web is
+`localStorage` — roughly five megabytes for the whole origin, shared with the
+author's prose. A cover is hundreds of kilobytes of binary. Keeping it there
+risks failing to save, or crowding out the manuscript.
+
+Table count moves **12 → 13** and schema version **9 → 10**. The addition is
+declared in `_auditedTables` with its rationale, as that test requires. Graph
+truth is unchanged: no new node kind, no new edge table, and `record_link_rows`
+remains the only edge table.
+
+The archive entry count is still **10**. Cover bytes join book settings and scene
+prose outside the `.authoros` archive — the same gap as R-2, now slightly wider.
+
 ### Phase plan superseded
 
 §20's Phase 0 was written for D-1 and no longer applies. The live plan is:

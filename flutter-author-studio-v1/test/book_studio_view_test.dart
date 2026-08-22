@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'package:author_studio_v1/book/book_export_targets.dart';
 import 'package:author_studio_v1/book_studio_view.dart';
 import 'package:author_studio_v1/book/book_preview_painter.dart';
+import 'package:author_studio_v1/book/book_cover.dart';
 import 'package:author_studio_v1/book/book_store.dart';
+import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:drift/native.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
@@ -54,9 +57,15 @@ void main() {
     });
   });
 
+  late AuthorOsDatabase database;
+
+  setUp(() => database = AuthorOsDatabase(NativeDatabase.memory()));
+  tearDown(() => database.close());
+
   Future<void> pumpStudio(
     WidgetTester tester, {
     BookFileSaver? saver,
+    Future<Uint8List?> Function()? coverPicker,
   }) async {
     tester.view.physicalSize = const Size(1600, 1200);
     tester.view.devicePixelRatio = 1.0;
@@ -70,6 +79,8 @@ void main() {
             child: BookStudioView(
               project: _project(),
               fileSaver: saver ?? _MemoryBookFileSaver(),
+              coverStore: BookCoverStore(database: database),
+              coverPicker: coverPicker ?? () async => null,
             ),
           ),
         ),
@@ -199,5 +210,88 @@ void main() {
 
     expect(find.byType(BookStudioView), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('EPUB can be selected and exports a real package',
+      (tester) async {
+    final saver = _MemoryBookFileSaver();
+    await pumpStudio(tester, saver: saver);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-export-epub')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-export-button')));
+    await tester.pumpAndSettle();
+
+    expect(saver.calls, 1);
+    expect(saver.name, 'the-widow-knife.epub');
+    // A zip, and the mimetype right where the specification wants it.
+    expect(saver.bytes!.take(2), orderedEquals([0x50, 0x4B]));
+    expect(String.fromCharCodes(saver.bytes!.sublist(30, 38)), 'mimetype');
+  });
+
+  testWidgets('the ebook has its own settings, kept apart from print',
+      (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-design')));
+    await tester.pumpAndSettle();
+
+    final embedSwitch =
+        find.byKey(const Key('book-epub-embed-fonts-switch'));
+    await tester.ensureVisible(embedSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(embedSwitch);
+    await tester.pumpAndSettle();
+
+    final stored = await const BookStore().load('project-book');
+    expect(stored.epub.embedFonts, isTrue);
+    // The print format must be untouched by an ebook setting.
+    expect(stored.format.id, 'paperback');
+  });
+
+  testWidgets('a chosen cover is validated, stored and shown', (tester) async {
+    await pumpStudio(tester, coverPicker: () async => testPng(420, 640));
+
+    // Decoding an image is genuinely asynchronous, and the test harness's fake
+    // clock will not advance it, so the tap has to run against a real one.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-choose-cover-button')));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cover set.'), findsOneWidget);
+    final stored = await BookCoverStore(database: database).load('project-book');
+    expect(stored, isNotNull);
+    expect(stored!.width, 420);
+    expect(find.byKey(const Key('book-remove-cover-button')), findsOneWidget);
+  });
+
+  testWidgets('a file that is not a usable cover is refused with a reason',
+      (tester) async {
+    await pumpStudio(
+      tester,
+      coverPicker: () async => Uint8List.fromList('GIF89a nope'.codeUnits),
+    );
+
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-choose-cover-button')));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+
+    // The refusal says why, in the snackbar rather than in the panel's own
+    // standing help text.
+    expect(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.textContaining('JPEG'),
+      ),
+      findsOneWidget,
+    );
+    expect(await BookCoverStore(database: database).load('project-book'),
+        isNull);
   });
 }

@@ -46,7 +46,9 @@ extension BookExportFormatX on BookExportFormat {
               'printer.',
         BookExportFormat.digitalPdf =>
           'The same book set for reading on screen, with no blank pages.',
-        BookExportFormat.epub => 'Reflowable ebook.',
+        BookExportFormat.epub =>
+          'Reflowable ebook for Kindle, Kobo, Apple Books and libraries. The '
+              'reader chooses the type size, so the text reflows to fit.',
         BookExportFormat.docx => 'An editable Word document.',
         BookExportFormat.txt => 'Unformatted text.',
       };
@@ -68,11 +70,20 @@ extension BookExportFormatX on BookExportFormat {
         BookExportFormat.txt => 'text/plain',
       };
 
-  /// Whether this target is built in Phase 1.
+  /// Whether this target is built yet.
   bool get isAvailable => switch (this) {
-        BookExportFormat.printPdf || BookExportFormat.digitalPdf => true,
+        BookExportFormat.printPdf ||
+        BookExportFormat.digitalPdf ||
+        BookExportFormat.epub =>
+          true,
         _ => false,
       };
+
+  /// True when the reader, not the book, decides where the pages fall.
+  ///
+  /// A reflowable target is built from the book's structure and never from a
+  /// paginated layout.
+  bool get isReflowable => this == BookExportFormat.epub;
 }
 
 /// Writes an exported book somewhere the author can find it.

@@ -18,6 +18,7 @@ library;
 
 import '../manuscript_store.dart';
 import 'book_format.dart';
+import 'epub_settings.dart';
 
 /// A front- or back-matter section.
 ///
@@ -245,6 +246,7 @@ class BookProject {
     this.backMatter = const [],
     this.parts = const [],
     this.format = BookFormatPresets.paperback,
+    this.epub = EpubSettings.defaults,
     this.version = 1,
     this.migration = const {},
   });
@@ -265,6 +267,14 @@ class BookProject {
   final List<BookSection> backMatter;
   final List<BookPart> parts;
   final BookFormat format;
+
+  /// How the book is set as a reflowable ebook.
+  ///
+  /// Separate from [format] rather than derived from it: half of a print
+  /// format — trim, margins, binding allowance, running heads, folios — has no
+  /// meaning once a reader reflows the text.
+  final EpubSettings epub;
+
   final int version;
   final Map<String, String> migration;
 
@@ -331,6 +341,7 @@ class BookProject {
     List<BookSection>? backMatter,
     List<BookPart>? parts,
     BookFormat? format,
+    EpubSettings? epub,
     int? version,
     Map<String, String>? migration,
   }) =>
@@ -351,6 +362,7 @@ class BookProject {
         backMatter: backMatter ?? this.backMatter,
         parts: parts ?? this.parts,
         format: format ?? this.format,
+        epub: epub ?? this.epub,
         version: version ?? this.version,
         migration: migration ?? this.migration,
       );
@@ -373,6 +385,7 @@ class BookProject {
         backMatter: backMatter,
         parts: parts,
         format: format,
+        epub: epub,
         version: version,
         migration: migration,
       );
@@ -394,6 +407,7 @@ class BookProject {
         'backMatter': backMatter.map((s) => s.toJson()).toList(),
         'parts': parts.map((p) => p.toJson()).toList(),
         'format': format.toJson(),
+        'epub': epub.toJson(),
         'version': version,
         'migration': migration,
       };
@@ -419,6 +433,8 @@ class BookProject {
             .toList(growable: false),
         format: BookFormat.fromJson(
             (json['format'] as Map?)?.cast<String, dynamic>() ?? const {}),
+        epub: EpubSettings.fromJson(
+            (json['epub'] as Map?)?.cast<String, dynamic>() ?? const {}),
         version: (json['version'] as num?)?.toInt() ?? currentVersion,
         migration: ((json['migration'] as Map?) ?? const {})
             .map((key, value) => MapEntry('$key', '$value')),

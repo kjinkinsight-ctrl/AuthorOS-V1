@@ -7,9 +7,13 @@
 /// rather than promising something the PDF may not honour.
 library;
 
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 
+import 'book/book_cover.dart';
 import 'book/book_document.dart';
+import 'book/book_epub_exporter.dart';
 import 'book/book_export_targets.dart';
 import 'book/book_fonts.dart';
 import 'book/book_format.dart';
@@ -17,8 +21,25 @@ import 'book/book_layout.dart';
 import 'book/book_pdf_renderer.dart';
 import 'book/book_preview_painter.dart';
 import 'book/book_store.dart';
+import 'book/epub_settings.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
+
+/// Asks the author for a cover image.
+///
+/// Returns the bytes rather than a path on purpose: `file_selector` hands back
+/// a filesystem path on desktop but a session-scoped `blob:` URL in a browser,
+/// and only the bytes mean the same thing on both.
+Future<Uint8List?> pickCoverFile() async {
+  const group = XTypeGroup(
+    label: 'Cover image',
+    extensions: ['jpg', 'jpeg', 'png'],
+    mimeTypes: ['image/jpeg', 'image/png'],
+  );
+  final file = await openFile(acceptedTypeGroups: const [group]);
+  if (file == null) return null;
+  return file.readAsBytes();
+}
 
 /// The stages of the publishing pipeline.
 enum BookStage { structure, editing, proofing, formatting, design, preview, export }
@@ -74,6 +95,9 @@ class BookStudioView extends StatefulWidget {
     this.manuscriptStore = const ManuscriptStore(),
     this.fileSaver = const NativeBookFileSaver(),
     this.renderer = const BookPdfRenderer(),
+    this.epubExporter = const BookEpubExporter(),
+    this.coverStore = const BookCoverStore(),
+    this.coverPicker = pickCoverFile,
   });
 
   final StarterProject project;
@@ -81,6 +105,11 @@ class BookStudioView extends StatefulWidget {
   final ManuscriptStore manuscriptStore;
   final BookFileSaver fileSaver;
   final BookPdfRenderer renderer;
+  final BookEpubExporter epubExporter;
+  final BookCoverStore coverStore;
+
+  /// Injected so a test can supply an image without a file dialog.
+  final Future<Uint8List?> Function() coverPicker;
 
   @override
   State<BookStudioView> createState() => _BookStudioViewState();
@@ -99,6 +128,7 @@ class _BookStudioViewState extends State<BookStudioView> {
 
   BookDocument? _document;
   PaginatedBook? _paginated;
+  BookCover? _cover;
 
   /// Guards repagination: a format tweak reflows the book, a repaint does not.
   String _layoutCacheKey = '';
@@ -129,12 +159,14 @@ class _BookStudioViewState extends State<BookStudioView> {
           await widget.manuscriptStore.readStudio(widget.project.id) ??
               _emptyManuscript();
       final book = await widget.bookStore.load(widget.project.id);
+      final cover = await _loadCover();
 
       if (!mounted) return;
       setState(() {
         _assets = assets;
         _manuscript = manuscript;
         _book = book;
+        _cover = cover;
         _loading = false;
       });
       _repaginate();
@@ -145,6 +177,38 @@ class _BookStudioViewState extends State<BookStudioView> {
         _error = 'Book Studio could not open this project. $error';
       });
     }
+  }
+
+  /// Reads the stored cover.
+  ///
+  /// A cover that cannot be read is not a reason the studio should fail to
+  /// open: the book is still perfectly exportable without one.
+  Future<BookCover?> _loadCover() async {
+    try {
+      return await widget.coverStore.load(widget.project.id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _chooseCover() async {
+    final bytes = await widget.coverPicker();
+    if (bytes == null) return;
+    final imported = await BookCover.fromBytes(bytes);
+    if (!imported.isAccepted) {
+      _message(imported.message ?? 'That file could not be used as a cover.');
+      return;
+    }
+    await widget.coverStore.save(widget.project.id, imported.cover!);
+    if (!mounted) return;
+    setState(() => _cover = imported.cover);
+    _message('Cover set.');
+  }
+
+  Future<void> _removeCover() async {
+    await widget.coverStore.remove(widget.project.id);
+    if (!mounted) return;
+    setState(() => _cover = null);
   }
 
   /// Stands in for a project that has not been written in yet.
@@ -213,12 +277,28 @@ class _BookStudioViewState extends State<BookStudioView> {
 
   Future<void> _export() async {
     final paginated = _paginated;
+    final document = _document;
     final assets = _assets;
-    if (paginated == null || assets == null) return;
+    final book = _book;
+    if (paginated == null || document == null || assets == null ||
+        book == null) {
+      return;
+    }
 
     setState(() => _exporting = true);
     try {
-      final bytes = await widget.renderer.render(paginated, assets);
+      // Reflowable targets are built from the book's structure; paginated ones
+      // from the laid-out pages. An EPUB must never inherit print pagination.
+      final bytes = _exportFormat.isReflowable
+          ? widget.epubExporter.export(
+              document: document,
+              settings: book.epub,
+              projectId: widget.project.id,
+              modified: _manuscript?.updatedAt ?? DateTime.utc(2000),
+              cover: _cover,
+              fonts: assets,
+            )
+          : await widget.renderer.render(paginated, assets);
       final path = await widget.fileSaver.save(
         suggestedName: suggestedBookFilename(
           title: paginated.metadata.title,
@@ -494,6 +574,8 @@ class _BookStudioViewState extends State<BookStudioView> {
           ),
         ),
         const SizedBox(height: 12),
+        _coverPanel(theme),
+        const SizedBox(height: 12),
         _matterPanel(theme, 'Front matter', book.frontMatter, true),
         const SizedBox(height: 12),
         _partsPanel(theme),
@@ -504,6 +586,69 @@ class _BookStudioViewState extends State<BookStudioView> {
           _issuesPanel(theme, document.issues.map((i) => i.message).toList()),
         ],
       ],
+    );
+  }
+
+  Widget _coverPanel(ThemeData theme) {
+    final cover = _cover;
+    return _Panel(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 84,
+            height: 126,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+              color: theme.colorScheme.surfaceContainerHighest,
+            ),
+            child: cover == null
+                ? Icon(Icons.image_outlined,
+                    color: theme.colorScheme.onSurfaceVariant)
+                : Image.memory(cover.bytes, fit: BoxFit.cover),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SectionHeading('Cover', theme),
+                const SizedBox(height: 4),
+                Text(
+                  cover == null
+                      ? 'Ebook stores require a cover. JPEG or PNG, at least '
+                          '${BookCover.minEdge} pixels on the short side.'
+                      : cover.summary,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    FilledButton.icon(
+                      key: const Key('book-choose-cover-button'),
+                      onPressed: _chooseCover,
+                      icon: const Icon(Icons.upload_outlined, size: 18),
+                      label: Text(cover == null ? 'Add cover' : 'Replace'),
+                    ),
+                    if (cover != null) ...[
+                      const SizedBox(width: 8),
+                      TextButton(
+                        key: const Key('book-remove-cover-button'),
+                        onPressed: _removeCover,
+                        child: const Text('Remove'),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -916,10 +1061,9 @@ class _BookStudioViewState extends State<BookStudioView> {
               _slider(theme, 'Sink', format.chapter.sinkFraction, 0, 0.5,
                   (v) => _customise((f) =>
                       f.copyWith(chapter: f.chapter.copyWith(sinkFraction: v)))),
-              SwitchListTile(
+              _SwitchRow(
                 key: const Key('book-dropcap-switch'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Drop capital'),
+                title: 'Drop capital',
                 value: format.chapter.dropCap,
                 onChanged: (value) => _customise((f) =>
                     f.copyWith(chapter: f.chapter.copyWith(dropCap: value))),
@@ -1000,12 +1144,11 @@ class _BookStudioViewState extends State<BookStudioView> {
                   PageNumberPosition.headerOutside: 'Head, outside',
                 },
               ),
-              SwitchListTile(
+              _SwitchRow(
                 key: const Key('book-roman-front-switch'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Number front matter separately'),
-                subtitle: const Text(
-                    'Roman numerals before the body, restarting at 1.'),
+                title: 'Number front matter separately',
+                subtitle:
+                    'Roman numerals before the body, restarting at 1.',
                 value: format.numbering.countFrontMatterSeparately,
                 onChanged: (value) => _customise((f) => f.copyWith(
                       numbering: f.numbering.copyWith(
@@ -1017,8 +1160,120 @@ class _BookStudioViewState extends State<BookStudioView> {
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _epubPanel(theme),
       ],
     );
+  }
+
+  /// The reflowable half of the book.
+  ///
+  /// Kept apart from the print controls above because a reader reflows an
+  /// ebook: trim size, margins and folios mean nothing here, and everything
+  /// that does is relative rather than measured in points.
+  Widget _epubPanel(ThemeData theme) {
+    final epub = _book!.epub;
+    return _Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeading('Ebook (EPUB)', theme),
+          const SizedBox(height: 4),
+          Text(
+            'These settings apply only to the EPUB. The reader chooses the '
+            'type size, so everything here is relative to it.',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          _enumRow<BookAlignment>(
+            theme,
+            'Alignment',
+            BookAlignment.values,
+            epub.alignment,
+            (value) => _updateEpub((e) => e.copyWith(alignment: value)),
+            labels: const {
+              BookAlignment.left: 'Ragged right',
+              BookAlignment.justified: 'Justified',
+            },
+          ),
+          const SizedBox(height: 10),
+          _slider(theme, 'Line spacing', epub.lineHeight, 1.0, 2.2,
+              (v) => _updateEpub((e) => e.copyWith(lineHeight: v))),
+          _slider(theme, 'First-line indent', epub.firstLineIndentEm, 0, 3,
+              (v) => _updateEpub((e) => e.copyWith(firstLineIndentEm: v)),
+              suffix: 'em'),
+          _slider(theme, 'Paragraph spacing', epub.paragraphSpacingEm, 0, 2,
+              (v) => _updateEpub((e) => e.copyWith(paragraphSpacingEm: v)),
+              suffix: 'em'),
+          const SizedBox(height: 10),
+          _enumRow<ChapterNumberStyle>(
+            theme,
+            'Numbering',
+            ChapterNumberStyle.values,
+            epub.chapterNumberStyle,
+            (value) => _updateEpub((e) => e.copyWith(chapterNumberStyle: value)),
+            labels: const {
+              ChapterNumberStyle.none: 'None',
+              ChapterNumberStyle.arabic: '1, 2, 3',
+              ChapterNumberStyle.word: 'One, Two',
+              ChapterNumberStyle.romanUpper: 'I, II, III',
+            },
+          ),
+          const SizedBox(height: 10),
+          _enumRow<SceneBreakStyle>(
+            theme,
+            'Scene breaks',
+            SceneBreakStyle.values,
+            epub.sceneBreak,
+            (value) => _updateEpub((e) => e.copyWith(sceneBreak: value)),
+            labels: const {
+              SceneBreakStyle.blankLine: 'A blank line',
+              SceneBreakStyle.glyph: 'A mark',
+              SceneBreakStyle.ornament: 'An ornament',
+            },
+          ),
+          _SwitchRow(
+            key: const Key('book-epub-dropcap-switch'),
+            title: 'Drop capital',
+            value: epub.dropCap,
+            onChanged: (value) =>
+                _updateEpub((e) => e.copyWith(dropCap: value)),
+          ),
+          _SwitchRow(
+            key: const Key('book-epub-embed-fonts-switch'),
+            title: 'Embed fonts',
+            subtitle: 'Roughly doubles the file, and many readers override it '
+                'anyway. The font licence travels with the book.',
+            value: epub.embedFonts,
+            onChanged: (value) =>
+                _updateEpub((e) => e.copyWith(embedFonts: value)),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 240,
+            child: TextFormField(
+              key: const Key('book-epub-language-field'),
+              initialValue: epub.language,
+              decoration: const InputDecoration(
+                labelText: 'Language',
+                helperText: 'A BCP 47 tag, such as en or en-GB.',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (value) {
+                if (!EpubSettings.isValidLanguage(value)) return;
+                _updateEpub((e) => e.copyWith(language: value.trim()));
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _updateEpub(EpubSettings Function(EpubSettings) change) {
+    _update((book) => book.copyWith(epub: change(book.epub)));
   }
 
   void _customise(BookFormat Function(BookFormat) change) {
@@ -1334,6 +1589,39 @@ String _humanise(String name) {
 String _thousands(int value) => value
     .toString()
     .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
+
+/// A switch with a label, safe to place on a coloured panel.
+///
+/// `SwitchListTile` paints its ink on the nearest `Material` ancestor, so
+/// dropping one straight onto a decorated container hides the splash — the
+/// framework asserts about it in debug. Giving the tile its own transparent
+/// `Material` keeps the ripple visible without changing the panel's surface.
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        type: MaterialType.transparency,
+        child: SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(title),
+          subtitle: subtitle == null ? null : Text(subtitle!),
+          value: value,
+          onChanged: onChanged,
+        ),
+      );
+}
 
 /// The studio's standard surface: the same shape every other studio uses.
 class _Panel extends StatelessWidget {

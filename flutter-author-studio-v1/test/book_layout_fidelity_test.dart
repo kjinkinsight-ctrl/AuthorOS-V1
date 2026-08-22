@@ -60,6 +60,29 @@ String _withoutComments(String source) => source
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  group('reflowable output never inherits print pagination', () {
+    test('the EPUB exporter builds from the book, not from its pages', () {
+      final source =
+          _withoutComments(File('lib/book/book_epub_exporter.dart')
+              .readAsStringSync());
+
+      // An EPUB reflows to the reader's own screen and type size, so a print
+      // layout's page breaks are not merely unnecessary there — they are wrong.
+      // That is why BookDocument exists as a stage of its own.
+      for (final banned in const [
+        'PaginatedBook',
+        'LaidOutPage',
+        'BookLayoutEngine',
+        'book_layout.dart',
+      ]) {
+        expect(source.contains(banned), isFalse,
+            reason: 'book_epub_exporter.dart references $banned; a reflowable '
+                'format must consume BookDocument only');
+      }
+      expect(source, contains('BookDocument'));
+    });
+  });
+
   group('the engine is the only thing that lays a book out', () {
     test('no renderer measures or breaks text', () {
       for (final path in _rendererSources) {

@@ -20,6 +20,11 @@ dependencies:
   pdf: ^3.13.0
   shared_preferences: ^2.5.5
   supabase_flutter: ^2.8.1
+  # Already in the tree via `pdf`; promoted to a direct dependency so EPUB
+  # documents are built with a real XML writer. Author prose reaches XHTML, and
+  # an ampersand or an angle bracket in a manuscript must not be able to produce
+  # a file that will not parse.
+  xml: ^7.0.1
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.3

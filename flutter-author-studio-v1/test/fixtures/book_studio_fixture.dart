@@ -6,6 +6,8 @@
 /// line.
 library;
 
+import 'dart:typed_data';
+
 import 'package:author_studio_v1/book/book_document.dart';
 import 'package:author_studio_v1/book/book_format.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
@@ -210,3 +212,90 @@ ManuscriptProjectSummary longManuscriptFixture({int paragraphs = 30}) =>
         ),
       ],
     );
+
+/// A real PNG the image decoder will accept.
+///
+/// Built rather than checked in so the test carries its own fixture: a solid
+/// block of the requested size, encoded by hand.
+Uint8List testPng(int width, int height) {
+  final chunks = <int>[];
+
+  void beInt(List<int> into, int value) => into.addAll([
+        (value >> 24) & 0xFF,
+        (value >> 16) & 0xFF,
+        (value >> 8) & 0xFF,
+        value & 0xFF,
+      ]);
+
+  int crc32(List<int> bytes) {
+    var crc = 0xFFFFFFFF;
+    for (final byte in bytes) {
+      crc ^= byte;
+      for (var i = 0; i < 8; i++) {
+        crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
+  }
+
+  void chunk(String type, List<int> data) {
+    beInt(chunks, data.length);
+    final body = <int>[...type.codeUnits, ...data];
+    chunks.addAll(body);
+    beInt(chunks, crc32(body));
+  }
+
+  chunks.addAll([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+  final header = <int>[];
+  beInt(header, width);
+  beInt(header, height);
+  header.addAll([8, 2, 0, 0, 0]); // 8-bit truecolour
+  chunk('IHDR', header);
+
+  // One filter byte plus three bytes a pixel, per row.
+  final raw = <int>[];
+  for (var y = 0; y < height; y++) {
+    raw.add(0);
+    for (var x = 0; x < width; x++) {
+      raw.addAll([0x2A, 0x18, 0x30]);
+    }
+  }
+  chunk('IDAT', _testZlibStore(raw));
+  chunk('IEND', const []);
+
+  return Uint8List.fromList(chunks);
+}
+
+/// Wraps [data] in a zlib stream using stored (uncompressed) deflate blocks,
+/// so the fixture needs no compression library.
+List<int> _testZlibStore(List<int> data) {
+  final out = <int>[0x78, 0x01];
+  var offset = 0;
+  while (offset < data.length) {
+    final take = (data.length - offset).clamp(0, 65535);
+    final last = offset + take >= data.length;
+    out
+      ..add(last ? 1 : 0)
+      ..add(take & 0xFF)
+      ..add((take >> 8) & 0xFF)
+      ..add((~take) & 0xFF)
+      ..add(((~take) >> 8) & 0xFF)
+      ..addAll(data.sublist(offset, offset + take));
+    offset += take;
+  }
+  var a = 1, b = 0;
+  for (final byte in data) {
+    a = (a + byte) % 65521;
+    b = (b + a) % 65521;
+  }
+  final adler = (b << 16) | a;
+  out.addAll([
+    (adler >> 24) & 0xFF,
+    (adler >> 16) & 0xFF,
+    (adler >> 8) & 0xFF,
+    adler & 0xFF,
+  ]);
+  return out;
+}
+

@@ -1110,6 +1110,90 @@ class DriftConnectedDomainRepository {
     return row == null ? null : _recordFromRow(row);
   }
 
+  /// Hydrates many records in one pass.
+  ///
+  /// A graph read resolves a whole neighbourhood at once, and doing that
+  /// through [recordById] costs one query per edge. Missing ids are simply
+  /// absent from the result: an id may name a manuscript node rather than a
+  /// record, and asking for both kinds is normal.
+  Future<List<AuthorRecord>> recordsByIds(Iterable<String> ids) async {
+    final rows = await _rowsByIds(
+      ids,
+      (chunk) => (database.select(database.authorRecordRows)
+            ..where((table) => table.id.isIn(chunk))
+            ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+          .get(),
+    );
+    return rows.map(_recordFromRow).toList();
+  }
+
+  /// The manuscript-node half of [recordsByIds].
+  ///
+  /// Scenes and chapters are a second node kind (decision D-3), so a graph read
+  /// that hydrated only records would silently drop half the manuscript spine.
+  Future<List<ManuscriptNodeReference>> manuscriptNodesByIds(
+    Iterable<String> ids,
+  ) async {
+    final rows = await _rowsByIds(
+      ids,
+      (chunk) => (database.select(database.manuscriptNodeRows)
+            ..where((table) => table.id.isIn(chunk))
+            ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+          .get(),
+    );
+    return rows.map(_nodeFromRow).toList();
+  }
+
+  /// Every link touching any of [ids], in either direction.
+  ///
+  /// [typeIds] filters in SQL rather than in the caller. That matters because
+  /// `relatedTo` is suggested on every record type: excluding it here keeps the
+  /// rows out of memory instead of discarding them after the fact.
+  Future<List<RecordLink>> linksForEntities(
+    Iterable<String> ids, {
+    Set<String>? typeIds,
+  }) async {
+    if (typeIds != null && typeIds.isEmpty) return const [];
+    final rows = await _rowsByIds(
+      ids,
+      (chunk) => (database.select(database.recordLinkRows)
+            ..where((table) {
+              final touches =
+                  table.sourceId.isIn(chunk) | table.targetId.isIn(chunk);
+              return typeIds == null
+                  ? touches
+                  : touches & table.typeId.isIn(typeIds.toList());
+            })
+            ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+          .get(),
+    );
+    // A link between two ids in the same chunk is returned once, but a link
+    // spanning two chunks comes back from both, so the id set is the authority.
+    final seen = <String>{};
+    return [
+      for (final row in rows)
+        if (seen.add(row.id)) _linkFromRow(row),
+    ];
+  }
+
+  /// Runs [query] over [ids] in chunks, so a large neighbourhood cannot exceed
+  /// SQLite's bound-variable limit.
+  Future<List<T>> _rowsByIds<T>(
+    Iterable<String> ids,
+    Future<List<T>> Function(List<String> chunk) query,
+  ) async {
+    final unique = ids.toSet().toList();
+    if (unique.isEmpty) return const [];
+    const chunkSize = 400;
+    final rows = <T>[];
+    for (var start = 0; start < unique.length; start += chunkSize) {
+      final end =
+          start + chunkSize < unique.length ? start + chunkSize : unique.length;
+      rows.addAll(await query(unique.sublist(start, end)));
+    }
+    return rows;
+  }
+
   /// Every manuscript node the project owns.
   ///
   /// A project's manuscript is authoritative for its own chapters and scenes,

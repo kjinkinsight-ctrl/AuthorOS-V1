@@ -18,6 +18,7 @@ import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
+import 'package:author_studio_v1/core/story_graph.dart';
 import 'package:author_studio_v1/core/version_audit.dart';
 import 'package:author_studio_v1/manuscript_service.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
@@ -161,13 +162,22 @@ void main() {
   });
 
   test('no second relationship model has appeared in lib/', () {
+    // This used to reject any path containing `story_graph`, back when the
+    // graph was design-only and any such file was by definition premature.
+    // The read model now exists, so the check returns to what it was actually
+    // protecting: a *store*. That the read model owns no storage is proved
+    // directly by 'the Story Graph read model owns no storage' below.
     final graphish = _libSources
         .map((file) => file.path.replaceAll(r'\', '/'))
         .where(
           (path) =>
-              path.contains('story_graph') ||
               path.endsWith('/graph_store.dart') ||
               path.endsWith('/graph_repository.dart') ||
+              path.endsWith('/graph_database.dart') ||
+              path.endsWith('/graph_cache.dart') ||
+              path.endsWith('/graph_index.dart') ||
+              path.endsWith('/story_graph_store.dart') ||
+              path.endsWith('/story_graph_repository.dart') ||
               path.endsWith('/edge_store.dart') ||
               path.endsWith('/relationship_store.dart'),
         )
@@ -457,31 +467,184 @@ void main() {
     );
   });
 
-  test('no Story Graph UI or service has been implemented', () {
+  // This assertion used to read "no Story Graph UI or service has been
+  // implemented". Its job was to stop the graph landing *ahead of its design*.
+  // The design is now agreed and Phase 0 has shipped, so the guardrail's job
+  // changes rather than disappearing: the graph exists, and it must stay a
+  // read model over the storage that already exists.
+  test('the Story Graph read model owns no storage', () {
+    final graphSources = _libSources.where((file) {
+      final path = file.path.replaceAll(r'\', '/');
+      return path.contains('/story_graph') || path.contains('/knowledge_graph/');
+    }).toList();
+
+    expect(
+      graphSources,
+      isNotEmpty,
+      reason: 'The Story Graph files have moved or been removed. This test can '
+          'only guard code it can find.',
+    );
+
+    // Exactly two graph files may write, and both do it by delegating:
+    // relationships to ConnectionEngine, canvases to RecordService. Everything
+    // else is read-only. Naming them here means adding a third writer is a
+    // conscious act rather than a quiet one.
+    const writers = {
+      'story_graph_mutations.dart',
+      'canvas_service.dart',
+    };
+    final readOnly = graphSources.where(
+      (file) => !writers.any(file.path.endsWith),
+    );
+
     final offenders = <String>[];
-    for (final file in _libSources) {
+    for (final file in readOnly) {
       final source = file.readAsStringSync();
-      for (final symbol in const [
-        'StoryGraphService',
-        'StoryGraphView',
-        'StoryGraphPanel',
-        'StoryGraphWorkspace',
-        'StoryGraphNode',
-        'StoryGraphEdge',
+      for (final write in const [
+        'putRecord',
+        'putLink',
+        'putRecordsAndLinks',
+        'putManuscriptNodes',
+        'removeManuscriptNodes',
+        'replaceSnapshot',
+        'SharedPreferences',
       ]) {
-        if (source.contains(symbol)) {
-          offenders.add('${file.path}: $symbol');
-        }
+        if (source.contains(write)) offenders.add('${file.path}: $write');
       }
     }
 
     expect(
       offenders,
       isEmpty,
-      reason: 'The Story Graph is design-only. Implementation starts at Phase '
-          '1 in docs/universal-story-graph-architecture.md, after the Phase 0 '
-          'preconditions are resolved.',
+      reason: 'Invariant I-15: the graph is a query surface. A write here is a '
+          'second source of graph truth, and belongs on RecordService or '
+          'ConnectionEngine instead.',
     );
+  });
+
+  test('the graph delegates every relationship write to ConnectionEngine', () {
+    final mutations =
+        File('lib/core/story_graph_mutations.dart').readAsStringSync();
+
+    // No second validation path: the moment this file starts deciding what a
+    // valid edge is, there are two answers in the tree and they will diverge.
+    expect(mutations.contains('ConnectionEngine'), isTrue);
+    for (final forbidden in const [
+      'validateConnection',
+      'registry.resolve',
+      'putLink',
+      'repository.putRecordsAndLinks',
+    ]) {
+      expect(
+        mutations.contains(forbidden),
+        isFalse,
+        reason: 'StoryGraphMutations must delegate, not re-validate. '
+            'Found: $forbidden',
+      );
+    }
+  });
+
+  test('the canvas is a record, and holds no edges', () {
+    final source =
+        File('lib/knowledge_graph/canvas_service.dart').readAsStringSync();
+
+    // Writes go through RecordService, so a canvas is validated, versioned,
+    // audited and archived like anything else — and adds no table, which is
+    // what keeps the 'exactly one persistence system' assertion above green.
+    expect(source.contains('RecordService'), isTrue);
+    for (final forbidden in const [
+      'RecordLink',
+      'ConnectionEngine',
+      'putRecord',
+      'putLink',
+      'SharedPreferences',
+    ]) {
+      expect(
+        source.contains(forbidden),
+        isFalse,
+        reason: 'A canvas stores positions and entity ids only. Storing an '
+            'edge would let a saved board drift out of step with the graph. '
+            'Found: $forbidden',
+      );
+    }
+  });
+
+  test('the graph never grows a second traversal model', () {
+    // ImpactTraceAnalyzer is an unused depth-limited BFS over its own
+    // TraceEntity/TraceLink types (risk R-6). It is the likeliest accidental
+    // seed of a duplicate relationship system, so the graph must not adopt it.
+    for (final file in _libSources) {
+      final path = file.path.replaceAll(r'\', '/');
+      if (!path.contains('/story_graph') &&
+          !path.contains('/knowledge_graph/')) {
+        continue;
+      }
+      expect(
+        file.readAsStringSync().contains('impact_trace'),
+        isFalse,
+        reason: '${file.path} imports the orphaned ImpactTrace BFS. Absorbing '
+            'it is a deliberate decision, not an import.',
+      );
+    }
+  });
+
+  test('a graph read never seeds a manuscript', () {
+    // Risk R-21: AnalyticsService.getSummary() on a cold project seeds and
+    // saves a starter manuscript, so reading a dashboard creates nodes. That
+    // side effect must stay confined to Analytics — a graph read that reached
+    // ManuscriptStore.loadStudio would make "look at the graph" and "write
+    // graph nodes" the same action.
+    for (final file in _libSources) {
+      final path = file.path.replaceAll(r'\', '/');
+      if (!path.contains('/story_graph') &&
+          !path.contains('/knowledge_graph/')) {
+        continue;
+      }
+      final source = file.readAsStringSync();
+      expect(
+        source.contains('loadStudio'),
+        isFalse,
+        reason: '${file.path} can trigger starter-manuscript seeding.',
+      );
+      expect(
+        source.contains('ManuscriptStore'),
+        isFalse,
+        reason: '${file.path} reaches the manuscript blob directly. The graph '
+            'reads manuscript nodes through the repository.',
+      );
+    }
+  });
+
+  test('derived edges cannot become RecordLinks', () {
+    final source = File('lib/core/story_graph.dart').readAsStringSync();
+    final derived = source.substring(
+      source.indexOf('class DerivedStoryGraphEdge'),
+    );
+    final body = derived.substring(0, derived.indexOf('\n}'));
+
+    // No id means nothing to persist it under. That is the whole guarantee:
+    // §7.3 says a derived relationship must never masquerade as a stored link,
+    // and this makes it structurally impossible rather than a convention.
+    expect(
+      body.contains('final String id'),
+      isFalse,
+      reason: 'DerivedStoryGraphEdge grew an id. A derived edge with an id is '
+          'one refactor away from being written to record_link_rows.',
+    );
+  });
+
+  test('the graph hides relatedTo and wildcard edges by default', () {
+    // relatedTo is undirected, wildcard, and suggested on all ~224 record
+    // types (risk R-16). A view that shows it by default degenerates into a
+    // hairball on its first render.
+    const filter = StoryGraphFilter();
+    final relatedTo = BuiltInConnectionTypes.registry().resolve('relatedTo');
+
+    expect(filter.includeRelatedTo, isFalse);
+    expect(filter.includeWildcardEdges, isFalse);
+    expect(filter.allowsEdgeType('relatedTo', relatedTo), isFalse);
+    expect(filter.includeArchived, isFalse);
+    expect(filter.includeDeleted, isFalse);
   });
 
   test('the edge table refuses a dangling link', () async {

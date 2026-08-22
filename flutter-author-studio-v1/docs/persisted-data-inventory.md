@@ -32,6 +32,94 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 - 2.0 destination: project metadata plus initial records/manuscript seeds
 - Fixture coverage: simple, missing optional fields, unknown future fields
 
+### `author_studio.book_studio.{projectId}`
+
+- Owner: `BookStore`
+- Storage type: JSON object string
+- Shape: `BookProject`
+- Root fields: `projectId`, `titleOverride`, `authorOverride`, `subtitle`, `seriesName`, `seriesNumber`, `isbn`, `publisher`, `copyrightYear`, `copyrightHolder`, `edition`, `rightsStatement`, `frontMatter`, `backMatter`, `parts`, `format`, `epub`, `exportHistory`, `version`, `migration`
+- Note: title and author are stored as *overrides*. Empty means "resolve from the
+  manuscript title and the author profile at build time", so renaming a project
+  keeps the title page and the running heads correct. Storing copies would go
+  stale silently and only show up in a proof copy.
+- Note: front and back matter that is generated (title page, copyright, contents)
+  carries no body text here; it is rendered from the metadata and, for the
+  contents, from the laid-out body, so it cannot go stale.
+- Risk: outside the `.authoros` archive, structurally the same gap as scene prose
+  (R-2, whose scene-prose half is now closed); closing it adds a
+  `data/book.json` entry and changes the archive entry
+  count the story-graph audit pins
+- Risk: no version history. A margin is not creative corpus; dedication and
+  acknowledgement text is, and is mitigated by `version`/`migration` plus a
+  `author_studio.book_studio_backup.{projectId}` key written on first overwrite
+- 2.0 destination: project presentation settings, alongside the manuscript
+- Fixture coverage: seeded defaults, malformed blob, foreign `projectId`, backup
+- Note: also carries `epub` — the reflowable settings, kept apart from `format`
+  because trim, margins and folios mean nothing once a reader reflows the text
+- Note: `exportHistory` names what was exported and the hash of the manuscript it
+  came from. The manuscript *bytes* are in `book_asset_rows`; only the reference
+  is here, so the blob stays small. Capped at `BookProject.historyLimit` (25),
+  deliberately more than the five snapshots kept — a row saying what was exported
+  last Tuesday is still true after its manuscript has been evicted
+
+### `author_studio.book_templates`
+
+- Owner: `BookTemplateStore`
+- Storage type: JSON array string
+- Shape: `List<BookTemplate>`
+- Per-template fields: `id`, `name`, `createdAt`, `format`, `epub`,
+  `frontMatter`, `backMatter`
+- Why global rather than per-project: a template exists to be applied to a
+  *different* book. A project-scoped one would be useless, which also rules out
+  the record graph, where `ConnectionEngine` enforces scope isolation
+- Note: deliberately carries no identity — no title, author, ISBN, edition,
+  copyright, cover, or `parts`. Book one's ISBN silently reaching book two is a
+  way to publish something wrong; `parts` anchor to `startsAtChapterId`, which
+  names another project's chapters
+- Note: matter is structure only. Section bodies are stripped on capture, and
+  applying a template keeps whatever the receiving book had already written
+- Note: stores resolved values rather than a diff against a preset, for the same
+  reason `BookFormat` does — a stored delta means shipping a preset change
+  silently reflows every book built on it
+- Risk: outside the `.authoros` archive, like the rest of the book data. The
+  archive now carries prose and writing sessions, so book data is what is left
+- 2.0 destination: project presentation settings, shared across the library
+- Fixture coverage: capture, identity exclusion, apply, prose preservation, JSON
+  round trip, malformed blob
+
+### `book_asset_rows` (embedded database, not SharedPreferences)
+
+- Owner: `BookCoverStore` (`cover`), `BookSnapshotStore` (`snapshot:{hash}`)
+- Storage type: SQLite table, `(projectId, role)` primary key
+- Columns: `projectId`, `role` (`cover` or `snapshot:{hash}`), `mediaType`,
+  `bytes`, `width`, `height`, `updatedAt`, `extensionJson`
+- Why not SharedPreferences: on the web that is `localStorage`, roughly five
+  megabytes for the whole origin and shared with the author's prose. A cover is
+  hundreds of kilobytes of binary; storing it there can fail to save or crowd out
+  the manuscript. The embedded database is IndexedDB-backed in the browser.
+- Note: bytes are stored exactly as the author supplied them. Re-encoding would
+  mean PNG only, which makes a photographic cover larger, not smaller.
+- Note: a `snapshot:{hash}` row is the gzipped JSON of the manuscript **and the
+  book settings** an export was built from, so an export can be reproduced after
+  more writing or a redesign — the M7 gate asks for exactly this. The settings
+  are included because trim, typography and the ISBN change the bytes as much as
+  the words do; `exportHistory` is excluded from the hashed payload, or every
+  export would change the history the next one hashes. It shares this table rather than adding one because it
+  is an authored asset by the same argument a cover is: never a `RecordLink`
+  endpoint, participating in nothing. The `role` column was already a
+  discriminator in the primary key.
+- Note: snapshots are content-addressed on the manuscript's own hash, so
+  exporting one book to four formats stores one row, not four. Capped at
+  `BookSnapshotStore.retained` (5) per project, evicted least-recently-used, and
+  anything the export history no longer names is collected on the next export.
+- Risk: outside the `.authoros` archive. Scene prose has since joined it; book
+  data has not
+- 2.0 destination: the Asset model in master plan §6.6
+- Fixture coverage: sniffing, every rejection path, round trip, replacement,
+  per-project isolation, schema 13 to 14 migration on a real file; for snapshots,
+  round trip, dedupe, eviction, garbage collection, and that clearing them leaves
+  the cover alone
+
 ### `author_studio.manuscript_studio.{projectId}`
 
 - Owner: `ManuscriptStore`

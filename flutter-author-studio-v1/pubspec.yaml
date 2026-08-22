@@ -25,6 +25,11 @@ dependencies:
   pdf: ^3.13.0
   shared_preferences: ^2.5.5
   supabase_flutter: ^2.8.1
+  # Already in the tree via `pdf`; promoted to a direct dependency so EPUB
+  # documents are built with a real XML writer. Author prose reaches XHTML, and
+  # an ampersand or an angle bracket in a manuscript must not be able to produce
+  # a file that will not parse.
+  xml: ^7.0.1
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.3
@@ -60,6 +65,22 @@ flutter:
     - assets/fonts/Inter-700.ttf
     - assets/fonts/Merriweather-400.ttf
     - assets/fonts/Merriweather-700.ttf
+    # Italic faces, for the inline emphasis convention. Same families, same
+    # units per em and the same ascent and descent as the uprights above, so an
+    # italic run sits on the same baseline with the same leading.
+    #
+    # ~2.8 MB, and deliberately unmodified upstream releases rather than
+    # subsets: Merriweather carries a Reserved Font Name, which the OFL does not
+    # let a modified version keep. Nothing fetches these until Book Studio
+    # opens. Provenance in assets/fonts/LICENSE.md.
+    - assets/fonts/Inter-400-Italic.ttf
+    - assets/fonts/Inter-700-Italic.ttf
+    - assets/fonts/Merriweather-400-Italic.ttf
+    - assets/fonts/Merriweather-700-Italic.ttf
+    # The offline spelling dictionary. ~350 KB, and deliberately loaded lazily:
+    # nothing touches it until a proofing pass runs. Licence in
+    # assets/dictionaries/LICENSE.md.
+    - assets/dictionaries/en.txt.gz
 
 flutter_launcher_icons:
   android: true

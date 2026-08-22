@@ -51,6 +51,16 @@ const _auditedTables = {
   // merged into main. It is deliberately in this list and deliberately NOT
   // graph truth — see the invariant I-12 test below.
   'writing_session_rows',
+  // Book Studio cover art. Present since EPUB export, and deliberately in this
+  // list for the same reason as writing sessions: it is an authored asset, not
+  // graph truth. It is never a RecordLink endpoint and participates in nothing.
+  //
+  // It is in the database rather than beside the rest of the book's settings
+  // because those are a shared-preferences blob, which on the web is
+  // localStorage — roughly five megabytes for the whole origin, shared with the
+  // author's prose. A cover is hundreds of kilobytes of binary and does not
+  // belong anywhere near that ceiling.
+  'book_asset_rows',
   // The author's daily, weekly, and monthly word targets, from the author
   // performance milestone. A per-project setting, not a node and not an edge:
   // deliberately listed here and deliberately not graph truth — see the

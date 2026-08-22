@@ -30,6 +30,7 @@ import 'project_roster_store.dart';
 import 'sync/sync_appliers.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
+import 'book_studio_view.dart';
 import 'platform/url_strategy.dart';
 import 'release_destinations.dart';
 import 'research_service.dart';
@@ -853,6 +854,7 @@ enum StudioSection {
   series,
   ideas,
   manuscript,
+  book,
   chapters,
   characters,
   codex,
@@ -885,6 +887,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.ideas => 'ideas',
         StudioSection.manuscript => 'manuscript',
         StudioSection.chapters => 'chapters',
+        StudioSection.book => 'book',
         StudioSection.characters => 'characters',
         StudioSection.codex => 'story-codex',
         StudioSection.world => 'world',
@@ -908,6 +911,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.series => 'Series',
         StudioSection.ideas => 'Ideas',
         StudioSection.manuscript => 'Manuscript',
+        StudioSection.book => 'Book',
         StudioSection.chapters => 'Chapters',
         StudioSection.characters => 'Characters',
         StudioSection.codex => 'Story Codex',
@@ -932,6 +936,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.series => Icons.collections_bookmark_outlined,
         StudioSection.ideas => Icons.lightbulb_outline,
         StudioSection.manuscript => Icons.menu_book_outlined,
+        StudioSection.book => Icons.import_contacts_outlined,
         StudioSection.chapters => Icons.chrome_reader_mode_outlined,
         StudioSection.characters => Icons.groups_outlined,
         StudioSection.codex => Icons.auto_stories_outlined,
@@ -964,6 +969,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.map => StudioId.map,
         StudioSection.research => StudioId.research,
         StudioSection.knowledgeGraph => StudioId.knowledgeGraph,
+        StudioSection.book => StudioId.book,
         // `series` sits with `projects`: both are the author's catalogue of
         // work rather than a Studio with a palette of its own.
         StudioSection.dashboard ||
@@ -1145,6 +1151,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.projects,
     StudioSection.ideas,
     StudioSection.manuscript,
+    StudioSection.book,
   ];
 
   static const storySections = <StudioSection>[
@@ -1728,6 +1735,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.projects,
     StudioSection.ideas,
     StudioSection.manuscript,
+    StudioSection.book,
   ];
 
   static const storySections = <StudioSection>[
@@ -2313,6 +2321,10 @@ class _SectionView extends StatelessWidget {
             categories: ['Concept', 'Scene', 'Dialogue', 'Research'],
           ),
         StudioSection.manuscript => const SizedBox.shrink(),
+        StudioSection.book => BookStudioView(
+            project: project,
+            manuscriptStore: manuscriptStore,
+          ),
         StudioSection.chapters => ChapterStudioView(project: project),
         StudioSection.characters => CharacterBoardView(
             project: project,

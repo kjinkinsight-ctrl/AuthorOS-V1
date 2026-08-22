@@ -262,13 +262,17 @@ void main() {
         tables.map((row) => row.read<String>('name')),
         contains('scene_prose_rows'),
       );
-      expect(AuthorOsDatabase.currentSchemaVersion, 13);
+      // 14 since Book Studio added `book_asset_rows` as step 14. This
+      // assertion is about the prose table existing on a fresh install, which
+      // it still does; the number just moved.
+      expect(AuthorOsDatabase.currentSchemaVersion, 14);
     });
 
     // Every schema the reconciliation has to be reachable from. 9 is the last
     // version before the performance work, 12 is what `main` shipped, and the
-    // ones between are what a user mid-upgrade could be sitting on.
-    for (final from in const [1, 2, 8, 9, 10, 11, 12]) {
+    // ones between are what a user mid-upgrade could be sitting on. 13 joined
+    // the list when Book Studio's asset table became step 14.
+    for (final from in const [1, 2, 8, 9, 10, 11, 12, 13]) {
       test('upgrades cleanly from schema $from', () async {
         await database.close();
         final directory =

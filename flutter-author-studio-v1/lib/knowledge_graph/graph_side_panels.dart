@@ -33,8 +33,9 @@ class GraphFilterRail extends StatelessWidget {
   /// (id, label) for every book in the project, for "Book 1 only".
   final List<(String, String)> books;
 
-  /// How many nodes the current filter is hiding, so the rail can say so
-  /// rather than leaving the author wondering where things went.
+  /// How many of the focused node's connections the filters are hiding, so the
+  /// rail can say so rather than leaving the author wondering where things
+  /// went.
   final int hiddenCount;
 
   @override
@@ -140,9 +141,11 @@ class GraphFilterRail extends StatelessWidget {
               border: Border.all(color: palette.outlineVariant),
             ),
             // Never hide silently: a graph that quietly drops nodes is a
-            // continuity hazard, not a tidy view.
+            // continuity hazard, not a tidy view. The count is of the focused
+            // node's connections, which is what the filters were measured
+            // against — so the wording says connections, not nodes.
             child: Text(
-              '$hiddenCount ${hiddenCount == 1 ? 'node is' : 'nodes are'} '
+              '$hiddenCount ${hiddenCount == 1 ? 'connection is' : 'connections are'} '
               'hidden by these filters.',
               style: palette.label,
             ),

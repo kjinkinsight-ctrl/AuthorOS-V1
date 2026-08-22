@@ -160,19 +160,35 @@ void main() {
     );
   });
 
-  testWidgets('a category filter removes nodes from the canvas',
+  testWidgets('deselecting a category removes that kind from the canvas',
       (tester) async {
     await seed();
     await pumpGraph(tester);
 
+    // A mode starts with every category it allows already selected, so the
+    // rail is an honest picture of what the mode shows rather than an empty
+    // set that happens to mean "everything". Deselecting one hides that kind.
     expect(find.byKey(const Key('graph-node-endovier')), findsOneWidget);
+    expect(find.byKey(const Key('graph-node-vincenzo')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('graph-category-filter-locations')));
     await tester.pumpAndSettle();
 
-    // Selecting `locations` narrows the view to locations, so the rival goes.
-    expect(find.byKey(const Key('graph-node-vincenzo')), findsNothing);
-    expect(find.byKey(const Key('graph-node-endovier')), findsOneWidget);
+    expect(find.byKey(const Key('graph-node-endovier')), findsNothing);
+    expect(find.byKey(const Key('graph-node-vincenzo')), findsOneWidget);
+  });
+
+  testWidgets('the rail says how many nodes the filters are hiding',
+      (tester) async {
+    await seed();
+    await pumpGraph(tester);
+
+    await tester.tap(find.byKey(const Key('graph-category-filter-locations')));
+    await tester.pumpAndSettle();
+
+    // Never hide silently: a graph that quietly drops nodes reads as complete
+    // when it is not.
+    expect(find.byKey(const Key('graph-hidden-notice')), findsOneWidget);
   });
 
   testWidgets('switching mode re-anchors the graph', (tester) async {

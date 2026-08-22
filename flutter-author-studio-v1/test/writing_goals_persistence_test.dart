@@ -5,6 +5,7 @@ import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:author_studio_v1/writing_goals_store.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   late AuthorOsDatabase database;
@@ -12,6 +13,11 @@ void main() {
   late WritingGoalsStore store;
 
   setUp(() {
+    // Saving a goal now also queues it for other devices, and the queue lives
+    // in SharedPreferences. Without the mock every save would hit an
+    // unregistered plugin — the recorder swallows the error, so the tests
+    // would still pass, which is exactly the kind of green that hides a bug.
+    SharedPreferences.setMockInitialValues({});
     database = AuthorOsDatabase(NativeDatabase.memory());
     repository = DriftConnectedDomainRepository(database);
     store = WritingGoalsStore(repository: repository);

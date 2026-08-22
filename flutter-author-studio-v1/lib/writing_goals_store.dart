@@ -14,13 +14,20 @@ library;
 
 import 'core/writing_goals.dart';
 import 'persistence/authoros_database.dart';
+import 'sync/sync_appliers.dart';
 
 /// Reads and writes one project's writing goals.
 class WritingGoalsStore {
-  const WritingGoalsStore({DriftConnectedDomainRepository? repository})
-      : _repository = repository;
+  const WritingGoalsStore({
+    DriftConnectedDomainRepository? repository,
+    this.recorder = const SyncRecorder(),
+  }) : _repository = repository;
 
   final DriftConnectedDomainRepository? _repository;
+
+  /// Queues goal changes for other devices. Write path only: [load] must never
+  /// reach it, or reading a dashboard would start writing.
+  final SyncRecorder recorder;
 
   DriftConnectedDomainRepository get repository =>
       _repository ?? authorOsRepository;
@@ -37,8 +44,18 @@ class WritingGoalsStore {
   /// Normalizes and stores the author's goals, returning exactly what was
   /// stored so no caller renders a target the database did not accept.
   Future<WritingGoals> save(WritingGoals goals) async {
-    final normalized = goals.normalized();
+    // Stamped here rather than left to the persistence layer, which would
+    // stamp its own instant on the way in. The row and the payload queued for
+    // other devices have to be the same fact, and the only way to be sure is
+    // to decide the instant once, before either.
+    final normalized = goals.normalized().copyWith(updatedAt: DateTime.now());
     await repository.putWritingGoals(normalized);
+    await recorder.recordUpsert(
+      recordType: SyncRecordTypes.writingGoals,
+      recordId: normalized.projectId,
+      payload: Map<String, dynamic>.from(normalized.toJson()),
+    );
+    await recorder.flush();
     return normalized;
   }
 
@@ -48,6 +65,14 @@ class WritingGoalsStore {
   /// report the project as never customized.
   Future<WritingGoals> restoreDefaults(String projectId) async {
     await repository.deleteWritingGoalsForProject(projectId);
+    // A tombstone, not a push of the default values: another device must end
+    // up with no row at all, or it would read as "customized to exactly the
+    // defaults" rather than "never customized".
+    await recorder.recordDelete(
+      recordType: SyncRecordTypes.writingGoals,
+      recordId: projectId,
+    );
+    await recorder.flush();
     return WritingGoals.defaultsFor(projectId);
   }
 }

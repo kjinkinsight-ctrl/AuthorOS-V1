@@ -21,6 +21,7 @@ import 'core/project_roster_entry.dart';
 import 'core/writing_series.dart';
 import 'onboarding.dart';
 import 'project_roster_store.dart';
+import 'sync/sync_appliers.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
 import 'release_destinations.dart';
@@ -43,6 +44,11 @@ import 'theme/theme_tokens.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppSupabase.initialize();
+  // Fire and forget: start-up must never wait on the network. The engine
+  // returns immediately when the transport is unavailable — unconfigured or
+  // signed out — without so much as minting a device id, so an offline launch
+  // writes nothing at all.
+  unawaited(buildSyncEngine().sync());
   runApp(const AuthorStudioApp());
 }
 

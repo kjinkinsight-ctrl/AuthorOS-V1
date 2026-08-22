@@ -203,25 +203,54 @@ These values describe backup health; they are not the backup itself. The 2.0 bac
 - Type: JSON array string
 - Shape: `SyncOperation[]`
 - Fields: `operationId`, `recordType`, `recordId`, `action`, `baseRevision`, `enqueuedAt`, `retryCount`, `deletedAt`, `payload`
+- `recordType` values in use: `project` (the roster row, series membership included), `writing-goals`, `series`
+- `action` takes `delete` as well as `upsert`: removing a project from the roster, deleting a series, and restoring a project's goals to "never customized" all enqueue tombstones
 - Treatment: current protocol compatibility only; drain or explicitly migrate before enabling entity-level 2.0 sync
 
 ### `author_studio.sync.revisions`
 
 - Type: JSON object string
 - Shape: map keyed by `{recordType}:{recordId}` to non-negative revision
+- Now read as well as written: the pull path compares a remote record's revision against this map to decide whether to apply it
 - Treatment: preserve for current protocol; new entity repository owns revisions in 2.0
 
 ### `author_studio.sync.cursor`
 
-- Type: nullable string
-- Meaning: remote synchronization cursor
+- Type: nullable string (UTC ISO-8601)
+- Meaning: remote synchronization cursor — the high-water mark of
+  `sync_records.updated_at` this device has processed
+- Live as of the two-way sync work; it had no reader before that. Records are
+  fetched at-or-after it rather than strictly after, so a record sharing the
+  cursor's exact instant is never skipped
+- Clearing it forces a full re-pull, which is safe: applying a record the
+  device already holds is a no-op
 - Treatment: protocol-version-specific operational value; clear only through an explicit protocol migration
+
+## Synchronization model
+
+Two-way as of the goals-and-roster sync work, over the generic
+`public.sync_records` table. Three record types travel: `project` (the roster
+row, carrying series membership), `writing-goals`, and `series`. No Supabase
+schema change was needed — `record_type` is free text and `payload` is `jsonb`.
+
+Conflicts resolve **last-writer-wins at record granularity, with no merge**.
+A remote record is applied when its revision is above the one this device
+holds, or level with it and written by another device; a tie applies so two
+devices converge rather than diverging silently. The cost is real and worth
+stating: an author who edits the same project's goals on two offline devices
+loses one of those edits entirely — not merged field by field, lost — and
+nothing warns them. The only structural protection is granularity, so the
+blast radius of any one conflict is one project's three numbers, or one
+series' name and default.
+
+**Manuscript prose is not synchronized.** `author_studio.manuscript_studio.{projectId}`
+stays local. A second device receives the roster, the series and the targets —
+the shape of the work — and opens every project to an empty manuscript.
 
 ## Data not currently represented as durable creative storage
 
 The audit found no canonical persisted 1.x stores for:
 
-- universes or series
 - custom record-type definitions
 - general typed links independent of scenes
 - managed project assets and checksums

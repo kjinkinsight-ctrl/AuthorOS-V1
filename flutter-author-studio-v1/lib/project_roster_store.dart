@@ -15,12 +15,15 @@ import 'core/project_roster_entry.dart';
 import 'core/writing_series.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
+import 'sync/project_sync.dart';
+import 'sync/sync_appliers.dart';
 
 /// Reads and writes the author's projects and series.
 class ProjectRosterStore {
   const ProjectRosterStore({
     DriftConnectedDomainRepository? repository,
     this.onboardingStore = const OnboardingStore(),
+    this.recorder = const SyncRecorder(),
   }) : _repository = repository;
 
   final DriftConnectedDomainRepository? _repository;
@@ -28,6 +31,37 @@ class ProjectRosterStore {
   /// How the currently-open project is read. The roster does not own that
   /// pointer; it only adopts what the pointer names.
   final OnboardingStore onboardingStore;
+
+  /// Queues roster and series changes for other devices.
+  ///
+  /// Write path only. [load] must never reach it — and note that the legacy
+  /// adoption inside [load] deliberately goes to the repository rather than
+  /// through [save], which is what keeps it silent.
+  final SyncRecorder recorder;
+
+  /// Queues one project's current roster state, membership included.
+  Future<void> _recordProject(ProjectRosterEntry entry) => recorder.recordUpsert(
+        recordType: SyncRecordTypes.project,
+        recordId: entry.projectId,
+        payload: Map<String, dynamic>.from(
+          const StarterProjectSyncAdapter()
+              .toEnvelope(
+                entry.project,
+                deviceId: 'pending',
+                revision: 0,
+                baseRevision: 0,
+                updatedAt: DateTime.now().toUtc(),
+                // Always explicit from here: this store knows the roster, so a
+                // book that has just left its series must say so rather than
+                // stay silent and be preserved as a member elsewhere.
+                membership: ProjectSeriesMembership(
+                  seriesId: entry.seriesId,
+                  seriesPosition: entry.seriesPosition,
+                ),
+              )
+              .payload,
+        ),
+      );
 
   DriftConnectedDomainRepository get repository =>
       _repository ?? authorOsRepository;
@@ -73,6 +107,8 @@ class ProjectRosterStore {
       updatedAt: DateTime.now(),
     );
     await repository.putProjectRosterEntry(entry);
+    await _recordProject(entry);
+    await recorder.flush();
     return entry;
   }
 
@@ -83,6 +119,11 @@ class ProjectRosterStore {
   /// never be a way to destroy an author's writing.
   Future<void> remove(String projectId) async {
     await repository.deleteProjectRosterEntry(projectId);
+    await recorder.recordDelete(
+      recordType: SyncRecordTypes.project,
+      recordId: projectId,
+    );
+    await recorder.flush();
   }
 
   Future<List<WritingSeries>> allSeries() => repository.allSeries();
@@ -92,14 +133,42 @@ class ProjectRosterStore {
 
   /// Normalizes and stores a series, returning exactly what was stored.
   Future<WritingSeries> saveSeries(WritingSeries series) async {
-    final normalized = series.normalized().copyWith(updatedAt: DateTime.now());
+    // Both instants decided here, for the same reason the goals store stamps
+    // its own: the stored row and the payload other devices receive have to be
+    // one fact, and the persistence layer would otherwise stamp its own.
+    final now = DateTime.now();
+    final normalized = series.normalized().copyWith(
+          createdAt: series.createdAt ?? now,
+          updatedAt: now,
+        );
     await repository.putSeries(normalized);
+    await recorder.recordUpsert(
+      recordType: SyncRecordTypes.series,
+      recordId: normalized.id,
+      payload: Map<String, dynamic>.from(normalized.toJson()),
+    );
+    await recorder.flush();
     return normalized;
   }
 
   /// Removes a series; its books become standalone projects again.
   Future<void> deleteSeries(String seriesId) async {
+    // Read the members first: after the delete they are standalone and the
+    // series is gone, so there would be no way to find out who had been in it.
+    final released = await repository.booksInSeries(seriesId);
     await repository.deleteSeries(seriesId);
+
+    await recorder.recordDelete(
+      recordType: SyncRecordTypes.series,
+      recordId: seriesId,
+    );
+    // Each freed book's membership changed too, and another device has no way
+    // to infer that from the series tombstone alone.
+    for (final book in released) {
+      final entry = await repository.projectRosterEntry(book.projectId);
+      if (entry != null) await _recordProject(entry);
+    }
+    await recorder.flush();
   }
 
   /// The books of one series, in order.
@@ -148,6 +217,7 @@ class ProjectRosterStore {
     final ordered = [...others]
       ..insert(target, entry.copyWith(project: seeded));
     await _writePositions(seriesId, ordered);
+    await recorder.flush();
 
     return (await repository.projectRosterEntry(projectId))!;
   }
@@ -159,13 +229,16 @@ class ProjectRosterStore {
     final seriesId = entry?.seriesId;
     if (entry == null || seriesId == null) return;
 
-    await repository.putProjectRosterEntry(
-      entry.withoutSeries().copyWith(updatedAt: DateTime.now()),
-    );
+    final released = entry.withoutSeries().copyWith(
+          updatedAt: DateTime.now(),
+        );
+    await repository.putProjectRosterEntry(released);
+    await _recordProject(released);
 
     // Close the gap the departing book left behind.
     final remaining = await repository.booksInSeries(seriesId);
     await _writePositions(seriesId, remaining);
+    await recorder.flush();
   }
 
   /// Reorders a series to match [orderedProjectIds].
@@ -188,6 +261,7 @@ class ProjectRosterStore {
     ordered.addAll(books.where((book) => byId.containsKey(book.projectId)));
 
     await _writePositions(seriesId, ordered);
+    await recorder.flush();
   }
 
   /// Writes positions densely from zero, so the sequence never develops gaps
@@ -198,9 +272,14 @@ class ProjectRosterStore {
   ) async {
     final now = DateTime.now();
     for (var index = 0; index < ordered.length; index++) {
-      await repository.putProjectRosterEntry(
-        ordered[index].inSeries(seriesId, index).copyWith(updatedAt: now),
-      );
+      final entry = ordered[index].inSeries(seriesId, index).copyWith(
+            updatedAt: now,
+          );
+      await repository.putProjectRosterEntry(entry);
+      // Queued per book, flushed once by the caller. Every book's position
+      // genuinely changed, so every book is a record another device needs —
+      // but they are one round trip, not one each.
+      await _recordProject(entry);
     }
   }
 }

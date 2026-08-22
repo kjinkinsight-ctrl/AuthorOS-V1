@@ -39,10 +39,12 @@ class _PlotStudioViewState extends State<PlotStudioView> {
     'abandoned',
   ];
 
-  List<RecordTypeDefinition> get _typeOptions =>
-      PlotRecordTypes.definitions.where((definition) {
-        return definition.id != PlotRecordTypes.baseTypeId;
-      }).toList(growable: false);
+  /// The Plot catalogue, resolved from the registry by [PlotService].
+  ///
+  /// Loaded rather than read off `PlotRecordTypes.definitions`, so a type this
+  /// project registered through `registerCustomType` is offered alongside the
+  /// built-ins instead of being invisible to the editor.
+  List<RecordTypeDefinition> _typeOptions = const [];
 
   @override
   void initState() {
@@ -65,13 +67,20 @@ class _PlotStudioViewState extends State<PlotStudioView> {
       final results = await Future.wait([
         widget.service.query.all(),
         widget.service.query.viewItems(),
+        widget.service.plotTemplates(),
       ]);
       final records = results[0] as List<AuthorRecord>;
       final items = results[1] as List<PlotViewItem>;
+      final templates = results[2] as List<RecordTypeDefinition>;
       if (!mounted) return;
       setState(() {
         _records = records.where((record) => record.status != AuthorRecordStatus.deleted).toList();
         _viewItems = {for (final item in items) item.recordId: item};
+        _typeOptions = templates;
+        if (_typeFilter != 'all' &&
+            !templates.any((definition) => definition.id == _typeFilter)) {
+          _typeFilter = 'all';
+        }
         _loading = false;
       });
     } catch (error) {
@@ -84,7 +93,7 @@ class _PlotStudioViewState extends State<PlotStudioView> {
   }
 
   Future<void> _createRecord() async {
-    final draft = await _showRecordDialog(context);
+    final draft = await _showRecordDialog(context, types: _typeOptions);
     if (draft == null) return;
     try {
       await widget.service.createPlotRecord(draft.toPlotRecordDraft());
@@ -99,7 +108,8 @@ class _PlotStudioViewState extends State<PlotStudioView> {
   }
 
   Future<void> _editRecord(AuthorRecord record) async {
-    final draft = await _showRecordDialog(context, record: record);
+    final draft =
+        await _showRecordDialog(context, record: record, types: _typeOptions);
     if (draft == null) return;
     try {
       await widget.service.updatePlotRecord(
@@ -213,150 +223,178 @@ class _PlotStudioViewState extends State<PlotStudioView> {
 
     return Container(
       color: surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${widget.project.title} Plot Studio',
-                        style: scope.text(ThemeTextRole.heading, colorRef: ThemeColorRef.onSurface),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Project-scoped plot records, ordering, and lifecycle.',
-                        style: scope.text(ThemeTextRole.label, colorRef: ThemeColorRef.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ),
-                FilledButton.icon(
-                  key: const ValueKey('plot-refresh-button'),
-                  onPressed: _loading ? null : _reload,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Refresh'),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  key: const ValueKey('plot-create-button'),
-                  onPressed: _loading ? null : _createRecord,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add record'),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                SizedBox(
-                  width: 280,
-                  child: TextField(
-                    key: const ValueKey('plot-search-field'),
-                    controller: _searchController,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Search records',
-                      prefixIcon: Icon(Icons.search),
+      child: LayoutBuilder(builder: (context, constraints) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${widget.project.title} Plot Studio',
+                          style: scope.text(ThemeTextRole.heading, colorRef: ThemeColorRef.onSurface),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Project-scoped plot records, ordering, and lifecycle.',
+                          style: scope.text(ThemeTextRole.label, colorRef: ThemeColorRef.onSurfaceVariant),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                DropdownButton<String>(
-                  value: _statusFilter,
-                  items: [
-                    const DropdownMenuItem(value: 'all', child: Text('All statuses')),
-                    for (final status in _laneOrder)
-                      DropdownMenuItem(value: status, child: Text(_title(status))),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() => _statusFilter = value);
-                  },
-                ),
-                DropdownButton<String>(
-                  value: _typeFilter,
-                  items: [
-                    const DropdownMenuItem(value: 'all', child: Text('All types')),
-                    for (final definition in _typeOptions)
-                      DropdownMenuItem(value: definition.id, child: Text(definition.name)),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() => _typeFilter = value);
-                  },
-                ),
-                Text(
-                  '${_visibleRecords.length} records',
-                  style: scope.text(ThemeTextRole.label, colorRef: ThemeColorRef.onSurfaceVariant),
-                ),
-              ],
+                  FilledButton.icon(
+                    key: const ValueKey('plot-refresh-button'),
+                    onPressed: _loading ? null : _reload,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    key: const ValueKey('plot-create-button'),
+                    onPressed: _loading ? null : _createRecord,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add record'),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(
-                        child: Text(
-                          _error!,
-                          style: scope.text(ThemeTextRole.body, colorRef: ThemeColorRef.onSurface),
-                        ),
-                      )
-                    : _visibleRecords.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No plot records found.',
-                              style: scope.text(ThemeTextRole.body, colorRef: ThemeColorRef.onSurfaceVariant),
-                            ),
-                          )
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                            children: [
-                              Wrap(
-                                spacing: 12,
-                                runSpacing: 12,
-                                children: [
-                                  for (final lane in _laneOrder)
-                                    SizedBox(
-                                      width: 340,
-                                      child: _StatusLane(
-                                        key: ValueKey('plot-lane-$lane'),
-                                        laneId: lane,
-                                        label: _title(lane),
-                                        color: container,
-                                        outline: outline,
-                                        onSurface: onSurface,
-                                        onSurfaceVariant: onSurfaceVariant,
-                                        records: _filteredRecords(lane),
-                                        viewItems: _viewItems,
-                                        onEdit: _editRecord,
-                                        onArchive: _archiveRecord,
-                                        onRestore: _restoreRecord,
-                                        onDelete: _deleteRecord,
-                                        onMoveUp: (record) => _moveRecord(record, -1),
-                                        onMoveDown: (record) => _moveRecord(record, 1),
-                                        primary: primary,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 280,
+                    child: TextField(
+                      key: const ValueKey('plot-search-field'),
+                      controller: _searchController,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Search records',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                    ),
+                  ),
+                  DropdownButton<String>(
+                    value: _statusFilter,
+                    items: [
+                      const DropdownMenuItem(value: 'all', child: Text('All statuses')),
+                      for (final status in _laneOrder)
+                        DropdownMenuItem(value: status, child: Text(_title(status))),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _statusFilter = value);
+                    },
+                  ),
+                  DropdownButton<String>(
+                    value: _typeFilter,
+                    items: [
+                      const DropdownMenuItem(value: 'all', child: Text('All types')),
+                      for (final definition in _typeOptions)
+                        DropdownMenuItem(value: definition.id, child: Text(definition.name)),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _typeFilter = value);
+                    },
+                  ),
+                  Text(
+                    '${_visibleRecords.length} records',
+                    style: scope.text(ThemeTextRole.label, colorRef: ThemeColorRef.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Fill a bounded host, but take a measured viewport in an unbounded
+            // one. The shell renders every non-manuscript section inside a
+            // SingleChildScrollView, where the incoming height is unbounded and
+            // a flex child asserts; shrink-wrapping instead would collapse the
+            // lane board to nothing.
+            _Board(
+              bounded: constraints.hasBoundedHeight,
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? Center(
+                          child: Text(
+                            _error!,
+                            style: scope.text(ThemeTextRole.body, colorRef: ThemeColorRef.onSurface),
                           ),
-          ),
-        ],
-      ),
+                        )
+                      : _visibleRecords.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No plot records found.',
+                                style: scope.text(ThemeTextRole.body, colorRef: ThemeColorRef.onSurfaceVariant),
+                              ),
+                            )
+                          : ListView(
+                              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                              children: [
+                                Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    for (final lane in _laneOrder)
+                                      SizedBox(
+                                        width: 340,
+                                        child: _StatusLane(
+                                          key: ValueKey('plot-lane-$lane'),
+                                          laneId: lane,
+                                          label: _title(lane),
+                                          color: container,
+                                          outline: outline,
+                                          onSurface: onSurface,
+                                          onSurfaceVariant: onSurfaceVariant,
+                                          records: _filteredRecords(lane),
+                                          viewItems: _viewItems,
+                                          onEdit: _editRecord,
+                                          onArchive: _archiveRecord,
+                                          onRestore: _restoreRecord,
+                                          onDelete: _deleteRecord,
+                                          onMoveUp: (record) => _moveRecord(record, -1),
+                                          onMoveDown: (record) => _moveRecord(record, 1),
+                                          primary: primary,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+            ),
+          ],
+        );
+      }),
     );
+  }
+}
+
+/// The lane board's vertical sizing, chosen from the host's constraints.
+///
+/// A bounded host (the focus-mode shell, a test harness, a dialog) gets a flex
+/// child that fills it. An unbounded host — the shell's SingleChildScrollView —
+/// gets a viewport measured off the window instead, because a flex child there
+/// asserts and a shrink-wrap collapses.
+class _Board extends StatelessWidget {
+  const _Board({required this.bounded, required this.child});
+
+  final bool bounded;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (bounded) return Expanded(child: child);
+    final height = MediaQuery.sizeOf(context).height - 260;
+    return SizedBox(height: height.clamp(320.0, 900.0), child: child);
   }
 }
 
@@ -650,11 +688,15 @@ class _PlotRecordDraftView {
 
 Future<_PlotRecordDraftView?> _showRecordDialog(
   BuildContext context, {
+  required List<RecordTypeDefinition> types,
   AuthorRecord? record,
 }) async {
   final idController = TextEditingController(text: record?.id ?? '');
   final titleController = TextEditingController(text: record?.title ?? '');
-  final typeController = TextEditingController(text: record?.typeId ?? PlotRecordTypes.recordTypeIds.first);
+  final typeController = TextEditingController(
+    text: record?.typeId ??
+        (types.isEmpty ? PlotRecordTypes.recordTypeIds.first : types.first.id),
+  );
   final statusController = TextEditingController(
     text: record?.fields['plotStatus'] as String? ?? 'planned',
   );
@@ -698,8 +740,7 @@ Future<_PlotRecordDraftView?> _showRecordDialog(
                   value: typeController.text,
                   decoration: const InputDecoration(labelText: 'Type'),
                   items: [
-                    for (final definition in PlotRecordTypes.definitions
-                        .where((definition) => definition.id != PlotRecordTypes.baseTypeId))
+                    for (final definition in types)
                       DropdownMenuItem(value: definition.id, child: Text(definition.name)),
                   ],
                   onChanged: (value) {

@@ -671,16 +671,8 @@ class ManuscriptStore {
     required List<ManuscriptChapterSeed> defaultChapters,
     String firstSceneTitle = 'Opening Scene',
   }) async {
-    final preferences = await SharedPreferences.getInstance();
-    final encoded = preferences.getString(_studioKey(projectId));
-    if (encoded != null && encoded.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(encoded) as Map<String, dynamic>;
-        return ManuscriptProjectSummary.fromJson(decoded);
-      } catch (_) {
-        // Fallback to migration path if the structured blob is malformed.
-      }
-    }
+    final stored = await peekStudio(projectId);
+    if (stored != null) return stored;
 
     final migrated = await _migrateLegacyToStudio(
       projectId,

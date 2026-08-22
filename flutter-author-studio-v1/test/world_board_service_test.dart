@@ -65,7 +65,12 @@ void main() {
     test('manuscript figures come from the Manuscript Studio store', () async {
       final project = _project('wb-manuscript');
 
-      final snapshot = await serviceFor(project).load();
+      // The manuscript is created first, deliberately. Loading the board used
+      // to seed one as a side effect, so this test could read the board first
+      // and still find chapters — which meant it was also, silently, asserting
+      // that a dashboard read creates a manuscript. It no longer does (R-21),
+      // and the claim under test is unchanged: the board's figures come from
+      // the Manuscript Studio store rather than from a second source.
       final manuscript = await manuscriptStore.loadStudio(
         project.id,
         manuscriptTitle: project.title,
@@ -73,10 +78,29 @@ void main() {
         firstSceneTitle: project.firstSceneTitle,
       );
 
+      final snapshot = await serviceFor(project).load();
+
       expect(snapshot.project.wordCount, manuscript.wordCount);
       expect(snapshot.project.chapterCount, manuscript.chapterCount);
       expect(snapshot.project.sceneCount, manuscript.sceneCount);
       expect(snapshot.project.chapterCount, greaterThan(0));
+    });
+
+    test('a project with no manuscript reports zero, and stays untouched',
+        () async {
+      final project = _project('wb-no-manuscript');
+
+      final snapshot = await serviceFor(project).load();
+
+      expect(snapshot.project.chapterCount, 0);
+      expect(snapshot.project.sceneCount, 0);
+      expect(snapshot.project.wordCount, 0);
+      expect(
+        (await repository.snapshot()).manuscriptNodes,
+        isEmpty,
+        reason: 'Loading the World Board created manuscript nodes. Opening a '
+            'dashboard must not be the same action as creating a manuscript.',
+      );
     });
 
     test('character count matches the Characters Studio record query',

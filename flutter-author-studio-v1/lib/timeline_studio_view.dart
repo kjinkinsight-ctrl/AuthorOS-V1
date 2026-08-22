@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'core/connected_domain.dart';
 import 'core/record_types.dart';
 import 'core/safe_delete.dart';
+import 'core/story_graph.dart';
+import 'core/story_graph_service.dart';
 import 'core/search_models.dart';
 import 'core/timeline_record_types.dart';
 import 'core/universal_search.dart';
@@ -43,6 +45,7 @@ class TimelineStudioView extends StatefulWidget {
     this.repository,
     this.service,
     this.onNavigate,
+    this.focusRecordId,
   });
 
   final StarterProject project;
@@ -52,6 +55,11 @@ class TimelineStudioView extends StatefulWidget {
   /// database. When absent the Studio builds one for [project].
   final TimelineService? service;
   final ValueChanged<TimelineNavigationRequest>? onNavigate;
+  /// A record to open on, when the author arrived by following a connection.
+  ///
+  /// A request, not a guarantee: an id this Studio does not hold leaves the
+  /// existing selection alone.
+  final String? focusRecordId;
 
   @override
   State<TimelineStudioView> createState() => _TimelineStudioViewState();
@@ -89,7 +97,7 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
   bool sortDescending = false;
   bool showArchived = false;
   List<RecordLink> selectedLinks = const [];
-  Map<String, AuthorRecord> linkedRecords = const {};
+  Map<String, StoryGraphNode> linkedRecords = const {};
 
   @override
   void initState() {
@@ -140,6 +148,10 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
         calendars = loadedCalendars;
         entries = loaded;
         loading = false;
+        final focus = widget.focusRecordId;
+        if (focus != null && loaded.any((entry) => entry.record.id == focus)) {
+          selectedId = focus;
+        }
         if (selectedId != null &&
             !loaded.any((entry) => entry.record.id == selectedId)) {
           selectedId = null;
@@ -190,13 +202,21 @@ class _TimelineStudioViewState extends State<TimelineStudioView> {
 
   Future<void> _loadConnections(String id) async {
     try {
+      // Resolved through the Story Graph rather than recordById: scenes and
+      // chapters are manuscript nodes, so a records-only lookup returned null
+      // for them and _ConnectionRow rendered nothing at all — the connection
+      // silently vanished from the pane.
       final links = await service.connectionsFor(id);
-      final records = <String, AuthorRecord>{};
-      for (final link in links) {
-        final otherId = link.sourceId == id ? link.targetId : link.sourceId;
-        final record = await service.repository.recordById(otherId);
-        if (record != null) records[otherId] = record;
-      }
+      final neighbourhood = await StoryGraphService(
+        projectId: widget.project.id,
+        repository: service.repository,
+      ).getNeighbours(id,
+      filter: StoryGraphFilter.everyRelationship,
+    );
+      final records = <String, StoryGraphNode>{
+        for (final node in neighbourhood?.neighbours ?? const <StoryGraphNode>[])
+          node.id: node,
+      };
       if (!mounted || selectedId != id) return;
       setState(() {
         selectedLinks = links;
@@ -1119,7 +1139,7 @@ class _TimelineDetailPane extends StatelessWidget {
   final _TimelineEntry entry;
   final Map<String, String> typeNames;
   final List<RecordLink> links;
-  final Map<String, AuthorRecord> linkedRecords;
+  final Map<String, StoryGraphNode> linkedRecords;
   final _TimelinePalette palette;
   final bool busy;
   final VoidCallback onEdit;
@@ -1335,7 +1355,7 @@ class _ConnectionRow extends StatelessWidget {
   });
 
   final RecordLink link;
-  final AuthorRecord? record;
+  final StoryGraphNode? record;
   final _TimelinePalette palette;
   final ValueChanged<TimelineNavigationRequest>? onNavigate;
 

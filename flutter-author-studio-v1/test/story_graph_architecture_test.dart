@@ -1247,11 +1247,14 @@ void main() {
           reason: 'a project query must never return another project\'s nodes');
     });
 
-    test('reading Analytics on a cold project still seeds manuscript nodes',
+    test('reading Analytics on a cold project creates no manuscript nodes',
         () async {
-      // R-21, pinned rather than fixed: this is a read path that writes graph
-      // nodes. Phase 0 makes it explicit so the future Story Graph cannot
-      // quietly depend on it. Changing it is Analytics work, not Phase 0 work.
+      // R-21, now fixed rather than pinned. This was a read path that wrote
+      // graph nodes: opening a dashboard seeded a starter manuscript and saved
+      // it, and because manuscript nodes carry version and audit entries, it
+      // manufactured history for prose the author had never written.
+      // AnalyticsService reads through ManuscriptStore.peekStudio and reports
+      // an empty manuscript instead; seeding stays with Manuscript Studio.
       final analytics = AnalyticsService(
         repository: repository,
         project: _project('project-cold'),
@@ -1260,11 +1263,19 @@ void main() {
       expect(await repository.manuscriptNodesForProject('project-cold'),
           isEmpty);
 
-      await analytics.getSummary();
+      final summary = await analytics.getSummary();
 
-      expect(await repository.manuscriptNodesForProject('project-cold'),
-          isNotEmpty,
-          reason: 'documented side effect: a dashboard read seeds nodes');
+      expect(
+        await repository.manuscriptNodesForProject('project-cold'),
+        isEmpty,
+        reason: 'A dashboard read must not be the same action as creating '
+            'graph nodes.',
+      );
+      // And a project with no manuscript reports as empty rather than as a
+      // seeded starter the author never asked for.
+      expect(summary.chapterCount, 0);
+      expect(summary.sceneCount, 0);
+      expect(summary.totalWordCount, 0);
     });
 
     test('an archive carries manuscript structure but never its prose',

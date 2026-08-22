@@ -12,6 +12,7 @@
 library;
 
 import 'core/project_roster_entry.dart';
+import 'core/series_scope.dart';
 import 'core/writing_series.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
@@ -156,6 +157,16 @@ class ProjectRosterStore {
     // Read the members first: after the delete they are standalone and the
     // series is gone, so there would be no way to find out who had been in it.
     final released = await repository.booksInSeries(seriesId);
+
+    // Return the series' shared canon to the books that wrote it, before the
+    // scope it hangs on stops existing. Deleting a series must no more strand a
+    // character than it deletes a manuscript. Demotion preserves ids, fields,
+    // tags and links, so nothing an author wrote is lost either way.
+    await SeriesScopeService(
+      projectId: released.isEmpty ? seriesId : released.first.projectId,
+      repository: repository,
+    ).releaseSeries(seriesId);
+
     await repository.deleteSeries(seriesId);
 
     await recorder.recordDelete(

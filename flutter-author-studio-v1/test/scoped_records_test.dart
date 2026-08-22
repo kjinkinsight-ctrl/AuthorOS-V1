@@ -5,6 +5,8 @@ import 'package:author_studio_v1/story_codex_service.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'fixtures/series_fixture.dart';
+
 void main() {
   late AuthorOsDatabase database;
   late DriftConnectedDomainRepository repository;
@@ -93,7 +95,8 @@ void main() {
   group('the Codex reads across books', () {
     test('a member book sees canon another book shared', () async {
       final one = codexFor('book-1');
-      final created = await one.series.createSeries(title: 'Endovier');
+      final created = await enrolInSeries(repository,
+          seriesId: 'series_1724_0', projectIds: ['book-1']);
       await one.createCodexEntry(
         const CodexEntryDraft(
           id: 'house-noxmere',
@@ -105,7 +108,8 @@ void main() {
       await one.promoteToSeries('house-noxmere');
 
       final two = codexFor('book-2');
-      await two.series.enrol(created.id);
+      await enrolInSeries(repository,
+          seriesId: created.id, projectIds: ['book-1', 'book-2']);
       await two.ensureFoundation();
 
       final entries = await two.getEntries();
@@ -121,7 +125,8 @@ void main() {
     test('a standalone book sees nothing from a series it never joined',
         () async {
       final one = codexFor('book-1');
-      await one.series.createSeries(title: 'Endovier');
+      await enrolInSeries(repository,
+          seriesId: 'series_1724_0', projectIds: ['book-1']);
       await one.createCodexEntry(
         const CodexEntryDraft(
           id: 'house-noxmere',
@@ -143,7 +148,8 @@ void main() {
 
     test('the scope facet narrows the list to one side', () async {
       final one = codexFor('book-1');
-      await one.series.createSeries(title: 'Endovier');
+      await enrolInSeries(repository,
+          seriesId: 'series_1724_0', projectIds: ['book-1']);
       await one.createCodexEntry(
         const CodexEntryDraft(
           id: 'shared-faction',
@@ -184,7 +190,8 @@ void main() {
 
     test('scope containers are not Codex entries', () async {
       final one = codexFor('book-1');
-      await one.series.createSeries(title: 'Endovier');
+      await enrolInSeries(repository,
+          seriesId: 'series_1724_0', projectIds: ['book-1']);
       await one.ensureFoundation();
 
       final ids = (await one.getEntries(includeArchived: true))

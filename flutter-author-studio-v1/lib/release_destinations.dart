@@ -2188,7 +2188,7 @@ class _RecordStudioViewState extends State<RecordStudioView> {
               child: Text(
                 'Archived',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Colors.white60,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
               ),

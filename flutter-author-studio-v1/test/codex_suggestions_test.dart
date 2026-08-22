@@ -12,6 +12,8 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'fixtures/series_fixture.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -300,7 +302,8 @@ void main() {
 
   test('recognition spans the series', () async {
     // Book one shares a character with the series.
-    final series = await codex.series.createSeries(title: 'Endovier');
+    final series = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
     await entry('kali', 'Kali Vale',
         templateId: 'character', categoryId: 'characters');
     await codex.promoteToSeries('kali');
@@ -308,7 +311,8 @@ void main() {
     // Book two joins and writes prose naming that shared character.
     final second = StoryCodexService(projectId: 'book-2', repository: repository);
     await second.ensureFoundation(timestamp: timestamp);
-    await second.series.enrol(series.id, timestamp: timestamp);
+    await enrolInSeries(repository,
+        seriesId: series.id, projectIds: ['book-1', 'book-2']);
     await ManuscriptStore(repository: repository).saveStudio(
       manuscriptOf('book-2', [
         sceneOf(

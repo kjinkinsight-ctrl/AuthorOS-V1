@@ -1,5 +1,7 @@
 import '../persistence/authoros_database.dart';
 import 'connected_domain.dart';
+import 'project_roster_entry.dart';
+import 'starter_project.dart';
 import 'record_service.dart';
 
 /// The built-in record types that carry the scope hierarchy.
@@ -82,35 +84,74 @@ class ScopeResolver {
 
   /// The chain for [projectId].
   ///
-  /// A project with no record, or one naming a series that no longer exists,
+  /// Membership is read from the **project roster**, which owns series identity
+  /// (Q-S1). The Codex consumes that id; it does not mint one and does not keep
+  /// a second answer. `ProjectRows.series_id` is the truth and `series_rows` is
+  /// what proves the series exists.
+  ///
+  /// A book with no roster row, or one naming a series that has been deleted,
   /// resolves to standalone rather than throwing. A missing series is a reason
-  /// to show the author their own book, not to fail the Codex open.
+  /// to show the author their own book, not to fail the Codex open — but see
+  /// [membershipUnknown], because "standalone" and "the roster has not caught
+  /// up" are different answers and only one of them is the author's intent.
   Future<ScopeChain> chain() async {
-    final project = await repository.recordById(projectId);
-    final seriesId = project?.seriesId;
+    final entry = await repository.projectRosterEntry(projectId);
+    final seriesId = entry?.seriesId;
     if (seriesId == null || seriesId.trim().isEmpty) {
       return ScopeChain(projectId: projectId);
     }
-    final series = await repository.recordById(seriesId);
-    if (series == null ||
-        series.typeId != kSeriesRecordTypeId ||
-        series.status == AuthorRecordStatus.deleted) {
+    // The roster's own delete releases its books, so a dangling id should not
+    // occur. It is still checked: a half-applied sync could leave one, and
+    // silently inheriting from a series that no longer exists would be worse
+    // than showing the book alone.
+    if (await repository.seriesById(seriesId) == null) {
       return ScopeChain(projectId: projectId);
     }
     return ScopeChain(projectId: projectId, seriesId: seriesId);
   }
 
-  /// The project records enrolled in [seriesId].
-  Future<List<AuthorRecord>> membersOf(String seriesId) =>
-      repository.projectsInSeries(seriesId);
+  /// Whether this book is absent from the roster entirely.
+  ///
+  /// Distinct from standalone, and the distinction matters: a book the roster
+  /// has never seen resolves to standalone by [chain], which would quietly hide
+  /// series canon from a book the author considers part of a series. Callers
+  /// that can repair the roster should; callers that cannot should at least not
+  /// report it as a deliberate choice.
+  Future<bool> membershipUnknown() async =>
+      await repository.projectRosterEntry(projectId) == null;
+
+  /// The books enrolled in [seriesId], in series order.
+  ///
+  /// The roster is the membership authority, so this reads roster rows rather
+  /// than `project`-typed records.
+  Future<List<ProjectRosterEntry>> membersOf(String seriesId) =>
+      repository.booksInSeries(seriesId);
+
+  /// Ensures this book exists on the roster, so its membership has a home.
+  ///
+  /// Onboarding writes the shared-preferences pointer but no roster row, and
+  /// the roster only adopts a legacy project when it is *entirely* empty. So a
+  /// second book can exist to every Studio and be unknown to the roster — and
+  /// under Q-S1 that would read as standalone and hide the series canon the
+  /// author expects.
+  ///
+  /// Repairing it here is deliberate and narrow: it adds the book to the roster
+  /// as **standalone**, which is the truthful default for a book nothing has
+  /// ever placed in a series. It never invents membership, and it never
+  /// overwrites an existing row.
+  Future<void> ensureRosterEntry(StarterProject project) async {
+    if (await repository.projectRosterEntry(project.id) != null) return;
+    await repository.putProjectRosterEntry(
+      ProjectRosterEntry.standalone(project),
+    );
+  }
 
   /// Ensures a `project` record exists for [projectId], and returns it.
   ///
-  /// The application's project identity comes from onboarding and lives in
-  /// shared preferences; nothing has ever written it to the record store. The
-  /// scope chain needs somewhere indexed to hang membership, so the first
-  /// Codex open materialises the record. Calling this again is a no-op — it
-  /// never bumps a revision and never overwrites an author's title.
+  /// Distinct from [ensureRosterEntry]: the roster row is where *membership*
+  /// lives, and this record is what lets the book own records and appear in the
+  /// graph. Calling this again is a no-op — it never bumps a revision and never
+  /// overwrites an author's title.
   Future<AuthorRecord> ensureProjectRecord({
     String title = '',
     DateTime? timestamp,

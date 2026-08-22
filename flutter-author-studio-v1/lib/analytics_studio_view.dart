@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import 'analytics_service.dart';
 import 'core/writing_goals.dart';
+import 'series_analytics_service.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
@@ -58,6 +59,7 @@ class AnalyticsStudioView extends StatefulWidget {
     this.service,
     this.manuscriptStore = const ManuscriptStore(),
     this.goalsStore,
+    this.seriesService,
   });
 
   final StarterProject project;
@@ -69,6 +71,10 @@ class AnalyticsStudioView extends StatefulWidget {
   /// the Studio writes goals back to whichever repository it reads them from.
   final WritingGoalsStore? goalsStore;
 
+  /// Where the series card's numbers come from. Defaults to a service over the
+  /// same repository, so the card reads the roster this project belongs to.
+  final SeriesAnalyticsService? seriesService;
+
   @override
   State<AnalyticsStudioView> createState() => _AnalyticsStudioViewState();
 }
@@ -76,10 +82,19 @@ class AnalyticsStudioView extends StatefulWidget {
 class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
   late final AnalyticsService service;
   late final WritingGoalsStore goalsStore;
+  late final SeriesAnalyticsService seriesService;
 
   bool loading = true;
   String? loadError;
   AnalyticsSummary? summary;
+
+  /// The series this project belongs to, or null when it stands alone.
+  SeriesAnalytics? series;
+
+  /// A series that could not be read. Kept apart from [loadError] so a series
+  /// failure reports itself inside its own card rather than taking down every
+  /// number on the page.
+  String? seriesError;
 
   @override
   void initState() {
@@ -93,6 +108,15 @@ class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
     // Falls back to the service's own store, so goals are written back to
     // whichever repository the summary was read from.
     goalsStore = widget.goalsStore ?? service.goalsStore;
+    // Resolved off the analytics service rather than the widget, exactly as
+    // goalsStore is: a test hands in a service built on an in-memory database
+    // without also passing `repository`, and reaching for the app-wide
+    // repository here would open the real one.
+    seriesService = widget.seriesService ??
+        SeriesAnalyticsService(
+          repository: service.repository,
+          manuscriptStore: service.manuscriptStore,
+        );
     _load();
   }
 
@@ -100,12 +124,24 @@ class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
     setState(() {
       loading = true;
       loadError = null;
+      seriesError = null;
     });
     try {
       final loaded = await service.getSummary();
+      // The series is read separately and allowed to fail separately: a
+      // roster problem must not cost the author every other number here.
+      SeriesAnalytics? loadedSeries;
+      String? failure;
+      try {
+        loadedSeries = await seriesService.forProject(widget.project.id);
+      } catch (error) {
+        failure = 'Series progress could not be read: $error';
+      }
       if (!mounted) return;
       setState(() {
         summary = loaded;
+        series = loadedSeries;
+        seriesError = failure;
         loading = false;
       });
     } catch (error) {
@@ -207,6 +243,8 @@ class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
         _BasicMetricsCard(summary: data),
         const SizedBox(height: 18),
         _WritingProgressCard(summary: data),
+        const SizedBox(height: 18),
+        _SeriesCard(series: series, loadError: seriesError),
         const SizedBox(height: 18),
         _GoalsCard(summary: data, onEdit: _editGoals),
         const SizedBox(height: 18),
@@ -928,6 +966,262 @@ class _BasicMetricsCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The Series section — spec 7.5.
+///
+/// One bar per book, in the author's reading order, and one for the series
+/// beneath them. Every book the series contains appears, including books never
+/// opened: a series shows what it holds, and a planned book at zero words is a
+/// true row, not an empty one worth hiding.
+///
+/// A book with no word goal gets no bar and no percentage — the same rule the
+/// manuscript target and the writing goals already follow. A bar drawn at zero
+/// against a goal that does not exist would read as "0% done" when the honest
+/// answer is "nothing to measure against".
+class _SeriesCard extends StatelessWidget {
+  const _SeriesCard({required this.series, this.loadError});
+
+  final SeriesAnalytics? series;
+  final String? loadError;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final data = series;
+    return _AnalyticsSectionCard(
+      key: const Key('analytics-series-section'),
+      title: 'Series Progress',
+      badge: 'Read-only calculations',
+      child: _body(context, theme, data),
+    );
+  }
+
+  Widget _body(BuildContext context, ThemeData theme, SeriesAnalytics? data) {
+    final failure = loadError;
+    if (failure != null) {
+      return Text(
+        failure,
+        key: const Key('analytics-series-error'),
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    if (data == null || !data.hasBooks) {
+      return Column(
+        key: const Key('analytics-series-empty'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            data == null
+                ? 'This project is not part of a series.'
+                : 'This series has no books yet.',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Group books into a series in the Projects Studio to compare '
+            'their progress here.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          // Uppercased for the spec's masthead look. Presentation only: the
+          // series keeps the name the author typed.
+          data.series.name.toUpperCase(),
+          key: const Key('analytics-series-title'),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 14),
+        for (final book in data.books) ...[
+          _SeriesBookRow(book: book),
+          const SizedBox(height: 14),
+        ],
+        Divider(color: theme.colorScheme.outlineVariant),
+        const SizedBox(height: 12),
+        _SeriesTotalRow(series: data),
+      ],
+    );
+  }
+}
+
+/// One book's row: its number, its title, its bar, its percentage.
+class _SeriesBookRow extends StatelessWidget {
+  const _SeriesBookRow({required this.book});
+
+  final SeriesBookProgress book;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final progress = book.progress;
+    return Column(
+      key: Key('analytics-series-book-${book.projectId}'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'BOOK ${book.bookNumber}',
+              key: Key('analytics-series-book-label-${book.projectId}'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                book.title,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Text(
+              // Whole percents, matching the spec's 100% / 72% / 31%. The
+              // overview tile above shows one decimal; this row is a
+              // comparison across books, where the extra digit is noise.
+              progress == null
+                  ? '—'
+                  : '${book.percent!.toStringAsFixed(0)}%',
+              key: Key('analytics-series-book-percent-${book.projectId}'),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (progress == null)
+          Text(
+            'No word goal set for this book.',
+            key: Key('analytics-series-book-no-target-${book.projectId}'),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          )
+        else
+          LinearProgressIndicator(
+            key: Key('analytics-series-book-bar-${book.projectId}'),
+            value: progress,
+            minHeight: 10,
+            borderRadius: BorderRadius.circular(999),
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              theme.colorScheme.primary,
+            ),
+          ),
+        const SizedBox(height: 6),
+        Text(
+          book.hasManuscript
+              ? '${formatWorldBoardCount(book.wordCount)} words'
+              : 'Not started',
+          key: Key('analytics-series-book-words-${book.projectId}'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The series roll-up beneath the books.
+class _SeriesTotalRow extends StatelessWidget {
+  const _SeriesTotalRow({required this.series});
+
+  final SeriesAnalytics series;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final progress = series.seriesProgress;
+    return Column(
+      key: const Key('analytics-series-total'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Series',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ),
+            Text(
+              progress == null
+                  ? '—'
+                  : '${series.seriesPercent!.toStringAsFixed(0)}%',
+              key: const Key('analytics-series-total-percent'),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (progress != null)
+          LinearProgressIndicator(
+            key: const Key('analytics-series-total-bar'),
+            value: progress,
+            minHeight: 10,
+            borderRadius: BorderRadius.circular(999),
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              theme.colorScheme.primary,
+            ),
+          ),
+        const SizedBox(height: 6),
+        Text(
+          '${formatWorldBoardCount(series.totalWords)} words across '
+          '${formatWorldBoardCount(series.bookCount)} '
+          '${series.bookCount == 1 ? 'book' : 'books'}'
+          '${series.completedBookCount > 0 ? ' · '
+              '${formatWorldBoardCount(series.completedBookCount)} complete' : ''}',
+          key: const Key('analytics-series-total-caption'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        if (series.hasPartialTargets) ...[
+          const SizedBox(height: 6),
+          Text(
+            // Said plainly, because the bar above measures less than the
+            // series does: without this the percentage would quietly imply it
+            // covered every book.
+            '${formatWorldBoardCount(series.targetedBookCount)} of '
+            '${formatWorldBoardCount(series.bookCount)} books have a word '
+            'goal. The bar above measures only those.',
+            key: const Key('analytics-series-partial-targets'),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

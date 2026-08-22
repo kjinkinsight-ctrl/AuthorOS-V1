@@ -636,6 +636,34 @@ class ManuscriptStore {
     return seeds;
   }
 
+  /// The stored manuscript for [projectId], or `null` when none was ever
+  /// saved.
+  ///
+  /// The read-only counterpart to [loadStudio]. That method seeds and persists
+  /// a starter manuscript when it finds none — reasonable for the project the
+  /// author just opened, and recorded as risk R-21 in the Story Graph audit,
+  /// but wrong for anything that surveys projects it is not opening. A series
+  /// dashboard reading five books must not bring four manuscripts into
+  /// existence to draw four empty bars.
+  ///
+  /// So this never migrates and never writes. A project with no manuscript
+  /// reports `null`, which callers must render as "not started" rather than
+  /// as an error or a zero they invented.
+  Future<ManuscriptProjectSummary?> peekStudio(String projectId) async {
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_studioKey(projectId));
+    if (encoded == null || encoded.isEmpty) return null;
+    try {
+      return ManuscriptProjectSummary.fromJson(
+        jsonDecode(encoded) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      // A malformed blob is not a manuscript. Repairing it is [loadStudio]'s
+      // job, on a project the author actually opened; here it reads as absent.
+      return null;
+    }
+  }
+
   Future<ManuscriptProjectSummary> loadStudio(
     String projectId, {
     required String manuscriptTitle,

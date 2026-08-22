@@ -6163,6 +6163,677 @@ class WritingGoalRowsCompanion extends UpdateCompanion<WritingGoalRow> {
   }
 }
 
+class $SeriesRowsTable extends SeriesRows
+    with TableInfo<$SeriesRowsTable, SeriesRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SeriesRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _defaultTargetWordsMeta =
+      const VerificationMeta('defaultTargetWords');
+  @override
+  late final GeneratedColumn<int> defaultTargetWords = GeneratedColumn<int>(
+      'default_target_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, name, defaultTargetWords, createdAt, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'series_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<SeriesRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('default_target_words')) {
+      context.handle(
+          _defaultTargetWordsMeta,
+          defaultTargetWords.isAcceptableOrUnknown(
+              data['default_target_words']!, _defaultTargetWordsMeta));
+    } else if (isInserting) {
+      context.missing(_defaultTargetWordsMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SeriesRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SeriesRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      defaultTargetWords: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}default_target_words'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $SeriesRowsTable createAlias(String alias) {
+    return $SeriesRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SeriesRow extends DataClass implements Insertable<SeriesRow> {
+  final String id;
+  final String name;
+  final int defaultTargetWords;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const SeriesRow(
+      {required this.id,
+      required this.name,
+      required this.defaultTargetWords,
+      required this.createdAt,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['default_target_words'] = Variable<int>(defaultTargetWords);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  SeriesRowsCompanion toCompanion(bool nullToAbsent) {
+    return SeriesRowsCompanion(
+      id: Value(id),
+      name: Value(name),
+      defaultTargetWords: Value(defaultTargetWords),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SeriesRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SeriesRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      defaultTargetWords: serializer.fromJson<int>(json['defaultTargetWords']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'defaultTargetWords': serializer.toJson<int>(defaultTargetWords),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  SeriesRow copyWith(
+          {String? id,
+          String? name,
+          int? defaultTargetWords,
+          DateTime? createdAt,
+          DateTime? updatedAt}) =>
+      SeriesRow(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        defaultTargetWords: defaultTargetWords ?? this.defaultTargetWords,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  SeriesRow copyWithCompanion(SeriesRowsCompanion data) {
+    return SeriesRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      defaultTargetWords: data.defaultTargetWords.present
+          ? data.defaultTargetWords.value
+          : this.defaultTargetWords,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeriesRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('defaultTargetWords: $defaultTargetWords, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, defaultTargetWords, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SeriesRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.defaultTargetWords == this.defaultTargetWords &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SeriesRowsCompanion extends UpdateCompanion<SeriesRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> defaultTargetWords;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const SeriesRowsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.defaultTargetWords = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SeriesRowsCompanion.insert({
+    required String id,
+    required String name,
+    required int defaultTargetWords,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        name = Value(name),
+        defaultTargetWords = Value(defaultTargetWords),
+        createdAt = Value(createdAt),
+        updatedAt = Value(updatedAt);
+  static Insertable<SeriesRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? defaultTargetWords,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (defaultTargetWords != null)
+        'default_target_words': defaultTargetWords,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SeriesRowsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? name,
+      Value<int>? defaultTargetWords,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return SeriesRowsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      defaultTargetWords: defaultTargetWords ?? this.defaultTargetWords,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (defaultTargetWords.present) {
+      map['default_target_words'] = Variable<int>(defaultTargetWords.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeriesRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('defaultTargetWords: $defaultTargetWords, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ProjectRowsTable extends ProjectRows
+    with TableInfo<$ProjectRowsTable, ProjectRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ProjectRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _payloadJsonMeta =
+      const VerificationMeta('payloadJson');
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+      'payload_json', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _seriesIdMeta =
+      const VerificationMeta('seriesId');
+  @override
+  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
+      'series_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _seriesPositionMeta =
+      const VerificationMeta('seriesPosition');
+  @override
+  late final GeneratedColumn<int> seriesPosition = GeneratedColumn<int>(
+      'series_position', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, payloadJson, seriesId, seriesPosition, createdAt, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'project_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<ProjectRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+          _payloadJsonMeta,
+          payloadJson.isAcceptableOrUnknown(
+              data['payload_json']!, _payloadJsonMeta));
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('series_id')) {
+      context.handle(_seriesIdMeta,
+          seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta));
+    }
+    if (data.containsKey('series_position')) {
+      context.handle(
+          _seriesPositionMeta,
+          seriesPosition.isAcceptableOrUnknown(
+              data['series_position']!, _seriesPositionMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ProjectRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ProjectRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      payloadJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload_json'])!,
+      seriesId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}series_id']),
+      seriesPosition: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}series_position']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $ProjectRowsTable createAlias(String alias) {
+    return $ProjectRowsTable(attachedDatabase, alias);
+  }
+}
+
+class ProjectRow extends DataClass implements Insertable<ProjectRow> {
+  final String id;
+  final String payloadJson;
+  final String? seriesId;
+  final int? seriesPosition;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const ProjectRow(
+      {required this.id,
+      required this.payloadJson,
+      this.seriesId,
+      this.seriesPosition,
+      required this.createdAt,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['payload_json'] = Variable<String>(payloadJson);
+    if (!nullToAbsent || seriesId != null) {
+      map['series_id'] = Variable<String>(seriesId);
+    }
+    if (!nullToAbsent || seriesPosition != null) {
+      map['series_position'] = Variable<int>(seriesPosition);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  ProjectRowsCompanion toCompanion(bool nullToAbsent) {
+    return ProjectRowsCompanion(
+      id: Value(id),
+      payloadJson: Value(payloadJson),
+      seriesId: seriesId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seriesId),
+      seriesPosition: seriesPosition == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seriesPosition),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory ProjectRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ProjectRow(
+      id: serializer.fromJson<String>(json['id']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      seriesId: serializer.fromJson<String?>(json['seriesId']),
+      seriesPosition: serializer.fromJson<int?>(json['seriesPosition']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'seriesId': serializer.toJson<String?>(seriesId),
+      'seriesPosition': serializer.toJson<int?>(seriesPosition),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  ProjectRow copyWith(
+          {String? id,
+          String? payloadJson,
+          Value<String?> seriesId = const Value.absent(),
+          Value<int?> seriesPosition = const Value.absent(),
+          DateTime? createdAt,
+          DateTime? updatedAt}) =>
+      ProjectRow(
+        id: id ?? this.id,
+        payloadJson: payloadJson ?? this.payloadJson,
+        seriesId: seriesId.present ? seriesId.value : this.seriesId,
+        seriesPosition:
+            seriesPosition.present ? seriesPosition.value : this.seriesPosition,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  ProjectRow copyWithCompanion(ProjectRowsCompanion data) {
+    return ProjectRow(
+      id: data.id.present ? data.id.value : this.id,
+      payloadJson:
+          data.payloadJson.present ? data.payloadJson.value : this.payloadJson,
+      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      seriesPosition: data.seriesPosition.present
+          ? data.seriesPosition.value
+          : this.seriesPosition,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProjectRow(')
+          ..write('id: $id, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('seriesPosition: $seriesPosition, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id, payloadJson, seriesId, seriesPosition, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ProjectRow &&
+          other.id == this.id &&
+          other.payloadJson == this.payloadJson &&
+          other.seriesId == this.seriesId &&
+          other.seriesPosition == this.seriesPosition &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ProjectRowsCompanion extends UpdateCompanion<ProjectRow> {
+  final Value<String> id;
+  final Value<String> payloadJson;
+  final Value<String?> seriesId;
+  final Value<int?> seriesPosition;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const ProjectRowsCompanion({
+    this.id = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.seriesId = const Value.absent(),
+    this.seriesPosition = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ProjectRowsCompanion.insert({
+    required String id,
+    required String payloadJson,
+    this.seriesId = const Value.absent(),
+    this.seriesPosition = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        payloadJson = Value(payloadJson),
+        createdAt = Value(createdAt),
+        updatedAt = Value(updatedAt);
+  static Insertable<ProjectRow> custom({
+    Expression<String>? id,
+    Expression<String>? payloadJson,
+    Expression<String>? seriesId,
+    Expression<int>? seriesPosition,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (seriesId != null) 'series_id': seriesId,
+      if (seriesPosition != null) 'series_position': seriesPosition,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ProjectRowsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? payloadJson,
+      Value<String?>? seriesId,
+      Value<int?>? seriesPosition,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return ProjectRowsCompanion(
+      id: id ?? this.id,
+      payloadJson: payloadJson ?? this.payloadJson,
+      seriesId: seriesId ?? this.seriesId,
+      seriesPosition: seriesPosition ?? this.seriesPosition,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (seriesId.present) {
+      map['series_id'] = Variable<String>(seriesId.value);
+    }
+    if (seriesPosition.present) {
+      map['series_position'] = Variable<int>(seriesPosition.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProjectRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('seriesPosition: $seriesPosition, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   _$AuthorOsDatabase(QueryExecutor e) : super(e);
   $AuthorOsDatabaseManager get managers => $AuthorOsDatabaseManager(this);
@@ -6190,6 +6861,8 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
       $WritingSessionRowsTable(this);
   late final $WritingGoalRowsTable writingGoalRows =
       $WritingGoalRowsTable(this);
+  late final $SeriesRowsTable seriesRows = $SeriesRowsTable(this);
+  late final $ProjectRowsTable projectRows = $ProjectRowsTable(this);
   late final Index authorRecordsType = Index('author_records_type',
       'CREATE INDEX author_records_type ON author_record_rows (type_id)');
   late final Index authorRecordsScope = Index('author_records_scope',
@@ -6252,6 +6925,8 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   late final Index writingSessionsProjectStarted = Index(
       'writing_sessions_project_started',
       'CREATE INDEX writing_sessions_project_started ON writing_session_rows (project_id, started_at)');
+  late final Index projectsSeriesPosition = Index('projects_series_position',
+      'CREATE INDEX projects_series_position ON project_rows (series_id, series_position)');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6270,6 +6945,8 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         auditEventRows,
         writingSessionRows,
         writingGoalRows,
+        seriesRows,
+        projectRows,
         authorRecordsType,
         authorRecordsScope,
         authorRecordsProject,
@@ -6297,7 +6974,8 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         auditEventsChange,
         auditEventsCreated,
         writingSessionsProject,
-        writingSessionsProjectStarted
+        writingSessionsProjectStarted,
+        projectsSeriesPosition
       ];
 }
 
@@ -10441,6 +11119,369 @@ typedef $$WritingGoalRowsTableProcessedTableManager = ProcessedTableManager<
     ),
     WritingGoalRow,
     PrefetchHooks Function()>;
+typedef $$SeriesRowsTableCreateCompanionBuilder = SeriesRowsCompanion Function({
+  required String id,
+  required String name,
+  required int defaultTargetWords,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$SeriesRowsTableUpdateCompanionBuilder = SeriesRowsCompanion Function({
+  Value<String> id,
+  Value<String> name,
+  Value<int> defaultTargetWords,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$SeriesRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $SeriesRowsTable> {
+  $$SeriesRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get defaultTargetWords => $composableBuilder(
+      column: $table.defaultTargetWords,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$SeriesRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $SeriesRowsTable> {
+  $$SeriesRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get defaultTargetWords => $composableBuilder(
+      column: $table.defaultTargetWords,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$SeriesRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $SeriesRowsTable> {
+  $$SeriesRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get defaultTargetWords => $composableBuilder(
+      column: $table.defaultTargetWords, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$SeriesRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $SeriesRowsTable,
+    SeriesRow,
+    $$SeriesRowsTableFilterComposer,
+    $$SeriesRowsTableOrderingComposer,
+    $$SeriesRowsTableAnnotationComposer,
+    $$SeriesRowsTableCreateCompanionBuilder,
+    $$SeriesRowsTableUpdateCompanionBuilder,
+    (
+      SeriesRow,
+      BaseReferences<_$AuthorOsDatabase, $SeriesRowsTable, SeriesRow>
+    ),
+    SeriesRow,
+    PrefetchHooks Function()> {
+  $$SeriesRowsTableTableManager(_$AuthorOsDatabase db, $SeriesRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SeriesRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SeriesRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SeriesRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<int> defaultTargetWords = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SeriesRowsCompanion(
+            id: id,
+            name: name,
+            defaultTargetWords: defaultTargetWords,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String name,
+            required int defaultTargetWords,
+            required DateTime createdAt,
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SeriesRowsCompanion.insert(
+            id: id,
+            name: name,
+            defaultTargetWords: defaultTargetWords,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SeriesRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $SeriesRowsTable,
+    SeriesRow,
+    $$SeriesRowsTableFilterComposer,
+    $$SeriesRowsTableOrderingComposer,
+    $$SeriesRowsTableAnnotationComposer,
+    $$SeriesRowsTableCreateCompanionBuilder,
+    $$SeriesRowsTableUpdateCompanionBuilder,
+    (
+      SeriesRow,
+      BaseReferences<_$AuthorOsDatabase, $SeriesRowsTable, SeriesRow>
+    ),
+    SeriesRow,
+    PrefetchHooks Function()>;
+typedef $$ProjectRowsTableCreateCompanionBuilder = ProjectRowsCompanion
+    Function({
+  required String id,
+  required String payloadJson,
+  Value<String?> seriesId,
+  Value<int?> seriesPosition,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$ProjectRowsTableUpdateCompanionBuilder = ProjectRowsCompanion
+    Function({
+  Value<String> id,
+  Value<String> payloadJson,
+  Value<String?> seriesId,
+  Value<int?> seriesPosition,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$ProjectRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $ProjectRowsTable> {
+  $$ProjectRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get seriesId => $composableBuilder(
+      column: $table.seriesId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get seriesPosition => $composableBuilder(
+      column: $table.seriesPosition,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$ProjectRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $ProjectRowsTable> {
+  $$ProjectRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get seriesId => $composableBuilder(
+      column: $table.seriesId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get seriesPosition => $composableBuilder(
+      column: $table.seriesPosition,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$ProjectRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $ProjectRowsTable> {
+  $$ProjectRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => column);
+
+  GeneratedColumn<String> get seriesId =>
+      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+
+  GeneratedColumn<int> get seriesPosition => $composableBuilder(
+      column: $table.seriesPosition, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$ProjectRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $ProjectRowsTable,
+    ProjectRow,
+    $$ProjectRowsTableFilterComposer,
+    $$ProjectRowsTableOrderingComposer,
+    $$ProjectRowsTableAnnotationComposer,
+    $$ProjectRowsTableCreateCompanionBuilder,
+    $$ProjectRowsTableUpdateCompanionBuilder,
+    (
+      ProjectRow,
+      BaseReferences<_$AuthorOsDatabase, $ProjectRowsTable, ProjectRow>
+    ),
+    ProjectRow,
+    PrefetchHooks Function()> {
+  $$ProjectRowsTableTableManager(_$AuthorOsDatabase db, $ProjectRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ProjectRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ProjectRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ProjectRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> payloadJson = const Value.absent(),
+            Value<String?> seriesId = const Value.absent(),
+            Value<int?> seriesPosition = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ProjectRowsCompanion(
+            id: id,
+            payloadJson: payloadJson,
+            seriesId: seriesId,
+            seriesPosition: seriesPosition,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String payloadJson,
+            Value<String?> seriesId = const Value.absent(),
+            Value<int?> seriesPosition = const Value.absent(),
+            required DateTime createdAt,
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ProjectRowsCompanion.insert(
+            id: id,
+            payloadJson: payloadJson,
+            seriesId: seriesId,
+            seriesPosition: seriesPosition,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$ProjectRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $ProjectRowsTable,
+    ProjectRow,
+    $$ProjectRowsTableFilterComposer,
+    $$ProjectRowsTableOrderingComposer,
+    $$ProjectRowsTableAnnotationComposer,
+    $$ProjectRowsTableCreateCompanionBuilder,
+    $$ProjectRowsTableUpdateCompanionBuilder,
+    (
+      ProjectRow,
+      BaseReferences<_$AuthorOsDatabase, $ProjectRowsTable, ProjectRow>
+    ),
+    ProjectRow,
+    PrefetchHooks Function()>;
 
 class $AuthorOsDatabaseManager {
   final _$AuthorOsDatabase _db;
@@ -10475,4 +11516,8 @@ class $AuthorOsDatabaseManager {
       $$WritingSessionRowsTableTableManager(_db, _db.writingSessionRows);
   $$WritingGoalRowsTableTableManager get writingGoalRows =>
       $$WritingGoalRowsTableTableManager(_db, _db.writingGoalRows);
+  $$SeriesRowsTableTableManager get seriesRows =>
+      $$SeriesRowsTableTableManager(_db, _db.seriesRows);
+  $$ProjectRowsTableTableManager get projectRows =>
+      $$ProjectRowsTableTableManager(_db, _db.projectRows);
 }

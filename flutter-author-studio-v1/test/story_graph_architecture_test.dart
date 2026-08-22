@@ -19,7 +19,9 @@ import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
+import 'package:author_studio_v1/core/writing_series.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
+import 'package:author_studio_v1/project_roster_store.dart';
 import 'package:author_studio_v1/world_service.dart';
 import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
@@ -50,6 +52,17 @@ const _auditedTables = {
   // writing-goals test below, which holds it there the same way I-12 holds
   // sessions.
   'writing_goal_rows',
+  // Named series, from the series-analytics milestone. A series is library
+  // structure: it names a sequence of books and the target a joining book
+  // inherits, and nothing else. It could not have been graph data even by
+  // choice — a series spans projects, and the project-isolation test above
+  // shows the graph refuses to link across them.
+  'series_rows',
+  // The project roster: every book on this machine, and which series it
+  // belongs to. Before it, AuthorOS held one project in a single preference
+  // key. A catalogue entry, not a node and not an edge — see the roster test
+  // below.
+  'project_rows',
 };
 
 final _timestamp = DateTime.utc(2026, 8, 21, 9);
@@ -474,6 +487,125 @@ void main() {
         .map((definition) => definition.id)
         .toList();
     expect(goalEdges, isEmpty);
+  });
+
+  test('the project roster stays a catalogue and never becomes graph truth',
+      () async {
+    // The question I-12 forces about a session, asked about a book: is the
+    // roster graph data? It is not. It is the author's catalogue of projects,
+    // and a series is a sequence within it.
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
+
+    // Neither table points into the graph's identity table.
+    for (final table in const ['project_rows', 'series_rows']) {
+      final foreignKeys =
+          await database.customSelect('PRAGMA foreign_key_list($table)').get();
+      expect(
+        foreignKeys,
+        isEmpty,
+        reason: '$table gained a foreign key. A roster row that points into '
+            'connected_entities is a node, not a catalogue entry.',
+      );
+    }
+
+    // One row per project, and one per series.
+    for (final table in const ['project_rows', 'series_rows']) {
+      final columns =
+          await database.customSelect('PRAGMA table_info($table)').get();
+      final primaryKey = columns
+          .where((row) => row.read<int>('pk') > 0)
+          .map((row) => row.read<String>('name'))
+          .toList();
+      expect(
+        primaryKey,
+        [table == 'project_rows' ? 'id' : 'id'],
+        reason: '$table must be keyed by its own id, so a project cannot '
+            'hold two roster rows.',
+      );
+    }
+
+    // The series/book record-type placeholders stay placeholders. Promoting
+    // them into real typed records is M4's call, not this milestone's.
+    //
+    // Read from the declarations rather than through `registry.resolve`:
+    // these types derive from `general-lore`, so a resolved definition
+    // inherits that type's fields and would never look empty.
+    for (final typeId in const ['series', 'book', 'project']) {
+      final declared = BuiltInRecordTypes.definitions
+          .firstWhere((definition) => definition.id == typeId);
+      expect(
+        declared.fields,
+        isEmpty,
+        reason: '$typeId declared fields of its own. The roster stores books; '
+            'promoting the record type is a separate, deliberate decision.',
+      );
+      expect(declared.baseTypeId, 'general-lore', reason: typeId);
+    }
+
+    // Note what is deliberately NOT asserted here: that no connection type
+    // touches `book`. `appearsIn` and `mentionedIn` already take a `book`
+    // record as a target, and that is fine — a `book` record in the Codex is
+    // a thing a character can appear in. It is not a roster row. The
+    // invariant that matters is that series membership is stored as roster
+    // columns rather than as edges, which the next test proves directly by
+    // building a series and showing the graph did not move.
+  });
+
+  test('building a series writes no records, links, versions or audit events',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repository = DriftConnectedDomainRepository(database);
+    final roster = ProjectRosterStore(repository: repository);
+
+    Future<Map<String, int>> graphTruth() async {
+      final snapshot = await repository.snapshot();
+      return {
+        'records': snapshot.records.length,
+        'links': snapshot.links.length,
+        'versions': snapshot.versions.length,
+        'auditEvents': snapshot.auditEvents.length,
+        'manuscriptNodes': snapshot.manuscriptNodes.length,
+      };
+    }
+
+    final before = await graphTruth();
+
+    await roster.saveSeries(
+      const WritingSeries(
+        id: 'series-1',
+        name: 'Endovier Chronicles',
+        defaultTargetWords: 90000,
+      ),
+    );
+    for (final id in const ['book-1', 'book-2']) {
+      await roster.save(
+        StarterProject(
+          id: id,
+          title: id,
+          genre: 'Fantasy',
+          projectType: 'Novel',
+          wordGoal: 90000,
+          acts: const [],
+          chapters: const [],
+          characterSheets: const [],
+          beatChecklist: const [],
+          firstSceneTitle: 'Opening Scene',
+        ),
+      );
+      await roster.addBookToSeries(projectId: id, seriesId: 'series-1');
+    }
+
+    expect(
+      await graphTruth(),
+      before,
+      reason: 'A series is roster data. Creating one must not create records, '
+          'links, versions, audit events or manuscript nodes.',
+    );
+    expect(await roster.books('series-1'), hasLength(2));
   });
 
   test('research lives in records and the legacy panel blob is never rewritten',

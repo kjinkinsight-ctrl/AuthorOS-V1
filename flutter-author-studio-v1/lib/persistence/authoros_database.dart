@@ -10,7 +10,10 @@ import '../core/relationship_validation.dart';
 import '../core/branch_domain.dart';
 import '../core/search_models.dart';
 import '../core/version_audit.dart';
+import '../core/project_roster_entry.dart';
+import '../core/starter_project.dart';
 import '../core/writing_goals.dart';
+import '../core/writing_series.dart';
 import '../core/writing_session.dart';
 
 part 'authoros_database.g.dart';
@@ -269,6 +272,56 @@ class WritingGoalRows extends Table {
   Set<Column<Object>> get primaryKey => {projectId};
 }
 
+/// The author's named series.
+///
+/// Deliberately small: a name and the target a joining book inherits. A series
+/// owns no books of its own — membership lives on [ProjectRows], because a
+/// book is a project, and a project already knows its title and its target.
+///
+/// This is library structure, not graph truth. AuthorOS forbids record links
+/// across projects, so a series could never have been an edge between books in
+/// the first place.
+class SeriesRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  IntColumn get defaultTargetWords => integer()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// The author's projects — the roster that lets AuthorOS hold more than one
+/// book at a time.
+///
+/// Before this table the app stored exactly one project, in a single
+/// preferences key, and saving a second overwrote the first. The roster is
+/// additive: `author_studio.starter_project` remains the pointer to whichever
+/// project is currently open, and this table is the durable list of every
+/// project that exists.
+///
+/// [payloadJson] holds the whole `StarterProject` rather than exploding it
+/// into columns, because it is seed data — chapters, character sheets, acts —
+/// that nothing queries by field. Title and word target are read from it, so
+/// there is exactly one definition of each.
+///
+/// [seriesId] and [seriesPosition] are what make a project a book: a project
+/// with no series is a standalone novel, which the domain must keep
+/// supporting.
+@TableIndex(name: 'projects_series_position', columns: {#seriesId, #seriesPosition})
+class ProjectRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get payloadJson => text()();
+  TextColumn get seriesId => text().nullable()();
+  IntColumn get seriesPosition => integer().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     ConnectedEntities,
@@ -284,6 +337,8 @@ class WritingGoalRows extends Table {
     AuditEventRows,
     WritingSessionRows,
     WritingGoalRows,
+    SeriesRows,
+    ProjectRows,
   ],
 )
 class AuthorOsDatabase extends _$AuthorOsDatabase {
@@ -317,7 +372,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     driftWorker: Uri.parse('drift_worker.js'),
   );
 
-  static const currentSchemaVersion = 10;
+  static const currentSchemaVersion = 11;
   final int _schemaVersion;
 
   @override
@@ -409,6 +464,10 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           }
           if (from < 10 && to >= 10) {
             await migrator.createTable(writingGoalRows);
+          }
+          if (from < 11 && to >= 11) {
+            await migrator.createTable(seriesRows);
+            await migrator.createTable(projectRows);
           }
         },
         beforeOpen: (details) async {
@@ -899,6 +958,134 @@ class DriftConnectedDomainRepository {
       (database.delete(database.writingGoalRows)
             ..where((table) => table.projectId.equals(projectId)))
           .go();
+
+  // --- Series and the project roster ---------------------------------------
+
+  /// Every series the author has created, newest first.
+  Future<List<WritingSeries>> allSeries() async {
+    final rows = await (database.select(database.seriesRows)
+          ..orderBy([(table) => OrderingTerm.desc(table.createdAt)]))
+        .get();
+    return rows.map(_seriesFromRow).toList();
+  }
+
+  Future<WritingSeries?> seriesById(String seriesId) async {
+    final row = await (database.select(database.seriesRows)
+          ..where((table) => table.id.equals(seriesId)))
+        .getSingleOrNull();
+    return row == null ? null : _seriesFromRow(row);
+  }
+
+  /// Stores one series, replacing whatever was there. Upsert, like writing
+  /// goals: a series is a current setting, not a historical fact.
+  Future<void> putSeries(WritingSeries series) async {
+    await database.into(database.seriesRows).insertOnConflictUpdate(
+          _seriesCompanion(series),
+        );
+  }
+
+  /// Removes a series and releases its books.
+  ///
+  /// The projects survive: deleting a series must never delete a manuscript.
+  /// Every book that belonged to it becomes standalone again.
+  Future<int> deleteSeries(String seriesId) async {
+    return database.transaction(() async {
+      await (database.update(database.projectRows)
+            ..where((table) => table.seriesId.equals(seriesId)))
+          .write(
+        const ProjectRowsCompanion(
+          seriesId: Value(null),
+          seriesPosition: Value(null),
+        ),
+      );
+      return (database.delete(database.seriesRows)
+            ..where((table) => table.id.equals(seriesId)))
+          .go();
+    });
+  }
+
+  /// Every project on the roster, newest first.
+  Future<List<ProjectRosterEntry>> projectRoster() async {
+    final rows = await (database.select(database.projectRows)
+          ..orderBy([(table) => OrderingTerm.desc(table.createdAt)]))
+        .get();
+    return rows.map(_rosterEntryFromRow).toList();
+  }
+
+  Future<ProjectRosterEntry?> projectRosterEntry(String projectId) async {
+    final row = await (database.select(database.projectRows)
+          ..where((table) => table.id.equals(projectId)))
+        .getSingleOrNull();
+    return row == null ? null : _rosterEntryFromRow(row);
+  }
+
+  /// Stores one roster entry, replacing whatever was there.
+  Future<void> putProjectRosterEntry(ProjectRosterEntry entry) async {
+    await database.into(database.projectRows).insertOnConflictUpdate(
+          _rosterEntryCompanion(entry),
+        );
+  }
+
+  /// Removes a project from the roster.
+  ///
+  /// Roster-only: the project's manuscript, records and writing history are
+  /// not touched, so removing an entry can never destroy an author's writing.
+  Future<int> deleteProjectRosterEntry(String projectId) =>
+      (database.delete(database.projectRows)
+            ..where((table) => table.id.equals(projectId)))
+          .go();
+
+  /// The books of one series, in the order the author put them in.
+  ///
+  /// Ordered by position with the id as a tiebreak, so the sequence is stable
+  /// even if two rows ever shared a position.
+  Future<List<ProjectRosterEntry>> booksInSeries(String seriesId) async {
+    final rows = await (database.select(database.projectRows)
+          ..where((table) => table.seriesId.equals(seriesId))
+          ..orderBy([
+            (table) => OrderingTerm.asc(table.seriesPosition),
+            (table) => OrderingTerm.asc(table.id),
+          ]))
+        .get();
+    return rows.map(_rosterEntryFromRow).toList();
+  }
+
+  SeriesRowsCompanion _seriesCompanion(WritingSeries series) =>
+      SeriesRowsCompanion.insert(
+        id: series.id,
+        name: series.name,
+        defaultTargetWords: series.defaultTargetWords,
+        createdAt: series.createdAt ?? DateTime.now(),
+        updatedAt: series.updatedAt ?? DateTime.now(),
+      );
+
+  WritingSeries _seriesFromRow(SeriesRow row) => WritingSeries(
+        id: row.id,
+        name: row.name,
+        defaultTargetWords: row.defaultTargetWords,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      );
+
+  ProjectRowsCompanion _rosterEntryCompanion(ProjectRosterEntry entry) =>
+      ProjectRowsCompanion.insert(
+        id: entry.project.id,
+        payloadJson: jsonEncode(entry.project.toJson()),
+        seriesId: Value(entry.seriesId),
+        seriesPosition: Value(entry.seriesPosition),
+        createdAt: entry.createdAt ?? DateTime.now(),
+        updatedAt: entry.updatedAt ?? DateTime.now(),
+      );
+
+  ProjectRosterEntry _rosterEntryFromRow(ProjectRow row) => ProjectRosterEntry(
+        project: StarterProject.fromJson(
+          Map<String, dynamic>.from(jsonDecode(row.payloadJson) as Map),
+        ),
+        seriesId: row.seriesId,
+        seriesPosition: row.seriesPosition,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      );
 
   WritingGoalRowsCompanion _writingGoalsCompanion(WritingGoals goals) =>
       WritingGoalRowsCompanion.insert(

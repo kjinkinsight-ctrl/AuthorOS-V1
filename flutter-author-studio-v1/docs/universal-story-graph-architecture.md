@@ -2,7 +2,8 @@
 
 Architecture Audit & Master Design
 
-Status: Design and audit only — no Story Graph implementation exists or is authorised by this document
+Status: **Phases 0–3 implemented.** This document remains the master design; the built
+system is mapped in `docs/knowledge-graph-implementation-map.md` (§0)
 Audited: August 21, 2026
 Decision in force: **D-3** — scenes and chapters remain manuscript-domain nodes (§0)
 Audit basis: `flutter-author-studio-v1` at merge commit `864f99d`, **re-verified against `main` at `4f83201`** — see §0
@@ -50,6 +51,22 @@ Two milestones were checked specifically for a second graph system:
   states that "every map, place, region and marker is an ordinary Universal Record".
   **Invariant I-13 holds** — no second persistence, no second edge model.
 - **Writing Session History** adds a table but no node — see the findings below.
+
+### Amendment — Phase 0 integrity milestone (`c9ae671`)
+
+Re-verified from the working tree, not carried forward. Phase 0 changed two things and
+recorded the rest as findings; see `docs/universal-story-graph-phase-0-integrity.md`.
+
+| Finding | Status after Phase 0 |
+|---|---|
+| **R-1** — manuscript nodes are never deleted | **CLOSED.** Two halves. Manuscript Studio Phase 2 had already added `ManuscriptService.deleteScene`/`deleteChapter` and a `removeManuscriptNodes` primitive this document does not mention — so the *service* path was already correct. The hole was the *projection*: `ManuscriptStore.saveStudio` was upsert-only and is now reconciling. A second, unrecorded half is also fixed: `removeManuscriptNodes` threw `SqliteException(787)` on any node that still had an edge, because `record_link_rows` references `connected_entities`. It now deletes the node's edges inside its own transaction |
+| **R-8** — raw validated-write bypasses | **Understated here.** `story_codex_service.dart` has seven raw writes, not one. Still open |
+| **R-21** — a read path writes graph nodes | **Holds, now pinned by a test.** `WorldBoardService` no longer calls `loadStudio` directly; `release_destinations.dart` does, in two places this document does not list |
+| **R-5**, **R-2**, **R-22**, **I-1** | Hold as written. R-5 is now pinned by a test |
+
+`ManuscriptNodeReference` still has **no `status` field**, deliberately: the manuscript
+summary is already the source of truth for which scenes exist, and history already records
+what was deleted. Active graph state and historical state stay distinct.
 
 ### Findings corrected
 
@@ -127,15 +144,38 @@ historical or operational subsystem should take, and invariant I-16 holds it the
 §20's Phase 0 was written for D-1 and no longer applies. The live plan is:
 
 ```
-Phase 0  Manuscript graph integrity and node lifecycle   <- directive issued
-Phase 1  Universal Story Graph read API
-Phase 2  Graph traversal and relationship queries
-Phase 3  Story Graph Studio / visualisation
+Phase 0  Manuscript graph integrity and node lifecycle   <- SHIPPED
+Phase 1  Universal Story Graph read API                  <- SHIPPED
+Phase 2  Graph traversal and relationship queries        <- SHIPPED
+Phase 3  Story Graph Studio / visualisation              <- SHIPPED
 Phase 4  Cross-Studio intelligence and advanced features
 ```
 
 The Phase 0 directive supersedes `docs/story-graph-phase-0-directive.md`, which was written
 for D-1. Read §20 below as historical rationale, not as the plan.
+
+### Phases 1–3 have shipped
+
+Built as designed, with one thing worth recording because it contradicts nothing here but
+was not anticipated: **no schema change was needed, and none was made.** The twelve-table
+set is untouched, and the `exactly one persistence system` guardrail passes unmodified.
+That is the strongest available evidence for §1's central claim.
+
+Three things the build settled that this document left open:
+
+- **§15's `getNode` is the load-bearing method.** Nothing in the tree resolved both node
+  kinds through one call, and three separate paths silently dropped manuscript nodes
+  (`RecordService.getRecord` returns null, `ConnectionEngine.linkedRecords` drops them,
+  `RecordGraph.related` hydrates through `recordById`). `StoryGraphNode` carries capability
+  flags rather than pretending the kinds are alike.
+- **The wildcard defaults need an override, or the Plot mode draws nothing.** §4.3 records
+  that scene-to-plot is entirely wildcard. Hiding wildcards by default (R-3) therefore had
+  to yield to an explicit request for a named type, otherwise the Plot view is empty by
+  construction. `relatedTo` is itself a wildcard, so its own switch decides it outright.
+- **Buckets come from `categoryId`, not from type lists.** All 21 built-in categories map
+  onto the product's nine buckets, and a test asserts none falls through.
+
+Full detail, including the risks carried rather than fixed: `docs/knowledge-graph-implementation-map.md`.
 
 ---
 
@@ -186,7 +226,8 @@ What the audit proves is missing or at risk:
 4. **Real creative data lives outside the canonical graph** — manuscript scene *content*,
    the Research side-panel (`ProjectResearchStore`), the legacy timeline store, and the
    visual-planning board are all in `SharedPreferences` and none of them are in the
-   archive. D-1 brings the prose in; the other three stay out and stay open.
+   archive. The prose now travels in the archive as of the archive-completeness
+   milestone (R-2 closed); the other three stay out and stay open.
 5. **There is no writing-session history system.** `WritingSession` does not exist
    anywhere in `lib/`. Directive item 8 assumes one; it is **NOT PRESENT**.
 
@@ -528,8 +569,8 @@ Built strictly from what §3 and §4 prove exists.
 | Node | Backing entity | Present? |
 |---|---|---|
 | Character | `AuthorRecord[typeId=character]` | Yes |
-| Scene | `ManuscriptNodeReference[nodeType=scene]` **→ `AuthorRecord[typeId=scene]` (D-1)** | Yes — today a manuscript node, **not** a record. Becomes a record in Phase 0 |
-| Chapter | `ManuscriptNodeReference[nodeType=chapter]` **→ `AuthorRecord[typeId=chapter]` (D-1)** | Same |
+| Scene | `ManuscriptNodeReference[nodeType=scene]` | Yes — a manuscript node, **not** a record, permanently under D-3. The registered `scene` record type is unused and shadows it (R-5) |
+| Chapter | `ManuscriptNodeReference[nodeType=chapter]` | Same |
 | Book / Series | `AuthorRecord[book\|series]` | Type registered, never instantiated |
 | Plot Thread | `AuthorRecord[plot-thread]` + 30 sibling plot types | Yes |
 | Timeline Event | `AuthorRecord[timeline-event]` + 27 sibling types | Yes |
@@ -1088,26 +1129,26 @@ Each rule is marked with whether the architecture already enforces it.
 
 | # | Risk | Rank | Detail | Evidence |
 |---|---|---|---|---|
-| R-1 | **Manuscript nodes are never deleted** *(closed by D-1, Phase 0)* | **CRITICAL** | `putManuscriptNodes` is upsert-only with no reconciliation. Deleting a scene in Manuscript Studio leaves the `manuscript_node_rows` row, its `connected_entities` row, every link pointing at it, and its FTS entry — permanently. `ManuscriptNodeReference` has no `status` field, so it cannot even be soft-deleted. A Story Graph would render ghost scenes with no way to remove them | `authoros_database.dart:445-456`; `manuscript_store.dart:666-694`; `connected_domain.dart:167-191` |
-| R-2 | **Manuscript prose is outside the canonical graph and outside the archive** *(closed by D-1, Phase 0)* | **CRITICAL** | Scene `content` lives only in `SharedPreferences`. The archive preserves scene *identity* and never the writing. A restore from archive returns a fully-connected graph of empty scenes | `manuscript_store.dart:552-694`; `authoros_archive.dart` entry list |
+| R-1 | **Manuscript nodes are never deleted** *(CLOSED by the Phase 0 integrity milestone — see the §0 amendment)* | ~~CRITICAL~~ | `putManuscriptNodes` is upsert-only with no reconciliation. Deleting a scene in Manuscript Studio leaves the `manuscript_node_rows` row, its `connected_entities` row, every link pointing at it, and its FTS entry — permanently. `ManuscriptNodeReference` has no `status` field, so it cannot even be soft-deleted. A Story Graph would render ghost scenes with no way to remove them | `authoros_database.dart:445-456`; `manuscript_store.dart:666-694`; `connected_domain.dart:167-191` |
+| R-2 | **Manuscript prose is outside the canonical graph and outside the archive** *(CLOSED by the archive-completeness milestone — see `docs/archive-completeness.md`)* | ~~CRITICAL~~ | Scene `content` lives only in `SharedPreferences`. The archive preserves scene *identity* and never the writing. A restore from archive returns a fully-connected graph of empty scenes | `manuscript_store.dart:552-694`; `authoros_archive.dart` entry list |
 | R-3 | **Type compatibility is largely nominal** | **HIGH** | 70 of 127 connection types are `*` → `*`. Of 27 relationship pairs tested, 12 have **no** typed edge — including every Research relationship, both manuscript containment edges, and scene→plot. Validation runs and always passes, giving false confidence | Registry dump, §4.2/§4.3 |
 | R-4 | **Research data is duplicated across two incompatible systems** *(CLOSED — migrated on `main`, see §0)* | ~~HIGH~~ | `ProjectResearchStore` (SharedPreferences, no ids) vs `research-entry` records (graph, archived, searchable). `AnalyticsService.researchItemCount` counts only the latter, so the dashboard and the panel routinely disagree | `main.dart:1659`; `analytics_service.dart` `researchTypeIds` |
-| R-5 | **`scene`/`chapter` record types shadow manuscript nodes** *(closed by D-1, Phase 0)* | **HIGH** | Both are registered types *and* manuscript node kinds. `PlotService` queries `recordsByTypeAndScope(typeId: 'scene')` and will always find zero, silently disabling its `orphaned-scene` validation. A graph that treats "scene" as one thing will be wrong half the time | `plot_service.dart:416`; `manuscript_store.dart:685` |
+| R-5 | **`scene`/`chapter` record types shadow manuscript nodes** *(OPEN — pinned by a test; tracked as issue #50)* | **HIGH** | Both are registered types *and* manuscript node kinds. `PlotService` queries `recordsByTypeAndScope(typeId: 'scene')` and will always find zero, silently disabling its `orphaned-scene` validation. A graph that treats "scene" as one thing will be wrong half the time | `plot_service.dart:416`; `manuscript_store.dart:685` |
 | R-6 | **A second graph traversal model already exists in the tree** | **MEDIUM** | `ImpactTraceAnalyzer` implements depth-limited BFS and shared-scene inference over its own `TraceEntity`/`TraceLink` types, unrelated to `AuthorRecord`/`RecordLink`. It has **no production callers** — only `test/impact_trace_test.dart`. Left unaddressed, it is the most likely seed of a duplicate relationship system | `lib/impact_trace.dart`; caller search |
-| R-7 | **`ManuscriptScene.relationships` is a third relationship shape** *(closed by D-1, Phase 0 step 7)* | **MEDIUM** | `SceneRelationship {id, type, targetId, label, metadata}` persists scene-local edges in SharedPreferences. `LegacyConnectionSliceAdapter` can convert them to `RecordLink`s, but that path is behind `AUTHOROS_CONNECTED_DOMAIN`, **off by default** — so these edges exist and are invisible to the graph | `manuscript_store.dart:85-133`; `legacy_connection_slice.dart:6-10` |
+| R-7 | **`ManuscriptScene.relationships` is a third relationship shape** *(OPEN)* | **MEDIUM** | `SceneRelationship {id, type, targetId, label, metadata}` persists scene-local edges in SharedPreferences. `LegacyConnectionSliceAdapter` can convert them to `RecordLink`s, but that path is behind `AUTHOROS_CONNECTED_DOMAIN`, **off by default** — so these edges exist and are invisible to the graph | `manuscript_store.dart:85-133`; `legacy_connection_slice.dart:6-10` |
 | R-8 | **Validated-write bypass in World Studio** | **MEDIUM** | `world_studio.dart:270` calls `repository.putRecordsAndLinks` directly on the legacy-type path, skipping record validation, connection compatibility, project-boundary checks, versioning and audit | `world_studio.dart:270` |
 | R-9 | **Duplication drops all relationships** | **MEDIUM** | `RecordService.duplicateRecord` copies fields and tags but creates the duplicate with zero links, and nothing warns the author | `record_service.dart:176-215` |
 | R-10 | **Soft-deleted nodes remain fully traversable** | **MEDIUM** | Deletion sets `status = deleted`; every edge survives, and the FTS row survives with `lifecycle_status = 'deleted'`. Any graph read that forgets the filter renders deleted characters as live | `record_service.dart:167-172`; `_indexEntity` |
 | R-11 | **Project isolation has no schema backing** | **MEDIUM** | One database for all projects; isolation lives entirely in service-layer checks. Raw repository access inherits none of it, and `_belongsToProject` deliberately accepts four different project signals | §9.3 |
 | R-12 | **`ConnectionCardinality` is declared and never enforced** | **MEDIUM** | All 127 types are `manyToMany`; the enum appears nowhere outside its own model and JSON codec. Any future "one home location per character" rule has nothing to build on | Registry dump; grep of `cardinality` |
 | R-13 | **Search cannot see relationships** | **MEDIUM** | The FTS index covers title, `fields` JSON and tags. No edge, edge type or edge metadata is indexed. A graph explorer's search box cannot answer "find the mentor relationship" | `_createSearchIndex`, `_indexEntity` |
-| R-14 | **Scene prose is not searchable** *(closed by D-1, Phase 0)* | **MEDIUM** | Manuscript nodes are indexed with `body = extensionData`, and the prose is not in `extensionData` | `_putManuscriptNode` |
+| R-14 | **Scene prose is not searchable** *(OPEN)* | **MEDIUM** | Manuscript nodes are indexed with `body = extensionData`, and the prose is not in `extensionData` | `_putManuscriptNode` |
 | R-15 | **Version snapshots exclude relationships** | **MEDIUM** | `RecordVersion.snapshot` is `record.toJson()`. Restoring a version restores fields, never edges. Graph time-travel would have to replay audit events instead | `version_audit_service.dart` `forRecord` |
 | R-16 | **`relatedTo` will dominate every graph view** | **MEDIUM** | Wildcard, undirected, and suggested on all 222 record types. Without a default-off filter, the Project Graph degenerates into a hairball | `built_in_record_types.dart:189` and registry dump |
 | R-17 | **`SafeDeleteService` blocks on any edge** | **LOW** | Any incoming *or* outgoing connection sets `blocked`. Correct and conservative, but it means physical deletion is effectively unreachable in a connected project — worth knowing before designing a graph delete flow | `safe_delete_service.dart:105-113` |
 | R-18 | **Dead type definitions** | **LOW** | `_world` and `_location` in `built_in_record_types.dart` are unreachable; adding them to the list would throw on duplicate ids | `built_in_record_types.dart:196,243` |
 | R-19 | **Route endpoints stored twice** | **LOW** | `routeFrom`/`routeTo` links *and* `fields.startId`/`endId`. Nothing keeps them in sync | `world_service.dart:555-580` |
-| R-22 | **Writing sessions are not in the archive** | **MEDIUM** | `writing_session_rows` is the twelfth table, but `AuthorOsArchiveService` still writes the same ten entries. A project exported and re-imported loses its entire writing history — every daily total, streak and longitudinal metric. Correctly *outside* the graph per I-16, but backup is a separate concern from graph membership, and this is a real data-loss path | `authoros_archive.dart` entry list vs `@DriftDatabase` tables |
+| R-22 | **Writing sessions are not in the archive** *(CLOSED by the archive-completeness milestone — see `docs/archive-completeness.md`)* | ~~MEDIUM~~ | `writing_session_rows` is the twelfth table, but `AuthorOsArchiveService` still writes the same ten entries. A project exported and re-imported loses its entire writing history — every daily total, streak and longitudinal metric. Correctly *outside* the graph per I-16, but backup is a separate concern from graph membership, and this is a real data-loss path | `authoros_archive.dart` entry list vs `@DriftDatabase` tables |
 | R-21 | **Reading Analytics or World Board writes graph nodes** | **MEDIUM** | `getSummary()` / `load()` → `ManuscriptStore.loadStudio()` seeds and saves a starter manuscript when none exists, and `saveStudio` projects chapter and scene nodes into `connected_entities` and `manuscript_node_rows`. A dashboard read thus creates graph nodes. Idempotent after the first read and confined to manuscript nodes — but it means "open the dashboard" and "create nodes" are the same action, and combined with R-1 those nodes can never be removed. **Decision D-1 raises this to a Phase 0 blocker**: once scenes are records, the same read would write a version and an audit event per seeded node, manufacturing history for content the author never typed | `analytics_service.dart` `_loadManuscript`; `world_board_service.dart` `_loadManuscript`; `manuscript_store.dart:622-647` |
 | R-20 | **Derived character-in-manuscript match is naive** | **LOW** | Case-insensitive substring of the character title against scene text. "Will" matches the auxiliary verb. Correctly not persisted, but must not be reused as-is by a derived-relationship engine | `analytics_service.dart` `_countCharactersReferenced` |
 
@@ -1118,13 +1159,16 @@ Nothing in this table is fixed by this milestone.
 ## 19. Open Questions
 
 > **Resolved.** *"Are scenes and chapters going to become `AuthorRecord`s, or stay
-> manuscript nodes?"* — answered August 21, 2026: **they become records.** See decision
-> D-1 in §1 and Phase 0 in §20. *"Should `chapterId` become a real edge?"* — yes, as part
-> of the same migration. Both questions are closed; the questions below replace them.
+> manuscript nodes?"* — answered August 21, 2026: **they stay manuscript nodes.** This
+> reverses an earlier answer of "they become records": that was decision D-1, which was
+> withdrawn the same day in favour of **D-3** (§0). Two node kinds are a permanent,
+> accepted reality. *"Should `chapterId` become a real edge?"* — reopened by the reversal,
+> since the migration it belonged to no longer exists.
 
-> **Also resolved.** *"How is manuscript version churn handled?"* — answered August 21,
-> 2026: **coalescing inside a time window, for `updated` changes only.** See decision D-2
-> in §1 and Phase 0 step 1 in §20. Phase 0 is no longer blocked.
+> **Also resolved.** *"How is manuscript version churn handled?"* — the earlier answer of
+> coalescing inside a time window was **decision D-2, withdrawn with D-1** (§0). D-2
+> existed only to absorb churn that D-1 would have created; with D-1 gone it has no
+> problem left to solve, and nothing should be built for it.
 
 1. **Q-2 — Does scene ordering stay a field, or become graph structure?** `order` as an
    integer field is simple and matches today's model. Ordering by edge is more graph-native

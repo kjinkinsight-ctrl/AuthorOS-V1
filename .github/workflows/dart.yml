@@ -7,11 +7,20 @@
 
 name: Flutter
 
+# The repository runs two trunks (see BRANCHING.md): `main` is the release tree
+# and `debug/base` is the integration line everything reaches first. Both are
+# built on every arrival. Pull requests are gated wherever they land, including
+# into a family trunk like `debug/map-studio/base`, so a studio branch is
+# verified at its own trunk rather than first being discovered on `debug/base`.
+# Pushes to work branches deliberately do not build: this job analyses, tests
+# and produces a release web build, which costs more per commit of in-progress
+# work than it catches, and the pull request into the family trunk covers the
+# same ground.
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "debug/base" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "debug/**", "rel/**" ]
 
 jobs:
   build:

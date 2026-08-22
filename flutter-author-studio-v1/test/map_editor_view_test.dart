@@ -58,7 +58,11 @@ void main() {
   }
 
   Future<void> pumpStudio(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1400);
+    // Tall enough to hold the whole Studio page: the toolbar, the canvas and
+    // every panel below it. The map itself sizes from the canvas box, not from
+    // this, so a taller fake view changes what is reachable in a test and
+    // nothing about the layout under test.
+    tester.view.physicalSize = const Size(1400, 2600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -227,9 +231,15 @@ void main() {
 
       expect(order, [
         'map-layer-base',
+        'map-layer-terrain',
         'map-layer-regions',
+        'map-layer-borders',
+        'map-layer-assets',
+        'map-layer-worldRoutes',
         'map-layer-locations',
         'map-layer-markers',
+        'map-layer-storyPaths',
+        'map-layer-storyOverlays',
         'map-layer-selection',
         'map-layer-interaction',
       ]);
@@ -893,4 +903,273 @@ void main() {
       expect(source, isNot(contains('ThemeData(')));
     });
   });
+
+  // ---------------------------------------------------------------------
+  // Phase 3 — terrain, scenery and styling.
+  // ---------------------------------------------------------------------
+  group('terrain painting', () {
+    testWidgets('the terrain tools appear only with the terrain brush',
+        (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+
+      expect(find.byKey(const Key('map-terrain-tools')), findsNothing);
+      await useTool(tester, 'terrain');
+      expect(find.byKey(const Key('map-terrain-tools')), findsOneWidget);
+      expect(find.byKey(const Key('map-terrain-kind-forest')), findsOneWidget);
+      expect(find.byKey(const Key('map-brush-size')), findsOneWidget);
+      await useTool(tester, 'select');
+      expect(find.byKey(const Key('map-terrain-tools')), findsNothing);
+    });
+
+    testWidgets('painting on the canvas persists terrain in map space',
+        (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+      await useTool(tester, 'terrain');
+      await tester.tap(find.byKey(const Key('map-terrain-kind-forest')));
+      await tester.pumpAndSettle();
+
+      final projection = projectionFor(tester);
+      final expected = projection.toMap(200, 160);
+      await tester.tapAt(atCanvas(tester, 200, 160));
+      await tester.pumpAndSettle();
+
+      final terrain = await maps.terrainFor('map-kingdom');
+      expect(terrain.paintedKinds, [MapTerrainKind.forest]);
+      final cell = terrain.cellFor(expected, MapExtent.standard)!;
+      expect(terrain.kindAt(cell.$1, cell.$2), MapTerrainKind.forest);
+      expect(find.byKey(const Key('map-terrain')), findsOneWidget,
+          reason: 'the painted ground renders');
+    });
+
+    testWidgets('a drag paints a whole stroke as one revision', (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+      await useTool(tester, 'terrain');
+      final before = (await maps.mapHistory('map-kingdom')).length;
+
+      await tester.dragFrom(atCanvas(tester, 60, 60), const Offset(220, 140));
+      await tester.pumpAndSettle();
+
+      final terrain = await maps.terrainFor('map-kingdom');
+      expect(terrain.paintedKinds, isNotEmpty);
+      final after = (await maps.mapHistory('map-kingdom')).length;
+      expect(after - before, 1,
+          reason: 'a stroke is one editing act, not one write per move');
+    });
+
+    testWidgets('fill and clear cover and reset the map', (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+      await useTool(tester, 'terrain');
+
+      await tester.tap(find.byKey(const Key('map-terrain-fill')));
+      await tester.pumpAndSettle();
+      var terrain = await maps.terrainFor('map-kingdom');
+      expect(terrain.coverage[MapTerrainKind.grass], 1.0);
+      expect(find.byKey(const Key('map-legend')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('map-terrain-clear')));
+      await tester.pumpAndSettle();
+      terrain = await maps.terrainFor('map-kingdom');
+      expect(terrain.cellCount, 0);
+      expect(find.byKey(const Key('map-legend')), findsNothing);
+    });
+
+    testWidgets('the brush resizes in map units', (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+      await useTool(tester, 'terrain');
+
+      final start = tester.widget<Text>(
+        find.byKey(const Key('map-brush-size')),
+      );
+      await tester.tap(find.byKey(const Key('map-brush-larger')));
+      await tester.pumpAndSettle();
+      final larger = tester.widget<Text>(
+        find.byKey(const Key('map-brush-size')),
+      );
+
+      expect(int.parse(larger.data!), greaterThan(int.parse(start.data!)));
+    });
+
+    testWidgets('the background treatment persists', (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+      await useTool(tester, 'terrain');
+
+      await tester.tap(find.byKey(const Key('map-style-treatment-parchment')));
+      await tester.pumpAndSettle();
+
+      final style = await maps.visualStyleFor('map-kingdom');
+      expect(style.treatment, MapBackgroundTreatment.parchment);
+    });
+  });
+
+  group('scenery', () {
+    testWidgets('the scenery tools list categories and their assets',
+        (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+      await useTool(tester, 'asset');
+
+      expect(find.byKey(const Key('map-asset-tools')), findsOneWidget);
+      expect(find.byKey(const Key('map-asset-category-settlement')),
+          findsOneWidget);
+      expect(find.byKey(const Key('map-asset-def-tree')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('map-asset-category-settlement')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('map-asset-def-village')), findsOneWidget);
+      expect(find.byKey(const Key('map-asset-def-tree')), findsNothing);
+    });
+
+    testWidgets('tapping the canvas places scenery at that map position',
+        (tester) async {
+      await seedMap();
+      await pumpStudio(tester);
+      await useTool(tester, 'asset');
+
+      final projection = projectionFor(tester);
+      final expected = projection.toMap(300, 200);
+      await tester.tapAt(atCanvas(tester, 300, 200));
+      await tester.pumpAndSettle();
+
+      final assets = await maps.assetsFor('map-kingdom');
+      expect(assets, hasLength(1));
+      expect(assets.single.definitionId, 'tree');
+      expect(assets.single.position.x, closeTo(expected.x, 0.5));
+      expect(assets.single.position.y, closeTo(expected.y, 0.5));
+      expect(find.byKey(Key('map-asset-${assets.single.id}')), findsOneWidget);
+    });
+
+    testWidgets('scenery rotates, scales, re-layers and is removed',
+        (tester) async {
+      await seedMap();
+      await maps.addAsset(
+        'map-kingdom',
+        const MapAssetInstance(
+          id: 'asset-1',
+          definitionId: 'castle',
+          position: MapPosition(400, 400),
+        ),
+        timestamp: timestamp,
+      );
+      await pumpStudio(tester);
+      await useTool(tester, 'asset');
+
+      await tester.tap(find.byKey(const Key('map-asset-asset-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('map-asset-rotate')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('map-asset-scale-up')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('map-asset-forward')));
+      await tester.pumpAndSettle();
+
+      var asset = (await maps.assetsFor('map-kingdom')).single;
+      expect(asset.id, 'asset-1', reason: 'shaping is not a new asset');
+      expect(asset.rotation, 45);
+      expect(asset.scale, greaterThan(1.0));
+      expect(asset.layer, 1);
+      expect(asset.position, const MapPosition(400, 400),
+          reason: 'shaping does not move it');
+
+      await tester.tap(find.byKey(const Key('map-asset-remove')));
+      await tester.pumpAndSettle();
+      expect(await maps.assetsFor('map-kingdom'), isEmpty);
+    });
+
+    testWidgets('dragging scenery rewrites its map-space position',
+        (tester) async {
+      await seedMap();
+      await maps.addAsset(
+        'map-kingdom',
+        const MapAssetInstance(
+          id: 'asset-1',
+          definitionId: 'tree',
+          position: MapPosition(200, 200),
+        ),
+        timestamp: timestamp,
+      );
+      await pumpStudio(tester);
+      await useTool(tester, 'asset');
+
+      final projection = projectionFor(tester);
+      await tester.drag(
+        find.byKey(const Key('map-asset-asset-1')),
+        const Offset(100, 60),
+      );
+      await tester.pumpAndSettle();
+
+      final asset = (await maps.assetsFor('map-kingdom')).single;
+      expect(asset.id, 'asset-1');
+      expect(asset.position.x, closeTo(200 + 100 / projection.scaleX, 1));
+      expect(asset.position.y, closeTo(200 + 60 / projection.scaleY, 1));
+    });
+
+    testWidgets('scenery renders in stored draw order', (tester) async {
+      await seedMap();
+      for (final entry in [('back', 0), ('front', 5), ('middle', 2)]) {
+        await maps.addAsset(
+          'map-kingdom',
+          MapAssetInstance(
+            id: entry.$1,
+            definitionId: 'tree',
+            position: const MapPosition(300, 300),
+            layer: entry.$2,
+          ),
+          timestamp: timestamp.add(Duration(seconds: entry.$2 + 1)),
+        );
+      }
+      await pumpStudio(tester);
+
+      final layer = tester.widget<Stack>(
+        find
+            .descendant(
+              of: find.byKey(const Key('map-layer-assets')),
+              matching: find.byType(Stack),
+            )
+            .first,
+      );
+      final order = [
+        for (final child in layer.children)
+          (child as Positioned).child.key,
+      ];
+      expect(order, [
+        const Key('map-asset-back'),
+        const Key('map-asset-middle'),
+        const Key('map-asset-front'),
+      ]);
+    });
+  });
+
+  group('Phase 3 keeps Phase 1 and Phase 2 intact', () {
+    testWidgets('a painted map still selects, moves and inspects places',
+        (tester) async {
+      await seedMap();
+      await maps.fillTerrain('map-kingdom', MapTerrainKind.grass,
+          timestamp: timestamp);
+      final before = await seedLocation();
+      await pumpStudio(tester);
+
+      expect(find.byKey(const Key('map-terrain')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('map-location-city-endovier')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('map-detail')), findsOneWidget);
+
+      await useTool(tester, 'move');
+      await tester.drag(
+        find.byKey(const Key('map-location-city-endovier')),
+        const Offset(60, 40),
+      );
+      await tester.pumpAndSettle();
+
+      final after = (await maps.locationsForMap('map-kingdom')).single;
+      expect(after.id, before.id);
+      expect(after.position, isNot(before.position));
+    });
+  });
+
 }

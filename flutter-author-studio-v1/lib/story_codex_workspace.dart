@@ -14,6 +14,7 @@ import 'core/story_codex_domain.dart';
 import 'core/template_engine.dart';
 import 'core/universal_search.dart';
 import 'core/version_audit.dart';
+import 'knowledge_graph/open_in_graph.dart';
 import 'persistence/authoros_database.dart';
 import 'story_codex_service.dart';
 
@@ -363,6 +364,19 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
     return result == true;
   }
 
+  /// Asks the shell for the Knowledge Graph, focused on [record].
+  ///
+  /// Separate from [_navigate], which routes a record to the Studio that owns
+  /// it — the graph is a different destination, not a different owner.
+  void _openInGraph(AuthorRecord record) {
+    widget.onNavigate?.call(CodexNavigationRequest(
+      destination: SearchDestination.knowledgeGraph,
+      recordId: record.id,
+      recordType: record.typeId,
+      title: record.title,
+    ));
+  }
+
   void _navigate(AuthorRecord record) {
     widget.onNavigate?.call(CodexNavigationRequest(
       destination: searchDestinationForType(record.typeId),
@@ -468,6 +482,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                     onRestore: () => _restore(entry),
                     onConfirm: _confirm,
                     onNavigate: _navigate,
+                    onOpenInGraph: _openInGraph,
                     onOpenEntry: (id) => setState(() => selectedId = id),
                   );
 
@@ -1225,6 +1240,7 @@ class _CodexEntryPane extends StatefulWidget {
     required this.onRestore,
     required this.onConfirm,
     required this.onNavigate,
+    required this.onOpenInGraph,
     required this.onOpenEntry,
   });
 
@@ -1254,6 +1270,7 @@ class _CodexEntryPane extends StatefulWidget {
     required String confirmLabel,
   }) onConfirm;
   final ValueChanged<AuthorRecord> onNavigate;
+  final ValueChanged<AuthorRecord> onOpenInGraph;
   final ValueChanged<String> onOpenEntry;
 
   @override
@@ -2594,7 +2611,20 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
             key: const Key('codex-inspector-panel'),
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _sectionTitle(context, 'Universal Record Inspector'),
+              Row(
+                children: [
+                  Expanded(
+                    child: _sectionTitle(
+                      context,
+                      'Universal Record Inspector',
+                    ),
+                  ),
+                  OpenInGraphButton(
+                    recordId: data.recordId,
+                    onOpen: () => widget.onOpenInGraph(widget.entry.record),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               _kv(context, 'Record id', data.recordId),
               _kv(context, 'Record type', data.recordType),

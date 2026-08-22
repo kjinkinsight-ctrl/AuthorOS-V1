@@ -50,6 +50,7 @@ class RecordValidator {
   RecordValidationResult validate(
     AuthorRecord record, {
     required String projectId,
+    Set<String> inheritedScopeIds = const {},
   }) {
     final issues = <RecordValidationIssue>[];
     if (record.id.trim().isEmpty) {
@@ -74,7 +75,16 @@ class RecordValidator {
     final owningProjectId = record.projectId ??
         record.fields['projectId'] ??
         record.fields['_codex.projectId'];
-    if (record.scopeId != projectId && owningProjectId != projectId) {
+    // Shared canon belongs to a scope above the book, so a member book reading
+    // it is not a mismatch.
+    final inheritedShared = isInheritedSharedScope(
+      scopeType: record.scopeType,
+      scopeId: record.scopeId,
+      inheritedScopeIds: inheritedScopeIds,
+    );
+    if (record.scopeId != projectId &&
+        owningProjectId != projectId &&
+        !inheritedShared) {
       issues.add(RecordValidationIssue(
         code: 'project-mismatch',
         message: 'Record ${record.id} does not belong to project $projectId.',
@@ -84,7 +94,9 @@ class RecordValidator {
       RecordScope(
         type: record.scopeType,
         id: record.scopeId,
-        projectId: owningProjectId is String ? owningProjectId : projectId,
+        projectId: owningProjectId is String
+            ? owningProjectId
+            : (inheritedShared ? record.scopeId : projectId),
         seriesId:
             record.seriesId ?? (record.fields['_codex.seriesId'] as String?),
         bookId: record.bookId ?? (record.fields['_codex.bookId'] as String?),

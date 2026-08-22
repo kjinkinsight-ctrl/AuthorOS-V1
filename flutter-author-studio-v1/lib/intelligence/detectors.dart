@@ -20,7 +20,7 @@ library;
 
 import '../continuity.dart';
 import '../core/connected_domain.dart';
-import '../core/prose_mentions.dart';
+import '../core/entity_recognition.dart';
 import '../core/research_record_types.dart';
 import '../core/timeline_record_types.dart';
 import '../manuscript_continuity.dart';
@@ -111,7 +111,7 @@ List<StructuralFinding> detectOrphanEntities(ProjectSurvey survey) {
     )) {
       continue;
     }
-    if (_namesOf(character).any((name) => proseMentions(prose, name))) continue;
+    if (_namesOf(character).any((name) => mentionsName(prose, name))) continue;
 
     findings.add(StructuralFinding(
       condition: StructuralCondition.orphanEntity,

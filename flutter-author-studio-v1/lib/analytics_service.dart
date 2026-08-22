@@ -13,12 +13,14 @@ library;
 
 import 'character_service.dart';
 import 'core/connected_domain.dart';
+import 'core/writing_goals.dart';
 import 'core/writing_session.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 import 'plot_service.dart';
 import 'timeline_service.dart';
+import 'writing_goals_store.dart';
 
 /// A chapter highlighted by the analytics (longest or shortest).
 class AnalyticsChapterStat {
@@ -74,6 +76,7 @@ class AnalyticsWritingHistory {
     required this.sessionsThisWeek,
     required this.writingTimeThisWeek,
     required this.dailyTotals,
+    required this.writingDayCount,
     required this.wordsThisMonth,
     required this.sessionsThisMonth,
     required this.writingTimeThisMonth,
@@ -99,6 +102,7 @@ class AnalyticsWritingHistory {
         sessionsThisWeek = 0,
         writingTimeThisWeek = Duration.zero,
         dailyTotals = const [],
+        writingDayCount = 0,
         wordsThisMonth = 0,
         sessionsThisMonth = 0,
         writingTimeThisMonth = Duration.zero,
@@ -192,6 +196,7 @@ class AnalyticsWritingHistory {
       sessionsThisWeek: weekSessions,
       writingTimeThisWeek: weekTime,
       dailyTotals: List.unmodifiable(dailyTotals),
+      writingDayCount: byDay.length,
       wordsThisMonth: monthWords,
       sessionsThisMonth: monthSessions,
       writingTimeThisMonth: monthTime,
@@ -221,6 +226,11 @@ class AnalyticsWritingHistory {
 
   /// Monday through Sunday of the current local week, gaps included.
   final List<AnalyticsWritingDay> dailyTotals;
+
+  /// Distinct local days carrying at least one recorded session, across the
+  /// whole history. The denominator for "words on the days you write", kept
+  /// beside the totals it shares a source with.
+  final int writingDayCount;
 
   // This month (local).
   final int wordsThisMonth;
@@ -301,6 +311,284 @@ class AnalyticsWritingHistory {
   }
 }
 
+/// Writing pace, derived from the same folded history the totals come from.
+///
+/// It holds the [AnalyticsWritingHistory] rather than copying numbers out of
+/// it, so "average session words" here and on the history card are one value
+/// rather than two definitions free to drift apart.
+///
+/// Every rate is `null` rather than `0` when its denominator is zero. A pace
+/// over no days is not a pace, and showing it as zero would be a claim the
+/// author's history does not support.
+class AnalyticsVelocity {
+  const AnalyticsVelocity({required this.history, required this.daysElapsed});
+
+  /// A project with nothing recorded: no history, no elapsed span, no rates.
+  const AnalyticsVelocity.empty()
+      : history = const AnalyticsWritingHistory.empty(),
+        daysElapsed = 0;
+
+  /// Measures pace against [now], the same instant the history was folded at.
+  factory AnalyticsVelocity.fromHistory(
+    AnalyticsWritingHistory history, {
+    required DateTime now,
+  }) {
+    final first = history.firstSessionAt;
+    if (!history.hasSessions || first == null) {
+      return const AnalyticsVelocity.empty();
+    }
+    // Inclusive of both ends: writing 500 words this afternoon is 500 words
+    // in one day, not 500 words in zero days.
+    final spanned = WritingCalendar.daysBetween(first, now) + 1;
+    return AnalyticsVelocity(
+      history: history,
+      // A clock behind the first session still describes one day of writing.
+      daysElapsed: spanned < 1 ? 1 : spanned,
+    );
+  }
+
+  final AnalyticsWritingHistory history;
+
+  /// Calendar days from the first recorded session through today, inclusive.
+  final int daysElapsed;
+
+  static const daysPerWeek = 7.0;
+
+  /// The mean Gregorian month, 365.2425 / 12. One constant, so weekly and
+  /// monthly velocity can never be scaled by two different ideas of a month.
+  static const daysPerMonth = 30.436875;
+
+  bool get hasVelocity => history.hasSessions && daysElapsed > 0;
+
+  /// Days the author actually wrote on, as against [daysElapsed].
+  int get daysWritten => history.writingDayCount;
+
+  /// Words per elapsed calendar day — the pace actually sustained, rest days
+  /// included.
+  ///
+  /// This is the honest denominator for a finish date: dividing by the days
+  /// the author wrote on would quietly assume they write every day, and would
+  /// promise a completion date to anyone who takes weekends that they cannot
+  /// meet.
+  double? get averageDailyWords =>
+      hasVelocity ? history.totalWordsWritten / daysElapsed : null;
+
+  /// Words per day *on the days the author writes*. Deliberately a different,
+  /// higher number than [averageDailyWords], and never used for prediction.
+  double? get averageWordsPerWritingDay =>
+      daysWritten == 0 ? null : history.totalWordsWritten / daysWritten;
+
+  /// Forwarded from the history, not recomputed: one definition per number.
+  int get averageSessionWords => history.averageWordsPerSession;
+
+  /// Forwarded from the history, `null` when no measurable time was recorded.
+  double? get averageWordsPerHour => history.averageWordsPerHour;
+
+  /// The daily pace projected across a week. Scaled from [averageDailyWords]
+  /// rather than measured against its own elapsed-weeks denominator, so the
+  /// three velocities on one screen can never contradict each other.
+  double? get weeklyVelocity {
+    final daily = averageDailyWords;
+    return daily == null ? null : daily * daysPerWeek;
+  }
+
+  /// The daily pace projected across a mean month. Scaled the same way, from
+  /// the same daily rate.
+  double? get monthlyVelocity {
+    final daily = averageDailyWords;
+    return daily == null ? null : daily * daysPerMonth;
+  }
+}
+
+/// When the manuscript reaches its target at the pace the author is keeping.
+///
+/// The one place AuthorOS makes a forward-looking claim, so it is deliberately
+/// reluctant: without a target, without a measured pace, or past the target
+/// there is no projection at all, and the consumer must say so rather than
+/// render a zero.
+class AnalyticsProjection {
+  const AnalyticsProjection({
+    required this.currentWords,
+    required this.targetWords,
+    required this.wordsRemaining,
+    required this.averageDailyWords,
+    required this.estimatedDaysToCompletion,
+    required this.projectedCompletionDate,
+  });
+
+  /// No target, no pace, or nothing recorded: every projected value absent.
+  const AnalyticsProjection.unavailable()
+      : currentWords = 0,
+        targetWords = null,
+        wordsRemaining = null,
+        averageDailyWords = null,
+        estimatedDaysToCompletion = null,
+        projectedCompletionDate = null;
+
+  /// Beyond a decade out, the honest answer is "not enough history to say"
+  /// rather than a date. Also the guard that keeps a non-finite estimate away
+  /// from [double.ceil], which throws on infinity.
+  static const maximumProjectedDays = 3650;
+
+  /// Builds a projection from values the summary has already settled.
+  ///
+  /// [wordsRemaining] is passed in rather than recomputed so the projection
+  /// panel and the progress card can never print different remainders.
+  factory AnalyticsProjection.from({
+    required int currentWords,
+    required int? targetWords,
+    required int? wordsRemaining,
+    required double? averageDailyWords,
+    required DateTime now,
+  }) {
+    // No target set: there is nothing to finish, so nothing to project.
+    if (targetWords == null || targetWords <= 0) {
+      return const AnalyticsProjection.unavailable();
+    }
+
+    // Past the target already. Report the state, not a date.
+    if (wordsRemaining == null || wordsRemaining <= 0) {
+      return AnalyticsProjection(
+        currentWords: currentWords,
+        targetWords: targetWords,
+        wordsRemaining: 0,
+        averageDailyWords: averageDailyWords,
+        estimatedDaysToCompletion: null,
+        projectedCompletionDate: null,
+      );
+    }
+
+    // A target and words to go, but no measured pace: say the words remain,
+    // and refuse to name a day.
+    if (averageDailyWords == null || averageDailyWords <= 0) {
+      return AnalyticsProjection(
+        currentWords: currentWords,
+        targetWords: targetWords,
+        wordsRemaining: wordsRemaining,
+        averageDailyWords: averageDailyWords,
+        estimatedDaysToCompletion: null,
+        projectedCompletionDate: null,
+      );
+    }
+
+    final estimate = wordsRemaining / averageDailyWords;
+    if (!estimate.isFinite || estimate > maximumProjectedDays) {
+      return AnalyticsProjection(
+        currentWords: currentWords,
+        targetWords: targetWords,
+        wordsRemaining: wordsRemaining,
+        averageDailyWords: averageDailyWords,
+        estimatedDaysToCompletion: null,
+        projectedCompletionDate: null,
+      );
+    }
+
+    // Rounded to the nearest whole day, because the sentence this feeds says
+    // "approximately" — and floored at one, because however few words are
+    // left, finishing them still takes a day of writing.
+    final rounded = estimate.round();
+    final days = rounded < 1 ? 1 : rounded;
+    return AnalyticsProjection(
+      currentWords: currentWords,
+      targetWords: targetWords,
+      wordsRemaining: wordsRemaining,
+      averageDailyWords: averageDailyWords,
+      estimatedDaysToCompletion: days,
+      projectedCompletionDate:
+          WritingCalendar.addDays(WritingCalendar.dayOf(now), days),
+    );
+  }
+
+  final int currentWords;
+
+  /// The manuscript's word target, or `null` when none is set.
+  final int? targetWords;
+
+  /// Words left to write, `0` once the target is reached, `null` without one.
+  final int? wordsRemaining;
+
+  /// The pace the projection was built from, carried so the panel can show
+  /// the author what the estimate rests on.
+  final double? averageDailyWords;
+
+  /// Whole days of writing left at the current pace, rounded to the nearest
+  /// day and never below one. `null` when no honest estimate exists.
+  final int? estimatedDaysToCompletion;
+
+  /// Local midnight of the projected finishing day, or `null` with no estimate.
+  final DateTime? projectedCompletionDate;
+
+  bool get hasTarget => (targetWords ?? 0) > 0;
+
+  /// Whether the manuscript has already reached its target.
+  bool get isComplete => hasTarget && (wordsRemaining ?? 0) <= 0;
+
+  /// Whether a finishing day can be named. False is a legitimate, common
+  /// answer, and consumers must render it as such.
+  bool get hasProjection =>
+      estimatedDaysToCompletion != null && projectedCompletionDate != null;
+}
+
+/// Progress against the author's own daily, weekly, and monthly goals.
+///
+/// The actuals are the history's own today/week/month totals: this class
+/// compares, it does not count. A goal of `0` yields `null` rather than a
+/// percentage, mirroring the manuscript target's "no target, no percentage"
+/// rule.
+class AnalyticsGoalProgress {
+  const AnalyticsGoalProgress({
+    required this.goals,
+    required this.wordsToday,
+    required this.wordsThisWeek,
+    required this.wordsThisMonth,
+  });
+
+  /// The seeded goals with nothing yet written against them.
+  const AnalyticsGoalProgress.empty()
+      : goals = WritingGoals.seedDefaults,
+        wordsToday = 0,
+        wordsThisWeek = 0,
+        wordsThisMonth = 0;
+
+  factory AnalyticsGoalProgress.from({
+    required WritingGoals goals,
+    required AnalyticsWritingHistory history,
+  }) =>
+      AnalyticsGoalProgress(
+        goals: goals,
+        wordsToday: history.wordsToday,
+        wordsThisWeek: history.wordsThisWeek,
+        wordsThisMonth: history.wordsThisMonth,
+      );
+
+  final WritingGoals goals;
+  final int wordsToday;
+  final int wordsThisWeek;
+  final int wordsThisMonth;
+
+  double? get dailyProgress => _progress(wordsToday, goals.dailyWords);
+  double? get weeklyProgress => _progress(wordsThisWeek, goals.weeklyWords);
+  double? get monthlyProgress => _progress(wordsThisMonth, goals.monthlyWords);
+
+  int? get dailyWordsRemaining => _remaining(wordsToday, goals.dailyWords);
+  int? get weeklyWordsRemaining => _remaining(wordsThisWeek, goals.weeklyWords);
+  int? get monthlyWordsRemaining =>
+      _remaining(wordsThisMonth, goals.monthlyWords);
+
+  /// A goal that is not set is never "met" — there was nothing to meet.
+  bool get dailyGoalMet => goals.hasDailyGoal && wordsToday >= goals.dailyWords;
+  bool get weeklyGoalMet =>
+      goals.hasWeeklyGoal && wordsThisWeek >= goals.weeklyWords;
+  bool get monthlyGoalMet =>
+      goals.hasMonthlyGoal && wordsThisMonth >= goals.monthlyWords;
+
+  static double? _progress(int written, int goal) =>
+      goal <= 0 ? null : (written / goal).clamp(0.0, 1.0);
+
+  static int? _remaining(int written, int goal) =>
+      goal <= 0 ? null : (goal - written).clamp(0, goal);
+}
+
 /// Per-day running totals used while folding sessions. Private on purpose:
 /// what leaves this file is the immutable [AnalyticsWritingDay].
 class _DayAccumulator {
@@ -342,7 +630,11 @@ class AnalyticsSummary {
     required this.charactersReferencedInManuscript,
     required this.activePlotThreadCount,
     required this.completedPlotThreadCount,
+    this.scenesByStatus = const {},
     this.writingHistory = const AnalyticsWritingHistory.empty(),
+    this.goalProgress = const AnalyticsGoalProgress.empty(),
+    this.velocity = const AnalyticsVelocity.empty(),
+    this.projection = const AnalyticsProjection.unavailable(),
   });
 
   /// An empty project: every count zero, every optional value absent.
@@ -371,7 +663,11 @@ class AnalyticsSummary {
         charactersReferencedInManuscript: 0,
         activePlotThreadCount: 0,
         completedPlotThreadCount: 0,
+        scenesByStatus: const {},
         writingHistory: const AnalyticsWritingHistory.empty(),
+        goalProgress: const AnalyticsGoalProgress.empty(),
+        velocity: const AnalyticsVelocity.empty(),
+        projection: const AnalyticsProjection.unavailable(),
       );
 
   // Project overview.
@@ -439,6 +735,18 @@ class AnalyticsSummary {
   int get draftChapterCount =>
       chaptersByStatus[ManuscriptNodeStatus.draft.id] ?? 0;
 
+  /// Scene counts keyed by [ManuscriptNodeStatus.id], the same shape and the
+  /// same keys as [chaptersByStatus]. Empty when the manuscript has no
+  /// scenes — an empty map, never a zero-filled one, so "no scenes" stays
+  /// distinguishable from "no scenes finished".
+  final Map<String, int> scenesByStatus;
+
+  int get completedSceneCount =>
+      scenesByStatus[ManuscriptNodeStatus.complete.id] ?? 0;
+
+  int get draftSceneCount =>
+      scenesByStatus[ManuscriptNodeStatus.draft.id] ?? 0;
+
   /// Alias for [averageWordsPerChapter], the chapter panel's vocabulary.
   int get averageChapterLength => averageWordsPerChapter;
 
@@ -473,6 +781,23 @@ class AnalyticsSummary {
   /// yet" rather than as a failed writing day.
   final AnalyticsWritingHistory writingHistory;
 
+  /// The author's daily, weekly, and monthly goals and how far through them
+  /// this project's recorded writing has got.
+  final AnalyticsGoalProgress goalProgress;
+
+  /// Writing pace over the recorded history. Holds the same
+  /// [AnalyticsWritingHistory] instance as [writingHistory], so the pace and
+  /// the totals it derives from can never disagree.
+  final AnalyticsVelocity velocity;
+
+  /// When the manuscript reaches its target at the current pace.
+  final AnalyticsProjection projection;
+
+  /// The author's goals for this project, seeded with the defaults when they
+  /// have never been edited. Carried here so every consumer reads one set of
+  /// targets.
+  WritingGoals get writingGoals => goalProgress.goals;
+
   /// Overall completion toward the writing target; `null` without a target.
   double? get completionPercent => percentTowardTarget;
 }
@@ -488,14 +813,18 @@ class AnalyticsService {
     required this.project,
     DriftConnectedDomainRepository? repository,
     this.manuscriptStore = const ManuscriptStore(),
+    WritingGoalsStore? goalsStore,
     DateTime Function()? clock,
   })  : _repository = repository,
+        _goalsStore = goalsStore,
         _clock = clock;
 
   /// The project the shell currently has open.
   final StarterProject project;
 
   final DriftConnectedDomainRepository? _repository;
+
+  final WritingGoalsStore? _goalsStore;
 
   /// The instant "today", "this week", and "this month" are measured against.
   /// Defaults to the wall clock; injectable so tests can pin a calendar.
@@ -507,6 +836,15 @@ class AnalyticsService {
 
   DriftConnectedDomainRepository get repository =>
       _repository ?? authorOsRepository;
+
+  /// The goals collaborator, resolved against this service's own repository
+  /// so an injected test database is used for goals too.
+  ///
+  /// Read here and written elsewhere: analytics derives, it does not persist.
+  /// The Analytics Studio edits goals through its own store, never through
+  /// this one.
+  WritingGoalsStore get goalsStore =>
+      _goalsStore ?? WritingGoalsStore(repository: repository);
 
   DateTime get _now => (_clock ?? DateTime.now)();
 
@@ -545,14 +883,26 @@ class AnalyticsService {
     // of this immutable list, so no card costs a database round trip.
     final sessions = await repository.writingSessionsForProject(project.id);
 
+    // The author's own pace targets, seeded with the defaults when they have
+    // never been edited. Read only — the Studio owns the write path.
+    final goals = await goalsStore.load(project.id);
+
     final chapters = manuscript.chapters;
     final chaptersByStatus = <String, int>{};
+    final scenesByStatus = <String, int>{};
     for (final chapter in chapters) {
       chaptersByStatus.update(
         chapter.status.id,
         (count) => count + 1,
         ifAbsent: () => 1,
       );
+      for (final scene in chapter.scenes) {
+        scenesByStatus.update(
+          scene.status.id,
+          (count) => count + 1,
+          ifAbsent: () => 1,
+        );
+      }
     }
 
     ManuscriptChapter? longest;
@@ -569,6 +919,17 @@ class AnalyticsService {
     final charactersWithRelationships =
         await _countCharactersWithRelationships(characterRecords);
 
+    // One folded history feeds the totals, the pace, and the goal progress,
+    // so the three sections of the dashboard cannot disagree.
+    final at = _now;
+    final history = AnalyticsWritingHistory.fromSessions(sessions, now: at);
+    final velocity = AnalyticsVelocity.fromHistory(history, now: at);
+
+    final targetWordCount = project.wordGoal < 0 ? 0 : project.wordGoal;
+    final wordsRemaining = targetWordCount > 0
+        ? (targetWordCount - manuscript.wordCount).clamp(0, targetWordCount)
+        : null;
+
     return AnalyticsSummary(
       projectId: project.id,
       projectName: project.title,
@@ -580,8 +941,9 @@ class AnalyticsService {
       timelineEventCount: timelineRecords.length,
       plotRecordCount: plotRecords.length,
       researchItemCount: researchRecords.length,
-      targetWordCount: project.wordGoal < 0 ? 0 : project.wordGoal,
+      targetWordCount: targetWordCount,
       chaptersByStatus: Map.unmodifiable(chaptersByStatus),
+      scenesByStatus: Map.unmodifiable(scenesByStatus),
       longestChapter: longest == null
           ? null
           : AnalyticsChapterStat(
@@ -604,9 +966,18 @@ class AnalyticsService {
           plotRecords.where(_isActivePlotThread).length,
       completedPlotThreadCount:
           plotRecords.where(_isCompletedPlotThread).length,
-      writingHistory: AnalyticsWritingHistory.fromSessions(
-        sessions,
-        now: _now,
+      writingHistory: history,
+      goalProgress: AnalyticsGoalProgress.from(
+        goals: goals,
+        history: history,
+      ),
+      velocity: velocity,
+      projection: AnalyticsProjection.from(
+        currentWords: manuscript.wordCount,
+        targetWords: targetWordCount,
+        wordsRemaining: wordsRemaining,
+        averageDailyWords: velocity.averageDailyWords,
+        now: at,
       ),
     );
   }
@@ -617,29 +988,35 @@ class AnalyticsService {
   ///
   /// Public because the World Board needs the same manuscript to name its
   /// chapters, and a second seeding routine over there would be a second way
-  /// for a project to have chapters. It reads; it never writes.
-  Future<ManuscriptProjectSummary> loadManuscript() async {
-    final migrated = await manuscriptStore.loadLegacyChapterSeeds(project.id);
-    final seeds = migrated.isNotEmpty
-        ? migrated
-        : project.chapters
-            .map(
-              (chapter) => ManuscriptChapterSeed(
-                title: chapter.title,
-                prompt: chapter.prompt,
-                status: chapter.status,
-                scenes: chapter.scenes,
-                linkedChapterIds: chapter.linkedChapterIds,
-              ),
-            )
-            .toList();
-    return manuscriptStore.loadStudio(
-      project.id,
-      manuscriptTitle: project.title,
-      defaultChapters: seeds,
-      firstSceneTitle: project.firstSceneTitle,
-    );
-  }
+  /// for a project to have chapters.
+  ///
+  /// It reads; it never writes. That is now true. It previously called
+  /// `ManuscriptStore.loadStudio`, which seeds a starter manuscript and saves
+  /// it when a project has none — and saving projects chapter and scene nodes
+  /// into `connected_entities` and `manuscript_node_rows`. Opening the
+  /// Analytics dashboard or the World Board on a fresh project therefore
+  /// created graph nodes, with version and audit entries describing edits the
+  /// author never made.
+  ///
+  /// A project with no manuscript now reports an empty one. Seeding stays with
+  /// Manuscript Studio, where the author opening the manuscript is the act
+  /// that should create it.
+  Future<ManuscriptProjectSummary> loadManuscript() async =>
+      await manuscriptStore.peekStudio(project.id) ?? _emptyManuscript();
+
+  ManuscriptProjectSummary _emptyManuscript() => ManuscriptProjectSummary(
+        projectId: project.id,
+        manuscriptTitle: project.title,
+        chapters: const [],
+        currentChapterId: '',
+        currentSceneId: '',
+        // A manuscript that does not exist has no meaningful timestamps. The
+        // epoch is the honest stand-in; inventing "now" would make an absent
+        // manuscript look freshly edited in every report that reads it.
+        createdAt: DateTime.utc(1970),
+        updatedAt: DateTime.utc(1970),
+        version: 1,
+      );
 
   /// Characters as the Characters Studio lists them: project-scoped records
   /// of the character type that have not been deleted.

@@ -72,7 +72,7 @@ IntelligenceService.analyze()
 | `lib/intelligence/intelligence_service.dart` | Reads, runs detectors, folds the report |
 | `lib/intelligence/intelligence_sections.dart` | Public presentation components |
 | `lib/intelligence/intelligence_view.dart` | The Studio |
-| `lib/core/prose_mentions.dart` | The shared word-boundary matcher (extracted) |
+| `lib/core/entity_recognition.dart` | The shared word-boundary matcher (`mentionsName`) |
 
 ### Invariants held
 
@@ -104,7 +104,7 @@ IntelligenceService.analyze()
 
 | Condition | Rule | Severity | Reuses |
 |---|---|---|---|
-| **Orphan entity** | A character with **no** `appearsIn`/`mentionedIn` link to a live node **and** whose name and aliases appear nowhere in the prose | warning | `proseMentions`, `ManuscriptContinuityIntelligence.aliasesOf` |
+| **Orphan entity** | A character with **no** `appearsIn`/`mentionedIn` link to a live node **and** whose name and aliases appear nowhere in the prose | warning | `mentionsName`, `ManuscriptContinuityIntelligence.aliasesOf` |
 | **Unlinked mention** | The prose names a record and no connection records it | notice | `ManuscriptContinuityIntelligence.analyzeScene` |
 | **Location gap** | A scene's `location` string matches no location record | warning | same |
 | **Cast gap** | A scene's POV names someone with no record | warning | same |
@@ -123,7 +123,7 @@ written about but not connected is a different and more useful condition, and it
 is one-click fixable. Hence two findings rather than one.
 
 **Why the prose matcher was extracted.** Three continuity engines each carried
-an identical private `_mentions`. They now share `lib/core/prose_mentions.dart`,
+an identical private `_mentions`. They now share `lib/core/entity_recognition.dart`,
 so the Manuscript workspace, World Studio, the Story Codex and this layer agree
 on what "the prose names this record" means. `AnalyticsService`'s naive
 substring match (risk R-20 — "Will" matches the auxiliary verb) is deliberately

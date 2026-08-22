@@ -370,6 +370,18 @@ class StoryGraphFilter {
 
   static const StoryGraphFilter unfiltered = StoryGraphFilter();
 
+  /// Every relationship the author actually made, catch-alls included.
+  ///
+  /// [unfiltered] still drops `relatedTo` and the wildcard edge types, which is
+  /// right for a *curated* view: they are suggested on every record type and
+  /// would swamp it. A record's own relationship list is not curated — it is
+  /// the set of connections the author created, and omitting one because its
+  /// type is generic tells them a relationship they made does not exist.
+  static const StoryGraphFilter everyRelationship = StoryGraphFilter(
+    includeRelatedTo: true,
+    includeWildcardEdges: true,
+  );
+
   /// Inclusive. Empty means every category.
   final Set<String> categoryIds;
 

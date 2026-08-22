@@ -1,6 +1,6 @@
 import 'continuity.dart';
 import 'core/connected_domain.dart';
-import 'core/prose_mentions.dart';
+import 'core/entity_recognition.dart';
 import 'core/world_record_types.dart';
 import 'world_service.dart';
 
@@ -162,7 +162,7 @@ class WorldContinuityIntelligence {
       final mention = [candidate.title, ..._aliases(candidate)]
           .map((name) => name.trim())
           .where((name) => name.length >= minimumMentionLength)
-          .where((name) => proseMentions(prose, name))
+          .where((name) => _matcher.mentions(prose, name))
           .firstOrNull;
       if (mention == null) continue;
       findings.add(WorldContinuityFinding(
@@ -272,13 +272,8 @@ class WorldContinuityIntelligence {
   }
 }
 
-List<String> _aliases(AuthorRecord record) => <String>[
-      ..._names(record.fields['aliases']),
-      ..._names(record.fields['alternateNames']),
-      ..._names(record.fields['historicalNames']),
-      ..._names(record.fields['localNames']),
-      ..._names(record.fields['nicknames']),
-    ];
+List<String> _aliases(AuthorRecord record) => EntityNames.aliasesOf(record);
+
 
 
 List<String> _names(Object? value) {
@@ -299,3 +294,5 @@ List<String> _names(Object? value) {
 }
 
 String _string(Object? value) => value is String ? value.trim() : '';
+
+const _matcher = EntityNameMatcher();

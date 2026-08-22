@@ -184,6 +184,17 @@ void main() {
     testWidgets('draft progress reads against the project word goal',
         (tester) async {
       final project = _project('wb-view-progress');
+      // The manuscript is created explicitly. Rendering the board used to seed
+      // one as a side effect, so this test passed without ever saying a
+      // manuscript should exist. Opening a dashboard no longer creates one
+      // (R-21), and progress against a word goal is only meaningful once there
+      // is a draft to measure.
+      await manuscriptStore.loadStudio(
+        project.id,
+        manuscriptTitle: project.title,
+        defaultChapters: const [],
+        firstSceneTitle: project.firstSceneTitle,
+      );
 
       await pumpBoard(tester, project: project);
 

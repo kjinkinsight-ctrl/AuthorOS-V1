@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +8,7 @@ import 'analytics_service.dart';
 import 'analytics_studio_view.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
+import 'core/connected_domain.dart' show AuthorRecord;
 import 'core/search_models.dart' show SearchDestination;
 import 'create_profile_page.dart';
 import 'local_image.dart';
@@ -16,6 +16,7 @@ import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
 import 'manuscript_store.dart';
 import 'map_studio_view.dart';
+import 'migrations/research_panel_migration.dart';
 import 'onboarding.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
@@ -1584,8 +1585,29 @@ class _SectionView extends StatelessWidget {
               startSprint: startSprint,
               minimalMode: minimalFocusMode,
               store: manuscriptStore,
+              onNavigate: (request) => onNavigate(
+                switch (request.destination) {
+                  SearchDestination.characterStudio => StudioSection.characters,
+                  SearchDestination.worldStudio => StudioSection.world,
+                  SearchDestination.timelineStudio => StudioSection.timeline,
+                  SearchDestination.plotStudio => StudioSection.plot,
+                  SearchDestination.storyCodex => StudioSection.codex,
+                  SearchDestination.seriesStudio => StudioSection.projects,
+                  SearchDestination.manuscriptStudio ||
+                  SearchDestination.record =>
+                    StudioSection.manuscript,
+                },
+              ),
             );
-            final research = _ResearchSidePanel(projectId: project.id);
+            final research = _ResearchSidePanel(
+              projectId: project.id,
+              onOpenResearchStudio: () =>
+                  onNavigate(StudioSection.research),
+              // The shell's store already carries the repository the rest of
+              // the manuscript section reads through; reuse it so tests can
+              // inject an in-memory database without a new plumbing path.
+              repository: manuscriptStore.repository,
+            );
             if (constraints.maxWidth < 720) {
               return Column(
                 children: [
@@ -1750,91 +1772,50 @@ class _SectionView extends StatelessWidget {
   }
 }
 
-enum ResearchTab { research, notes, timeline }
-
-class ResearchReference {
-  const ResearchReference({
-    required this.title,
-    required this.detail,
-    required this.tag,
+/// The manuscript's research rail.
+///
+/// This used to own its own `SharedPreferences` store, which put research in
+/// two places at once and left the panel's copy outside every backup path.
+/// It is now a **read-only window onto canonical research records** — the same
+/// records Research Studio shows. Creating and editing happen there; this
+/// panel reads, and links across.
+///
+/// On first open for a project it runs [ResearchPanelMigrationService], which
+/// lifts anything still in the legacy store into records. That migration is
+/// idempotent and never deletes the legacy key.
+class _ResearchSidePanel extends StatefulWidget {
+  const _ResearchSidePanel({
+    required this.projectId,
+    this.onOpenResearchStudio,
+    this.repository,
   });
 
-  final String title;
-  final String detail;
-  final String tag;
-
-  Map<String, String> toJson() => {
-        'title': title,
-        'detail': detail,
-        'tag': tag,
-      };
-
-  factory ResearchReference.fromJson(Map<String, dynamic> json) =>
-      ResearchReference(
-        title: json['title'] as String? ?? 'Untitled reference',
-        detail: json['detail'] as String? ?? '',
-        tag: json['tag'] as String? ?? 'Research',
-      );
-}
-
-class ProjectResearchStore {
-  const ProjectResearchStore({required this.projectId});
-
   final String projectId;
+  final VoidCallback? onOpenResearchStudio;
 
-  String get _key => 'author_studio.research_panel.$projectId';
-
-  Future<Map<ResearchTab, List<ResearchReference>>> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = prefs.getString(_key);
-    if (encoded == null || encoded.isEmpty) {
-      return {};
-    }
-
-    try {
-      final decoded = jsonDecode(encoded) as Map<String, dynamic>;
-      final result = <ResearchTab, List<ResearchReference>>{};
-      for (final entry in decoded.entries) {
-        final tab = ResearchTab.values.firstWhere(
-          (value) => value.name == entry.key,
-          orElse: () => ResearchTab.research,
-        );
-        final items = (entry.value as List)
-            .map((value) => ResearchReference.fromJson(
-                Map<String, dynamic>.from(value as Map)))
-            .toList();
-        result[tab] = items;
-      }
-      return result;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Future<void> save(
-      Map<ResearchTab, List<ResearchReference>> references) async {
-    final prefs = await SharedPreferences.getInstance();
-    final payload = <String, List<Map<String, String>>>{};
-    for (final entry in references.entries) {
-      payload[entry.key.name] =
-          entry.value.map((reference) => reference.toJson()).toList();
-    }
-    await prefs.setString(_key, jsonEncode(payload));
-  }
-}
-
-class _ResearchSidePanel extends StatefulWidget {
-  const _ResearchSidePanel({required this.projectId});
-
-  final String projectId;
+  /// Injectable for tests; defaults to the app-wide repository.
+  final DriftConnectedDomainRepository? repository;
 
   @override
   State<_ResearchSidePanel> createState() => _ResearchSidePanelState();
 }
 
 class _ResearchSidePanelState extends State<_ResearchSidePanel> {
-  Map<ResearchTab, List<ResearchReference>> references = {};
+  List<AuthorRecord> entries = const [];
   bool loading = true;
+  String? error;
+
+  /// How many entries were lifted out of the legacy store on this open, so
+  /// the author is told their pinned references moved rather than vanished.
+  int migratedCount = 0;
+
+  DriftConnectedDomainRepository get _repository =>
+      widget.repository ?? authorOsRepository;
+
+  ResearchService get _research => ResearchService(
+        projectId: widget.projectId,
+        repository: _repository,
+      );
 
   @override
   void initState() {
@@ -1842,164 +1823,166 @@ class _ResearchSidePanelState extends State<_ResearchSidePanel> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(_ResearchSidePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.projectId != widget.projectId) {
+      entries = const [];
+      migratedCount = 0;
+      _load();
+    }
+  }
+
   Future<void> _load() async {
-    final loaded =
-        await ProjectResearchStore(projectId: widget.projectId).load();
-    if (!mounted) {
-      return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      // Migrate first, so anything still in the legacy store shows up in the
+      // list below on this very open rather than the next one.
+      final report = await ResearchPanelMigrationService(
+        projectId: widget.projectId,
+        repository: _repository,
+      ).migrate();
+      final records = await _research.query.all();
+      if (!mounted) return;
+      setState(() {
+        migratedCount = report.created.length;
+        entries = records;
+        loading = false;
+      });
+    } catch (loadError) {
+      if (!mounted) return;
+      setState(() {
+        error = '$loadError';
+        loading = false;
+      });
     }
-    setState(() {
-      references = {
-        for (final tab in ResearchTab.values) tab: [...?loaded[tab]],
-      };
-      loading = false;
-    });
-  }
-
-  Future<void> _addReference(ResearchTab tab) async {
-    final titleController = TextEditingController();
-    final detailController = TextEditingController();
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Add ${tab.name} reference'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Title'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: detailController,
-              maxLines: 3,
-              decoration: const InputDecoration(labelText: 'Details'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-    final title = titleController.text.trim();
-    if (accepted != true || title.isEmpty) {
-      return;
-    }
-    setState(() {
-      references[tab] = [
-        ...?references[tab],
-        ResearchReference(
-          title: title,
-          detail: detailController.text.trim(),
-          tag: tab.name,
-        ),
-      ];
-    });
-    await ProjectResearchStore(projectId: widget.projectId).save(references);
-  }
-
-  Future<void> _removeReference(ResearchTab tab, int index) async {
-    setState(() {
-      references[tab] = [...?references[tab]]..removeAt(index);
-    });
-    await ProjectResearchStore(projectId: widget.projectId).save(references);
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: ResearchTab.values.length,
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
-              child: Text(
-                'Pinned references',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-            ),
-            const TabBar(
-              isScrollable: true,
-              tabs: [
-                Tab(text: 'Research'),
-                Tab(text: 'Notes'),
-                Tab(text: 'Timeline'),
+    final theme = Theme.of(context);
+    return Material(
+      key: const ValueKey('manuscript-research-panel'),
+      color: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Research',
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  key: const ValueKey('manuscript-research-refresh'),
+                  tooltip: 'Refresh',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: loading ? null : _load,
+                  icon: const Icon(Icons.refresh, size: 18),
+                ),
               ],
             ),
-            Expanded(
-              child: loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : TabBarView(
-                      children: [
-                        for (final tab in ResearchTab.values) _buildTab(tab),
-                      ],
-                    ),
+          ),
+          if (migratedCount > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: Text(
+                migratedCount == 1
+                    ? '1 pinned reference moved into your research library.'
+                    : '$migratedCount pinned references moved into your '
+                        'research library.',
+                key: const ValueKey('manuscript-research-migrated-notice'),
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
             ),
-          ],
-        ),
+          Expanded(child: _buildBody(theme)),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const ValueKey('manuscript-research-open-studio'),
+                onPressed: widget.onOpenResearchStudio,
+                icon: const Icon(Icons.local_library_outlined, size: 18),
+                label: const Text('Open Research Studio'),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTab(ResearchTab tab) {
-    final items = references[tab] ?? const [];
-    return Column(
-      children: [
-        Expanded(
-          child: items.isEmpty
-              ? const Center(child: Text('No pinned references.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return ListTile(
-                      dense: true,
-                      title: Text(item.title),
-                      subtitle: item.detail.isEmpty ? null : Text(item.detail),
-                      trailing: IconButton(
-                        tooltip: 'Remove reference',
-                        onPressed: () => _removeReference(tab, index),
-                        icon: const Icon(Icons.close, size: 18),
-                      ),
-                    );
-                  },
-                ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _addReference(tab),
-              icon: const Icon(Icons.add),
-              label: const Text('Pin reference'),
-            ),
+  Widget _buildBody(ThemeData theme) {
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Center(
+          child: Text(
+            'Research could not be loaded.',
+            key: const ValueKey('manuscript-research-error'),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
           ),
         ),
-      ],
+      );
+    }
+    if (entries.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Center(
+          child: Text(
+            'No research yet. Create entries in Research Studio and they '
+            'appear here.',
+            key: const ValueKey('manuscript-research-empty'),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final record = entries[index];
+        final summary = ResearchService.summaryOf(record);
+        return ListTile(
+          key: ValueKey('manuscript-research-${record.id}'),
+          dense: true,
+          leading: ResearchService.isImportant(record)
+              ? const Icon(Icons.star, size: 16)
+              : null,
+          title: Text(record.title),
+          subtitle: Text(
+            summary.isEmpty
+                ? '${ResearchService.kindOf(record)} · '
+                    '${ResearchService.categoryOf(record)}'
+                : summary,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      },
     );
   }
 }

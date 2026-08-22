@@ -10,6 +10,7 @@ import '../core/relationship_validation.dart';
 import '../core/branch_domain.dart';
 import '../core/search_models.dart';
 import '../core/version_audit.dart';
+import '../core/writing_goals.dart';
 import '../core/writing_session.dart';
 
 part 'authoros_database.g.dart';
@@ -243,6 +244,31 @@ class WritingSessionRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// One project's daily, weekly, and monthly word targets.
+///
+/// Keyed by the project id rather than a surrogate id, because a project has
+/// exactly one set of goals: the schema itself enforces what would otherwise
+/// be an invariant the write path had to remember. That also makes a save a
+/// plain upsert with no read-modify-write.
+///
+/// Unlike [WritingSessionRows], this table is overwritten rather than appended
+/// to. A session is a historical fact; a goal is the target the author holds
+/// right now, and editing it must replace what was there.
+///
+/// A project with no row here has never had its goals edited and resolves to
+/// [WritingGoals.seedDefaults]. Reading never inserts a row, so "never
+/// customized" stays distinguishable from "customized back to the defaults".
+class WritingGoalRows extends Table {
+  TextColumn get projectId => text()();
+  IntColumn get dailyWords => integer()();
+  IntColumn get weeklyWords => integer()();
+  IntColumn get monthlyWords => integer()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {projectId};
+}
+
 @DriftDatabase(
   tables: [
     ConnectedEntities,
@@ -257,6 +283,7 @@ class WritingSessionRows extends Table {
     RecordVersionRows,
     AuditEventRows,
     WritingSessionRows,
+    WritingGoalRows,
   ],
 )
 class AuthorOsDatabase extends _$AuthorOsDatabase {
@@ -290,7 +317,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     driftWorker: Uri.parse('drift_worker.js'),
   );
 
-  static const currentSchemaVersion = 9;
+  static const currentSchemaVersion = 10;
   final int _schemaVersion;
 
   @override
@@ -379,6 +406,9 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           }
           if (from < 9 && to >= 9) {
             await migrator.createTable(writingSessionRows);
+          }
+          if (from < 10 && to >= 10) {
+            await migrator.createTable(writingGoalRows);
           }
         },
         beforeOpen: (details) async {
@@ -833,6 +863,59 @@ class DriftConnectedDomainRepository {
       (database.delete(database.writingSessionRows)
             ..where((table) => table.projectId.equals(projectId)))
           .go();
+
+  // --- Writing goals -------------------------------------------------------
+
+  /// The goals stored for one project, or `null` when the author has never
+  /// edited them.
+  ///
+  /// Returning `null` rather than the defaults is deliberate: exactly one
+  /// place — [WritingGoalsStore] — decides what a default goal is, and the
+  /// caller keeps the ability to tell "never customized" from "customized".
+  /// Reading never writes a row.
+  Future<WritingGoals?> writingGoalsForProject(String projectId) async {
+    final row = await (database.select(database.writingGoalRows)
+          ..where((table) => table.projectId.equals(projectId)))
+        .getSingleOrNull();
+    return row == null ? null : _writingGoalsFromRow(row);
+  }
+
+  /// Stores one project's goals, replacing whatever was there.
+  ///
+  /// Upsert, deliberately, and the one place this table's write semantics
+  /// differ from [putWritingSession]'s insert-or-ignore: a session is a
+  /// historical fact that a repeated write must not disturb, while a goal is
+  /// the target the author currently holds, so editing it has to overwrite.
+  Future<void> putWritingGoals(WritingGoals goals) async {
+    await database.into(database.writingGoalRows).insertOnConflictUpdate(
+          _writingGoalsCompanion(goals),
+        );
+  }
+
+  /// Clears one project's goals so the next read resolves to the defaults
+  /// again. Removing the row rather than storing the default values keeps
+  /// "never customized" honest.
+  Future<int> deleteWritingGoalsForProject(String projectId) =>
+      (database.delete(database.writingGoalRows)
+            ..where((table) => table.projectId.equals(projectId)))
+          .go();
+
+  WritingGoalRowsCompanion _writingGoalsCompanion(WritingGoals goals) =>
+      WritingGoalRowsCompanion.insert(
+        projectId: goals.projectId,
+        dailyWords: goals.dailyWords,
+        weeklyWords: goals.weeklyWords,
+        monthlyWords: goals.monthlyWords,
+        updatedAt: goals.updatedAt ?? DateTime.now(),
+      );
+
+  WritingGoals _writingGoalsFromRow(WritingGoalRow row) => WritingGoals(
+        projectId: row.projectId,
+        dailyWords: row.dailyWords,
+        weeklyWords: row.weeklyWords,
+        monthlyWords: row.monthlyWords,
+        updatedAt: row.updatedAt,
+      );
 
   WritingSessionRowsCompanion _writingSessionCompanion(
     WritingSession session,

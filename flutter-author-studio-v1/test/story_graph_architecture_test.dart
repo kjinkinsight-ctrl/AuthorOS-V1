@@ -44,6 +44,12 @@ const _auditedTables = {
   // merged into main. It is deliberately in this list and deliberately NOT
   // graph truth — see the invariant I-12 test below.
   'writing_session_rows',
+  // The author's daily, weekly, and monthly word targets, from the author
+  // performance milestone. A per-project setting, not a node and not an edge:
+  // deliberately listed here and deliberately not graph truth — see the
+  // writing-goals test below, which holds it there the same way I-12 holds
+  // sessions.
+  'writing_goal_rows',
 };
 
 final _timestamp = DateTime.utc(2026, 8, 21, 9);
@@ -408,6 +414,66 @@ void main() {
         .map((definition) => definition.id)
         .toList();
     expect(sessionEdges, isEmpty);
+  });
+
+  test('writing goals stay a setting and never become graph truth', () async {
+    // The same question I-12 forces about a session, asked about a goal: is
+    // the author's word target graph data? It is not. It is a per-project
+    // setting, and this test holds it there.
+    final database = AuthorOsDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
+
+    // A goal is not a node: no foreign key into the graph's identity table.
+    final foreignKeys = await database
+        .customSelect('PRAGMA foreign_key_list(writing_goal_rows)')
+        .get();
+    expect(
+      foreignKeys,
+      isEmpty,
+      reason: 'writing_goal_rows gained a foreign key. A goal that points '
+          'into connected_entities is a graph node, not a setting.',
+    );
+
+    // One row per project, so goals can never accumulate into a history.
+    final columns = await database
+        .customSelect('PRAGMA table_info(writing_goal_rows)')
+        .get();
+    final primaryKey = columns
+        .where((row) => row.read<int>('pk') > 0)
+        .map((row) => row.read<String>('name'))
+        .toList();
+    expect(
+      primaryKey,
+      ['project_id'],
+      reason: 'Writing goals are keyed by project. A surrogate key would let '
+          'one project hold several sets of targets.',
+    );
+
+    // A writing goal is not a record type either. Note the ids are specific:
+    // the Plot Studio already registers a `goal` record type, which is a
+    // story goal a character pursues — a different thing entirely from the
+    // author's word target, and legitimately graph data.
+    expect(
+      BuiltInRecordTypes.definitions.map((definition) => definition.id),
+      isNot(anyOf(
+        contains('writing-goal'),
+        contains('writingGoal'),
+        contains('writing-goals'),
+      )),
+      reason: 'A writing goal became a registered record type. Word targets '
+          'are a setting; promoting one to a node makes Analytics a source '
+          'of graph truth.',
+    );
+
+    // And no connection type may take one as an endpoint.
+    final goalEdges = BuiltInConnectionTypes.definitions
+        .where((definition) =>
+            definition.sourceTypeIds.contains('writing-goal') ||
+            definition.targetTypeIds.contains('writing-goal'))
+        .map((definition) => definition.id)
+        .toList();
+    expect(goalEdges, isEmpty);
   });
 
   test('research lives in records and the legacy panel blob is never rewritten',

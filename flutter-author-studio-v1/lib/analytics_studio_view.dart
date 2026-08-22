@@ -10,11 +10,13 @@ library;
 import 'package:flutter/material.dart';
 
 import 'analytics_service.dart';
+import 'core/writing_goals.dart';
 import 'manuscript_store.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/theme_tokens.dart';
+import 'writing_goals_store.dart';
 import 'world_board/world_board_models.dart' show formatWorldBoardCount;
 
 /// Writing time in the compact form the history tiles use: `4h 12m`, `42m`,
@@ -29,6 +31,25 @@ String formatWritingDuration(Duration duration) {
   return '${hours}h ${minutes}m';
 }
 
+/// A projected completion day in the author's own calendar: `6 October 2026`.
+///
+/// Read from the local date fields rather than through `toUtc()`: the
+/// projection is a local midnight, and converting it would slide the date to
+/// the previous day for every author west of Greenwich.
+String formatProjectionDate(DateTime day) {
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+  final local = day.toLocal();
+  return '${local.day} ${months[local.month - 1]} ${local.year}';
+}
+
+/// A words-per-period rate as a whole number, or an em dash when the rate is
+/// absent. A rate AuthorOS could not measure is never shown as zero.
+String formatVelocity(double? rate) =>
+    rate == null ? '—' : formatWorldBoardCount(rate.round());
+
 class AnalyticsStudioView extends StatefulWidget {
   const AnalyticsStudioView({
     super.key,
@@ -36,6 +57,7 @@ class AnalyticsStudioView extends StatefulWidget {
     this.repository,
     this.service,
     this.manuscriptStore = const ManuscriptStore(),
+    this.goalsStore,
   });
 
   final StarterProject project;
@@ -43,12 +65,17 @@ class AnalyticsStudioView extends StatefulWidget {
   final AnalyticsService? service;
   final ManuscriptStore manuscriptStore;
 
+  /// Where edited goals are saved. Defaults to the service's own store, so
+  /// the Studio writes goals back to whichever repository it reads them from.
+  final WritingGoalsStore? goalsStore;
+
   @override
   State<AnalyticsStudioView> createState() => _AnalyticsStudioViewState();
 }
 
 class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
   late final AnalyticsService service;
+  late final WritingGoalsStore goalsStore;
 
   bool loading = true;
   String? loadError;
@@ -63,6 +90,9 @@ class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
           repository: widget.repository,
           manuscriptStore: widget.manuscriptStore,
         );
+    // Falls back to the service's own store, so goals are written back to
+    // whichever repository the summary was read from.
+    goalsStore = widget.goalsStore ?? service.goalsStore;
     _load();
   }
 
@@ -85,6 +115,39 @@ class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
         loading = false;
       });
     }
+  }
+
+  /// Opens the goals editor and, when the author saves, stores the new
+  /// targets and reloads.
+  ///
+  /// Saving goes through the store rather than the analytics service: the
+  /// service derives and must never write. The reload is the ordinary
+  /// [_load], so every number on the page re-derives together and the goal
+  /// bars can never show a target the rest of the page has not caught up to.
+  Future<void> _editGoals() async {
+    final current = summary?.writingGoals;
+    if (current == null) return;
+    final result = await showDialog<_GoalsEdit>(
+      context: context,
+      builder: (context) => _GoalsDialog(goals: current),
+    );
+    if (result == null || !mounted) return;
+    try {
+      if (result.restoreDefaults) {
+        await goalsStore.restoreDefaults(widget.project.id);
+      } else {
+        await goalsStore.save(result.goals);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        loadError = 'Writing goals could not be saved: $error';
+        loading = false;
+      });
+      return;
+    }
+    if (!mounted) return;
+    await _load();
   }
 
   @override
@@ -141,7 +204,15 @@ class _AnalyticsStudioViewState extends State<AnalyticsStudioView> {
         const SizedBox(height: 16),
         _OverviewTiles(summary: data),
         const SizedBox(height: 18),
+        _BasicMetricsCard(summary: data),
+        const SizedBox(height: 18),
         _WritingProgressCard(summary: data),
+        const SizedBox(height: 18),
+        _GoalsCard(summary: data, onEdit: _editGoals),
+        const SizedBox(height: 18),
+        _ProjectionCard(summary: data),
+        const SizedBox(height: 18),
+        _VelocityCard(summary: data),
         const SizedBox(height: 18),
         _WritingHistoryCard(summary: data),
         const SizedBox(height: 18),
@@ -798,6 +869,630 @@ class _ProgressCard extends StatelessWidget {
   }
 }
 
+/// The Basic Metrics section — spec 7.1.
+///
+/// Six counts the author checks at a glance. Every one is read straight off
+/// the summary; nothing here adds, divides, or reaches for a clock.
+class _BasicMetricsCard extends StatelessWidget {
+  const _BasicMetricsCard({required this.summary});
+
+  final AnalyticsSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final history = summary.writingHistory;
+    final remaining = summary.wordsRemaining;
+    return _AnalyticsSectionCard(
+      key: const Key('analytics-basic-metrics-section'),
+      title: 'Writing Metrics',
+      badge: 'Read-only calculations',
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          _StatTile(
+            key: const Key('analytics-metric-words-written'),
+            label: 'Words Written',
+            value: formatWorldBoardCount(summary.totalWordCount),
+            caption: 'Manuscript total',
+          ),
+          _StatTile(
+            key: const Key('analytics-metric-words-remaining'),
+            label: 'Words Remaining',
+            value: remaining == null ? '—' : formatWorldBoardCount(remaining),
+            caption: remaining == null ? 'No writing target set' : null,
+          ),
+          _StatTile(
+            key: const Key('analytics-metric-chapters-complete'),
+            label: 'Chapters Complete',
+            value: '${formatWorldBoardCount(summary.completedChapterCount)}'
+                ' / ${formatWorldBoardCount(summary.chapterCount)}',
+          ),
+          _StatTile(
+            key: const Key('analytics-metric-scenes-complete'),
+            label: 'Scenes Complete',
+            value: '${formatWorldBoardCount(summary.completedSceneCount)}'
+                ' / ${formatWorldBoardCount(summary.sceneCount)}',
+          ),
+          _StatTile(
+            key: const Key('analytics-metric-writing-sessions'),
+            label: 'Writing Sessions',
+            value: formatWorldBoardCount(history.totalSessions),
+            caption:
+                history.hasSessions ? null : 'No sessions recorded yet',
+          ),
+          _StatTile(
+            key: const Key('analytics-metric-session-time'),
+            label: 'Session Time',
+            value: formatWritingDuration(history.totalWritingTime),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The Goals section — spec 7.2.
+///
+/// Renders the author's own daily, weekly, and monthly targets and how far
+/// through each one this project has got. Unlike the history chart, this card
+/// renders with no sessions recorded: `0 / 2,000 words` is a true statement
+/// about a target that genuinely exists, not an observation AuthorOS invented.
+class _GoalsCard extends StatelessWidget {
+  const _GoalsCard({required this.summary, required this.onEdit});
+
+  final AnalyticsSummary summary;
+  final Future<void> Function() onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final progress = summary.goalProgress;
+    final goals = progress.goals;
+    return _AnalyticsSectionCard(
+      key: const Key('analytics-goals-section'),
+      title: 'Writing Goals',
+      badge: goals.isCustomized ? 'Your targets' : 'Default targets',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  'Daily, weekly, and monthly word targets for this project.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                key: const Key('analytics-goals-edit'),
+                onPressed: onEdit,
+                icon: const Icon(Icons.tune, size: 18),
+                label: const Text('Edit goals'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _GoalRow(
+            key: const Key('analytics-goal-daily'),
+            label: 'Daily',
+            period: 'daily',
+            written: progress.wordsToday,
+            goal: goals.dailyWords,
+            progress: progress.dailyProgress,
+            remaining: progress.dailyWordsRemaining,
+            met: progress.dailyGoalMet,
+          ),
+          const SizedBox(height: 14),
+          _GoalRow(
+            key: const Key('analytics-goal-weekly'),
+            label: 'Weekly',
+            period: 'weekly',
+            written: progress.wordsThisWeek,
+            goal: goals.weeklyWords,
+            progress: progress.weeklyProgress,
+            remaining: progress.weeklyWordsRemaining,
+            met: progress.weeklyGoalMet,
+          ),
+          const SizedBox(height: 14),
+          _GoalRow(
+            key: const Key('analytics-goal-monthly'),
+            label: 'Monthly',
+            period: 'monthly',
+            written: progress.wordsThisMonth,
+            goal: goals.monthlyWords,
+            progress: progress.monthlyProgress,
+            remaining: progress.monthlyWordsRemaining,
+            met: progress.monthlyGoalMet,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One cadence's progress bar.
+///
+/// A target of zero draws no bar at all. A goal the author has not set has no
+/// progress to show, and a full-width empty track would read as "0% of a goal"
+/// — the same misreading the manuscript target's empty state exists to avoid.
+class _GoalRow extends StatelessWidget {
+  const _GoalRow({
+    super.key,
+    required this.label,
+    required this.period,
+    required this.written,
+    required this.goal,
+    required this.progress,
+    required this.remaining,
+    required this.met,
+  });
+
+  final String label;
+  final String period;
+  final int written;
+  final int goal;
+  final double? progress;
+  final int? remaining;
+  final bool met;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (progress == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'No $period goal set',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Text(
+              '${formatWorldBoardCount(written)}'
+              ' / ${formatWorldBoardCount(goal)} words',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          value: progress,
+          minHeight: 10,
+          borderRadius: BorderRadius.circular(999),
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          valueColor: AlwaysStoppedAnimation<Color>(
+            theme.colorScheme.primary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          met
+              ? 'Goal met'
+              : '${formatWorldBoardCount(remaining ?? 0)} to go',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The Velocity section — spec 7.3.
+///
+/// Two daily figures sit side by side on purpose. "Average Daily Words"
+/// counts every day since the author started, rest days included, because
+/// that is the pace the projection below rests on. "On Writing Days" counts
+/// only the days they wrote. Both are true; neither is allowed to stand in
+/// for the other.
+class _VelocityCard extends StatelessWidget {
+  const _VelocityCard({required this.summary});
+
+  final AnalyticsSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final velocity = summary.velocity;
+    return _AnalyticsSectionCard(
+      key: const Key('analytics-velocity-section'),
+      title: 'Velocity',
+      badge: 'Recorded sessions',
+      child: !velocity.hasVelocity
+          ? Column(
+              key: const Key('analytics-velocity-empty'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No pace to measure yet.',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Velocity is measured from recorded writing sessions. Write '
+                  'in Manuscript Studio and your pace appears here — AuthorOS '
+                  'does not estimate a speed it has not observed.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            )
+          : Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _HistoryTile(
+                  tileKey: const Key('analytics-velocity-daily'),
+                  label: 'Average Daily Words',
+                  value: formatVelocity(velocity.averageDailyWords),
+                  lines: [
+                    'Over ${formatWorldBoardCount(velocity.daysElapsed)} days '
+                        'since your first session',
+                  ],
+                ),
+                _HistoryTile(
+                  tileKey: const Key('analytics-velocity-writing-day'),
+                  label: 'On Writing Days',
+                  value: formatVelocity(velocity.averageWordsPerWritingDay),
+                  lines: [
+                    '${formatWorldBoardCount(velocity.daysWritten)} days '
+                        'written on',
+                  ],
+                ),
+                _HistoryTile(
+                  tileKey: const Key('analytics-velocity-session'),
+                  label: 'Average Session Words',
+                  value: formatWorldBoardCount(velocity.averageSessionWords),
+                  lines: [
+                    '${formatWorldBoardCount(summary.writingHistory.totalSessions)}'
+                        ' sessions recorded',
+                  ],
+                ),
+                _HistoryTile(
+                  tileKey: const Key('analytics-velocity-hourly'),
+                  label: 'Average Words/Hour',
+                  value: formatVelocity(velocity.averageWordsPerHour),
+                  lines: [
+                    if (velocity.averageWordsPerHour == null)
+                      'No measurable writing time yet',
+                  ],
+                ),
+                _HistoryTile(
+                  tileKey: const Key('analytics-velocity-weekly'),
+                  label: 'Weekly Velocity',
+                  value: formatVelocity(velocity.weeklyVelocity),
+                  lines: const ['At your current daily pace'],
+                ),
+                _HistoryTile(
+                  tileKey: const Key('analytics-velocity-monthly'),
+                  label: 'Monthly Velocity',
+                  value: formatVelocity(velocity.monthlyVelocity),
+                  lines: const ['At your current daily pace'],
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+/// The Manuscript Projection section — spec 7.4.
+///
+/// The one forward-looking claim AuthorOS makes, and deliberately the most
+/// reluctant card on the page: without a target, without a measured pace, or
+/// past the target, it says so rather than naming a day it cannot stand behind.
+class _ProjectionCard extends StatelessWidget {
+  const _ProjectionCard({required this.summary});
+
+  final AnalyticsSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final projection = summary.projection;
+    return _AnalyticsSectionCard(
+      key: const Key('analytics-projection-section'),
+      title: 'Manuscript Projection',
+      badge: 'Estimate',
+      child: !projection.hasTarget
+          ? Text(
+              'No writing target set. Set a word goal for this project to '
+              'project a completion date.',
+              key: const Key('analytics-projection-empty'),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 28,
+                  runSpacing: 14,
+                  children: [
+                    _LabeledValue(
+                      key: const Key('analytics-projection-current'),
+                      label: 'Current Words',
+                      value: formatWorldBoardCount(projection.currentWords),
+                    ),
+                    _LabeledValue(
+                      key: const Key('analytics-projection-target'),
+                      label: 'Target',
+                      value:
+                          formatWorldBoardCount(projection.targetWords ?? 0),
+                    ),
+                    _LabeledValue(
+                      key: const Key('analytics-projection-remaining'),
+                      label: 'Remaining',
+                      value:
+                          formatWorldBoardCount(projection.wordsRemaining ?? 0),
+                    ),
+                    _LabeledValue(
+                      key: const Key('analytics-projection-velocity'),
+                      label: 'Average Velocity',
+                      value: projection.averageDailyWords == null
+                          ? '—'
+                          : '${formatVelocity(projection.averageDailyWords)}'
+                              ' words/day',
+                    ),
+                    _LabeledValue(
+                      key: const Key('analytics-projection-date'),
+                      label: 'Estimated Completion',
+                      value: projection.projectedCompletionDate == null
+                          ? '—'
+                          : formatProjectionDate(
+                              projection.projectedCompletionDate!,
+                            ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _projectionMessage(context, theme),
+              ],
+            ),
+    );
+  }
+
+  Widget _projectionMessage(BuildContext context, ThemeData theme) {
+    final projection = summary.projection;
+    if (projection.isComplete) {
+      return Text(
+        'You have reached this manuscript\'s word target. There is nothing '
+        'left to project.',
+        key: const Key('analytics-projection-complete'),
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    final days = projection.estimatedDaysToCompletion;
+    if (days == null) {
+      return Text(
+        'Not enough writing history to project a completion date yet.',
+        key: const Key('analytics-projection-unavailable'),
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    return Text(
+      'At your current pace, you\'ll complete this manuscript in '
+      'approximately ${formatWorldBoardCount(days)} '
+      '${days == 1 ? 'day' : 'days'}.',
+      key: const Key('analytics-projection-sentence'),
+      style: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+/// What the goals editor hands back: either new targets, or a request to drop
+/// the stored ones and return to the seeded defaults.
+class _GoalsEdit {
+  const _GoalsEdit.save(this.goals) : restoreDefaults = false;
+  const _GoalsEdit.restore(this.goals) : restoreDefaults = true;
+
+  final WritingGoals goals;
+  final bool restoreDefaults;
+}
+
+/// The goals editor.
+///
+/// Zero is a legal target and means "no goal for this period", so the
+/// validators reject only what cannot be a target at all: blanks, non-numbers,
+/// negatives, and figures past [WritingGoals.maximumWords].
+class _GoalsDialog extends StatefulWidget {
+  const _GoalsDialog({required this.goals});
+
+  final WritingGoals goals;
+
+  @override
+  State<_GoalsDialog> createState() => _GoalsDialogState();
+}
+
+class _GoalsDialogState extends State<_GoalsDialog> {
+  final formKey = GlobalKey<FormState>();
+  late final TextEditingController daily;
+  late final TextEditingController weekly;
+  late final TextEditingController monthly;
+
+  @override
+  void initState() {
+    super.initState();
+    daily = TextEditingController(text: '${widget.goals.dailyWords}');
+    weekly = TextEditingController(text: '${widget.goals.weeklyWords}');
+    monthly = TextEditingController(text: '${widget.goals.monthlyWords}');
+  }
+
+  @override
+  void dispose() {
+    daily.dispose();
+    weekly.dispose();
+    monthly.dispose();
+    super.dispose();
+  }
+
+  String? _validate(String? value) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty) return 'Enter a whole number of words.';
+    final parsed = int.tryParse(trimmed);
+    if (parsed == null) return 'Enter a whole number of words.';
+    if (parsed < 0) return 'A goal cannot be negative.';
+    if (parsed > WritingGoals.maximumWords) {
+      return 'That is more words than a goal can hold.';
+    }
+    return null;
+  }
+
+  int _read(TextEditingController controller) =>
+      int.parse(controller.text.trim());
+
+  void _save() {
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(
+      _GoalsEdit.save(
+        widget.goals.copyWith(
+          dailyWords: _read(daily),
+          weeklyWords: _read(weekly),
+          monthlyWords: _read(monthly),
+          updatedAt: DateTime.now(),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      key: const Key('analytics-goals-dialog'),
+      title: const Text('Writing goals'),
+      content: Form(
+        key: formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'How many words you mean to write in this project. Set a target '
+              'to 0 to turn that goal off.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            _GoalField(
+              fieldKey: const Key('analytics-goal-daily-field'),
+              controller: daily,
+              label: 'Daily words',
+              validator: _validate,
+            ),
+            const SizedBox(height: 12),
+            _GoalField(
+              fieldKey: const Key('analytics-goal-weekly-field'),
+              controller: weekly,
+              label: 'Weekly words',
+              validator: _validate,
+            ),
+            const SizedBox(height: 12),
+            _GoalField(
+              fieldKey: const Key('analytics-goal-monthly-field'),
+              controller: monthly,
+              label: 'Monthly words',
+              validator: _validate,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const Key('analytics-goals-restore'),
+          onPressed: () => Navigator.of(context).pop(
+            _GoalsEdit.restore(
+              WritingGoals.defaultsFor(widget.goals.projectId),
+            ),
+          ),
+          child: const Text('Restore defaults'),
+        ),
+        TextButton(
+          key: const Key('analytics-goals-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('analytics-goals-save'),
+          onPressed: _save,
+          child: const Text('Save goals'),
+        ),
+      ],
+    );
+  }
+}
+
+class _GoalField extends StatelessWidget {
+  const _GoalField({
+    required this.fieldKey,
+    required this.controller,
+    required this.label,
+    required this.validator,
+  });
+
+  final Key fieldKey;
+  final TextEditingController controller;
+  final String label;
+  final String? Function(String?) validator;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      key: fieldKey,
+      controller: controller,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText: label,
+        isDense: true,
+        border: const OutlineInputBorder(),
+      ),
+      validator: validator,
+    );
+  }
+}
+
 class _AnalyticsSectionCard extends StatelessWidget {
   const _AnalyticsSectionCard({
     super.key,
@@ -914,7 +1609,12 @@ class _AnalyticsMessageCard extends StatelessWidget {
 }
 
 class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value, this.caption});
+  const _StatTile({
+    super.key,
+    required this.label,
+    required this.value,
+    this.caption,
+  });
 
   final String label;
   final String value;
@@ -964,7 +1664,7 @@ class _StatTile extends StatelessWidget {
 }
 
 class _LabeledValue extends StatelessWidget {
-  const _LabeledValue({required this.label, required this.value});
+  const _LabeledValue({super.key, required this.label, required this.value});
 
   final String label;
   final String value;

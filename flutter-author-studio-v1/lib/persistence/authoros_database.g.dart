@@ -5841,6 +5841,328 @@ class WritingSessionRowsCompanion extends UpdateCompanion<WritingSessionRow> {
   }
 }
 
+class $WritingGoalRowsTable extends WritingGoalRows
+    with TableInfo<$WritingGoalRowsTable, WritingGoalRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $WritingGoalRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _projectIdMeta =
+      const VerificationMeta('projectId');
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+      'project_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _dailyWordsMeta =
+      const VerificationMeta('dailyWords');
+  @override
+  late final GeneratedColumn<int> dailyWords = GeneratedColumn<int>(
+      'daily_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _weeklyWordsMeta =
+      const VerificationMeta('weeklyWords');
+  @override
+  late final GeneratedColumn<int> weeklyWords = GeneratedColumn<int>(
+      'weekly_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _monthlyWordsMeta =
+      const VerificationMeta('monthlyWords');
+  @override
+  late final GeneratedColumn<int> monthlyWords = GeneratedColumn<int>(
+      'monthly_words', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [projectId, dailyWords, weeklyWords, monthlyWords, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'writing_goal_rows';
+  @override
+  VerificationContext validateIntegrity(Insertable<WritingGoalRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('project_id')) {
+      context.handle(_projectIdMeta,
+          projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta));
+    } else if (isInserting) {
+      context.missing(_projectIdMeta);
+    }
+    if (data.containsKey('daily_words')) {
+      context.handle(
+          _dailyWordsMeta,
+          dailyWords.isAcceptableOrUnknown(
+              data['daily_words']!, _dailyWordsMeta));
+    } else if (isInserting) {
+      context.missing(_dailyWordsMeta);
+    }
+    if (data.containsKey('weekly_words')) {
+      context.handle(
+          _weeklyWordsMeta,
+          weeklyWords.isAcceptableOrUnknown(
+              data['weekly_words']!, _weeklyWordsMeta));
+    } else if (isInserting) {
+      context.missing(_weeklyWordsMeta);
+    }
+    if (data.containsKey('monthly_words')) {
+      context.handle(
+          _monthlyWordsMeta,
+          monthlyWords.isAcceptableOrUnknown(
+              data['monthly_words']!, _monthlyWordsMeta));
+    } else if (isInserting) {
+      context.missing(_monthlyWordsMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {projectId};
+  @override
+  WritingGoalRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return WritingGoalRow(
+      projectId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}project_id'])!,
+      dailyWords: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}daily_words'])!,
+      weeklyWords: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}weekly_words'])!,
+      monthlyWords: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}monthly_words'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $WritingGoalRowsTable createAlias(String alias) {
+    return $WritingGoalRowsTable(attachedDatabase, alias);
+  }
+}
+
+class WritingGoalRow extends DataClass implements Insertable<WritingGoalRow> {
+  final String projectId;
+  final int dailyWords;
+  final int weeklyWords;
+  final int monthlyWords;
+  final DateTime updatedAt;
+  const WritingGoalRow(
+      {required this.projectId,
+      required this.dailyWords,
+      required this.weeklyWords,
+      required this.monthlyWords,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['project_id'] = Variable<String>(projectId);
+    map['daily_words'] = Variable<int>(dailyWords);
+    map['weekly_words'] = Variable<int>(weeklyWords);
+    map['monthly_words'] = Variable<int>(monthlyWords);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  WritingGoalRowsCompanion toCompanion(bool nullToAbsent) {
+    return WritingGoalRowsCompanion(
+      projectId: Value(projectId),
+      dailyWords: Value(dailyWords),
+      weeklyWords: Value(weeklyWords),
+      monthlyWords: Value(monthlyWords),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory WritingGoalRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return WritingGoalRow(
+      projectId: serializer.fromJson<String>(json['projectId']),
+      dailyWords: serializer.fromJson<int>(json['dailyWords']),
+      weeklyWords: serializer.fromJson<int>(json['weeklyWords']),
+      monthlyWords: serializer.fromJson<int>(json['monthlyWords']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'projectId': serializer.toJson<String>(projectId),
+      'dailyWords': serializer.toJson<int>(dailyWords),
+      'weeklyWords': serializer.toJson<int>(weeklyWords),
+      'monthlyWords': serializer.toJson<int>(monthlyWords),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  WritingGoalRow copyWith(
+          {String? projectId,
+          int? dailyWords,
+          int? weeklyWords,
+          int? monthlyWords,
+          DateTime? updatedAt}) =>
+      WritingGoalRow(
+        projectId: projectId ?? this.projectId,
+        dailyWords: dailyWords ?? this.dailyWords,
+        weeklyWords: weeklyWords ?? this.weeklyWords,
+        monthlyWords: monthlyWords ?? this.monthlyWords,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  WritingGoalRow copyWithCompanion(WritingGoalRowsCompanion data) {
+    return WritingGoalRow(
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      dailyWords:
+          data.dailyWords.present ? data.dailyWords.value : this.dailyWords,
+      weeklyWords:
+          data.weeklyWords.present ? data.weeklyWords.value : this.weeklyWords,
+      monthlyWords: data.monthlyWords.present
+          ? data.monthlyWords.value
+          : this.monthlyWords,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WritingGoalRow(')
+          ..write('projectId: $projectId, ')
+          ..write('dailyWords: $dailyWords, ')
+          ..write('weeklyWords: $weeklyWords, ')
+          ..write('monthlyWords: $monthlyWords, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(projectId, dailyWords, weeklyWords, monthlyWords, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is WritingGoalRow &&
+          other.projectId == this.projectId &&
+          other.dailyWords == this.dailyWords &&
+          other.weeklyWords == this.weeklyWords &&
+          other.monthlyWords == this.monthlyWords &&
+          other.updatedAt == this.updatedAt);
+}
+
+class WritingGoalRowsCompanion extends UpdateCompanion<WritingGoalRow> {
+  final Value<String> projectId;
+  final Value<int> dailyWords;
+  final Value<int> weeklyWords;
+  final Value<int> monthlyWords;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const WritingGoalRowsCompanion({
+    this.projectId = const Value.absent(),
+    this.dailyWords = const Value.absent(),
+    this.weeklyWords = const Value.absent(),
+    this.monthlyWords = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  WritingGoalRowsCompanion.insert({
+    required String projectId,
+    required int dailyWords,
+    required int weeklyWords,
+    required int monthlyWords,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : projectId = Value(projectId),
+        dailyWords = Value(dailyWords),
+        weeklyWords = Value(weeklyWords),
+        monthlyWords = Value(monthlyWords),
+        updatedAt = Value(updatedAt);
+  static Insertable<WritingGoalRow> custom({
+    Expression<String>? projectId,
+    Expression<int>? dailyWords,
+    Expression<int>? weeklyWords,
+    Expression<int>? monthlyWords,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (projectId != null) 'project_id': projectId,
+      if (dailyWords != null) 'daily_words': dailyWords,
+      if (weeklyWords != null) 'weekly_words': weeklyWords,
+      if (monthlyWords != null) 'monthly_words': monthlyWords,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  WritingGoalRowsCompanion copyWith(
+      {Value<String>? projectId,
+      Value<int>? dailyWords,
+      Value<int>? weeklyWords,
+      Value<int>? monthlyWords,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return WritingGoalRowsCompanion(
+      projectId: projectId ?? this.projectId,
+      dailyWords: dailyWords ?? this.dailyWords,
+      weeklyWords: weeklyWords ?? this.weeklyWords,
+      monthlyWords: monthlyWords ?? this.monthlyWords,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (dailyWords.present) {
+      map['daily_words'] = Variable<int>(dailyWords.value);
+    }
+    if (weeklyWords.present) {
+      map['weekly_words'] = Variable<int>(weeklyWords.value);
+    }
+    if (monthlyWords.present) {
+      map['monthly_words'] = Variable<int>(monthlyWords.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WritingGoalRowsCompanion(')
+          ..write('projectId: $projectId, ')
+          ..write('dailyWords: $dailyWords, ')
+          ..write('weeklyWords: $weeklyWords, ')
+          ..write('monthlyWords: $monthlyWords, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   _$AuthorOsDatabase(QueryExecutor e) : super(e);
   $AuthorOsDatabaseManager get managers => $AuthorOsDatabaseManager(this);
@@ -5866,6 +6188,8 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
   late final $AuditEventRowsTable auditEventRows = $AuditEventRowsTable(this);
   late final $WritingSessionRowsTable writingSessionRows =
       $WritingSessionRowsTable(this);
+  late final $WritingGoalRowsTable writingGoalRows =
+      $WritingGoalRowsTable(this);
   late final Index authorRecordsType = Index('author_records_type',
       'CREATE INDEX author_records_type ON author_record_rows (type_id)');
   late final Index authorRecordsScope = Index('author_records_scope',
@@ -5945,6 +6269,7 @@ abstract class _$AuthorOsDatabase extends GeneratedDatabase {
         recordVersionRows,
         auditEventRows,
         writingSessionRows,
+        writingGoalRows,
         authorRecordsType,
         authorRecordsScope,
         authorRecordsProject,
@@ -9941,6 +10266,181 @@ typedef $$WritingSessionRowsTableProcessedTableManager = ProcessedTableManager<
     ),
     WritingSessionRow,
     PrefetchHooks Function()>;
+typedef $$WritingGoalRowsTableCreateCompanionBuilder = WritingGoalRowsCompanion
+    Function({
+  required String projectId,
+  required int dailyWords,
+  required int weeklyWords,
+  required int monthlyWords,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$WritingGoalRowsTableUpdateCompanionBuilder = WritingGoalRowsCompanion
+    Function({
+  Value<String> projectId,
+  Value<int> dailyWords,
+  Value<int> weeklyWords,
+  Value<int> monthlyWords,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$WritingGoalRowsTableFilterComposer
+    extends Composer<_$AuthorOsDatabase, $WritingGoalRowsTable> {
+  $$WritingGoalRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get dailyWords => $composableBuilder(
+      column: $table.dailyWords, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get weeklyWords => $composableBuilder(
+      column: $table.weeklyWords, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get monthlyWords => $composableBuilder(
+      column: $table.monthlyWords, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$WritingGoalRowsTableOrderingComposer
+    extends Composer<_$AuthorOsDatabase, $WritingGoalRowsTable> {
+  $$WritingGoalRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get projectId => $composableBuilder(
+      column: $table.projectId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get dailyWords => $composableBuilder(
+      column: $table.dailyWords, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get weeklyWords => $composableBuilder(
+      column: $table.weeklyWords, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get monthlyWords => $composableBuilder(
+      column: $table.monthlyWords,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$WritingGoalRowsTableAnnotationComposer
+    extends Composer<_$AuthorOsDatabase, $WritingGoalRowsTable> {
+  $$WritingGoalRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
+
+  GeneratedColumn<int> get dailyWords => $composableBuilder(
+      column: $table.dailyWords, builder: (column) => column);
+
+  GeneratedColumn<int> get weeklyWords => $composableBuilder(
+      column: $table.weeklyWords, builder: (column) => column);
+
+  GeneratedColumn<int> get monthlyWords => $composableBuilder(
+      column: $table.monthlyWords, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$WritingGoalRowsTableTableManager extends RootTableManager<
+    _$AuthorOsDatabase,
+    $WritingGoalRowsTable,
+    WritingGoalRow,
+    $$WritingGoalRowsTableFilterComposer,
+    $$WritingGoalRowsTableOrderingComposer,
+    $$WritingGoalRowsTableAnnotationComposer,
+    $$WritingGoalRowsTableCreateCompanionBuilder,
+    $$WritingGoalRowsTableUpdateCompanionBuilder,
+    (
+      WritingGoalRow,
+      BaseReferences<_$AuthorOsDatabase, $WritingGoalRowsTable, WritingGoalRow>
+    ),
+    WritingGoalRow,
+    PrefetchHooks Function()> {
+  $$WritingGoalRowsTableTableManager(
+      _$AuthorOsDatabase db, $WritingGoalRowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$WritingGoalRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$WritingGoalRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$WritingGoalRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> projectId = const Value.absent(),
+            Value<int> dailyWords = const Value.absent(),
+            Value<int> weeklyWords = const Value.absent(),
+            Value<int> monthlyWords = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              WritingGoalRowsCompanion(
+            projectId: projectId,
+            dailyWords: dailyWords,
+            weeklyWords: weeklyWords,
+            monthlyWords: monthlyWords,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String projectId,
+            required int dailyWords,
+            required int weeklyWords,
+            required int monthlyWords,
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              WritingGoalRowsCompanion.insert(
+            projectId: projectId,
+            dailyWords: dailyWords,
+            weeklyWords: weeklyWords,
+            monthlyWords: monthlyWords,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$WritingGoalRowsTableProcessedTableManager = ProcessedTableManager<
+    _$AuthorOsDatabase,
+    $WritingGoalRowsTable,
+    WritingGoalRow,
+    $$WritingGoalRowsTableFilterComposer,
+    $$WritingGoalRowsTableOrderingComposer,
+    $$WritingGoalRowsTableAnnotationComposer,
+    $$WritingGoalRowsTableCreateCompanionBuilder,
+    $$WritingGoalRowsTableUpdateCompanionBuilder,
+    (
+      WritingGoalRow,
+      BaseReferences<_$AuthorOsDatabase, $WritingGoalRowsTable, WritingGoalRow>
+    ),
+    WritingGoalRow,
+    PrefetchHooks Function()>;
 
 class $AuthorOsDatabaseManager {
   final _$AuthorOsDatabase _db;
@@ -9973,4 +10473,6 @@ class $AuthorOsDatabaseManager {
       $$AuditEventRowsTableTableManager(_db, _db.auditEventRows);
   $$WritingSessionRowsTableTableManager get writingSessionRows =>
       $$WritingSessionRowsTableTableManager(_db, _db.writingSessionRows);
+  $$WritingGoalRowsTableTableManager get writingGoalRows =>
+      $$WritingGoalRowsTableTableManager(_db, _db.writingGoalRows);
 }

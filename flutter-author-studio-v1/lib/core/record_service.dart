@@ -13,10 +13,18 @@ class RecordService {
   const RecordService({
     required this.projectId,
     required this.repository,
+    this.inheritedScopeIds = const {},
   });
 
   final String projectId;
   final DriftConnectedDomainRepository repository;
+
+  /// Shared scopes this project inherits records from, resolved by
+  /// `ScopeResolver`.
+  ///
+  /// Empty by default, so a caller that has not opted into cross-book reads
+  /// behaves exactly as it did before scopes existed.
+  final Set<String> inheritedScopeIds;
 
   VersionAuditService get history => VersionAuditService(
         projectId: projectId,
@@ -37,7 +45,11 @@ class RecordService {
   }
 
   Future<RecordValidationResult> validateRecord(AuthorRecord record) async =>
-      RecordValidator(await registry()).validate(record, projectId: projectId);
+      RecordValidator(await registry()).validate(
+        record,
+        projectId: projectId,
+        inheritedScopeIds: inheritedScopeIds,
+      );
 
   Future<AuthorRecord> createRecord(
     AuthorRecord record, {
@@ -390,7 +402,12 @@ class RecordService {
       record.projectId == projectId ||
       record.scopeId == projectId ||
       record.fields['projectId'] == projectId ||
-      record.fields['_codex.projectId'] == projectId;
+      record.fields['_codex.projectId'] == projectId ||
+      isInheritedSharedScope(
+        scopeType: record.scopeType,
+        scopeId: record.scopeId,
+        inheritedScopeIds: inheritedScopeIds,
+      );
 
   Future<void> _validateLinks(
     AuthorRecord record,

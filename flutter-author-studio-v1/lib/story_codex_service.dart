@@ -13,6 +13,7 @@ import 'core/record_validation.dart';
 import 'core/safe_delete.dart';
 import 'core/safe_delete_service.dart';
 import 'core/record_types.dart';
+import 'core/series_scope.dart';
 import 'core/story_codex_domain.dart';
 import 'core/template_engine.dart';
 import 'core/universal_search.dart';
@@ -38,6 +39,26 @@ class StoryCodexService {
   final ConnectionEngine connections;
   final RecordService records;
 
+  SeriesScopeService get series =>
+      SeriesScopeService(projectId: projectId, repository: repository);
+
+  ScopeResolver get scopes =>
+      ScopeResolver(projectId: projectId, repository: repository);
+
+  /// This book's place in `Series -> Project`.
+  Future<ScopeChain> scopeChain() => scopes.chain();
+
+  /// A [RecordService] that can also read the shared canon this book inherits.
+  ///
+  /// The plain [records] field stays project-only, so every existing write path
+  /// keeps exactly the ownership it had. Only the reads that are meant to cross
+  /// a book boundary ask for this one.
+  Future<RecordService> scopedRecords() async => RecordService(
+        projectId: projectId,
+        repository: repository,
+        inheritedScopeIds: (await scopeChain()).inheritedScopeIds,
+      );
+
   BranchService get branches =>
       BranchService(projectId: projectId, repository: repository);
 
@@ -62,6 +83,11 @@ class StoryCodexService {
   Future<CodexEntry?> readEntry(String id) => getCodexEntry(id);
 
   Future<void> ensureFoundation({DateTime? timestamp}) async {
+    // The scope chain hangs a book's series membership on the book's own
+    // record, and nothing has ever written one — project identity has lived in
+    // shared preferences since onboarding. Materialising it here is idempotent
+    // and costs one primary-key read on an already-seeded project.
+    await scopes.ensureProjectRecord(timestamp: timestamp);
     final existing = {
       for (final record in await repository.recordsByScope(projectId))
         record.id,
@@ -175,7 +201,7 @@ class StoryCodexService {
   }
 
   Future<CodexEntry?> getCodexEntry(String id) async {
-    final record = await records.getRecord(id);
+    final record = await (await scopedRecords()).getRecord(id);
     if (record == null || !_isEntry(record)) {
       return null;
     }
@@ -381,9 +407,16 @@ class StoryCodexService {
     bool includeArchived = false,
     bool includeDeleted = false,
   }) async {
-    final records = await repository.snapshot().then((value) => value.records);
+    final chain = await scopeChain();
+    // This used to read repository.snapshot() — every row in the database —
+    // and filter in Dart. The scoped read replaces that with an indexed query,
+    // and delivers the series' shared canon in the same pass.
+    final records = await repository.recordsVisibleToProject(
+      projectId,
+      inheritedScopeIds: chain.inheritedScopeIds,
+    );
     return records
-        .where(_belongsToProject)
+        .where((record) => _isVisible(record, chain))
         .where(_isEntry)
         .where((record) =>
             includeArchived || record.status != AuthorRecordStatus.archived)
@@ -392,6 +425,32 @@ class StoryCodexService {
         .map(CodexEntry.new)
         .toList()
       ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  }
+
+  /// Shares an entry with the whole series.
+  ///
+  /// The entry keeps its id, its history and its relationships; only its owning
+  /// scope changes. Delegates to [SeriesScopeService], which delegates to
+  /// `RecordService.changeScope` — the one path allowed to move a record.
+  Future<CodexEntry> promoteToSeries(
+    String id, {
+    String? seriesId,
+    DateTime? timestamp,
+  }) async {
+    await _requireEntry(id);
+    final promoted = await series.promoteToSeries(
+      id,
+      seriesId: seriesId,
+      timestamp: timestamp,
+    );
+    return CodexEntry(promoted);
+  }
+
+  /// Returns a shared entry to the book that authored it.
+  Future<CodexEntry> demoteToProject(String id, {DateTime? timestamp}) async {
+    await _requireEntry(id);
+    final demoted = await series.demoteToProject(id, timestamp: timestamp);
+    return CodexEntry(demoted);
   }
 
   Future<List<CodexEntry>> getCodexByType(String typeId) async =>
@@ -438,11 +497,37 @@ class StoryCodexService {
     return entries;
   }
 
-  Future<List<RecordLink>> getCodexConnections(String id) =>
-      connections.connections(id);
+  /// The relationships this book has recorded for [id].
+  ///
+  /// Edges are owned by the book that drew them: promotion moves the node, not
+  /// its edges. So a member book reading shared canon sees the relationships it
+  /// made itself and never another book's — asking [ConnectionEngine] directly
+  /// would instead throw, because the shared record is not this book's to
+  /// traverse.
+  Future<List<RecordLink>> getCodexConnections(String id) async {
+    if (!await _isForeignCanon(id)) return connections.connections(id);
+    final links = await repository.backlinks(id);
+    return links.where((link) => link.scopeId == projectId).toList();
+  }
 
-  Future<List<AuthorRecord>> getRelated(String id) =>
-      connections.linkedRecords(id);
+  Future<List<AuthorRecord>> getRelated(String id) async {
+    if (!await _isForeignCanon(id)) return connections.linkedRecords(id);
+    final links = await getCodexConnections(id);
+    final ids = {
+      for (final link in links)
+        if (link.sourceId == id) link.targetId else link.sourceId,
+    };
+    return repository.recordsByIds(ids);
+  }
+
+  /// Whether [id] is shared canon a different book owns.
+  Future<bool> _isForeignCanon(String id) async {
+    final record = await repository.recordById(id);
+    if (record == null) return false;
+    return record.scopeType != RecordScopeType.project &&
+        record.projectId != null &&
+        record.projectId != projectId;
+  }
 
   Future<List<AuthorRecord>> getTimeline(String id) =>
       _relatedRecordsByType(id, const {
@@ -805,7 +890,9 @@ class StoryCodexService {
         ? (await repository.snapshot()).records.where(_belongsToProject).toList()
         : await branches.recordsForBranch(branchId);
     return visible
-        .where((record) => !CodexInfrastructureTypes.all.contains(record.typeId))
+        .where((record) =>
+            !CodexInfrastructureTypes.all.contains(record.typeId) &&
+            !kScopeContainerTypeIds.contains(record.typeId))
         .where((record) => record.status != AuthorRecordStatus.deleted)
         .toList()
       ..sort((left, right) => left.title.compareTo(right.title));
@@ -1166,6 +1253,9 @@ class StoryCodexService {
           !filter.templateIds.contains(entry.templateId)) {
         return false;
       }
+      if (filter.scopes.isNotEmpty && !filter.scopes.contains(entry.scopeFacet)) {
+        return false;
+      }
       if (filter.tagIds.isNotEmpty &&
           !entry.tagIds.any(filter.tagIds.contains)) {
         return false;
@@ -1296,10 +1386,21 @@ class StoryCodexService {
 
   bool _belongsToProject(AuthorRecord record) =>
       record.scopeId == projectId ||
+      record.projectId == projectId ||
       record.fields[CodexFields.projectId] == projectId;
 
+  /// Whether [record] is readable from this book under [chain].
+  bool _isVisible(AuthorRecord record, ScopeChain chain) =>
+      _belongsToProject(record) ||
+      isInheritedSharedScope(
+        scopeType: record.scopeType,
+        scopeId: record.scopeId,
+        inheritedScopeIds: chain.inheritedScopeIds,
+      );
+
   bool _isEntry(AuthorRecord record) =>
-      !CodexInfrastructureTypes.all.contains(record.typeId);
+      !CodexInfrastructureTypes.all.contains(record.typeId) &&
+      !kScopeContainerTypeIds.contains(record.typeId);
 
   Future<void> _validateRecordIds(Iterable<String> ids) async {
     for (final id in ids) {

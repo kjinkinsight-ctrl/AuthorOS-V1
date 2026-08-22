@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../resolved_theme.dart';
 import '../theme_definition.dart';
 import '../theme_persistence.dart';
+import '../theme_registry.dart';
+import '../theme_resolver.dart';
 import '../theme_tokens.dart';
 
 /// Converts a [ResolvedTheme] into Flutter types.
@@ -108,6 +110,9 @@ class AuthorOsTheme {
       brightness: brightness(theme.brightness),
       fontFamily: bodyStyle.family,
       colorScheme: colorScheme,
+      // Status and categorical colours ride on the same ThemeData rather than
+      // a parallel provider, so there is still exactly one theme system.
+      extensions: [AuthorOsSemanticColors.from(theme)],
       textTheme: textTheme,
       scaffoldBackgroundColor: color(palette[ThemeColorRef.background]),
       focusColor: focusRing,
@@ -179,6 +184,94 @@ class AuthorOsTheme {
               BorderSide(color: focusRing, width: metrics.focusRingWidth),
         ),
       ),
+    );
+  }
+}
+
+/// Status and categorical colours, carried on the application's single
+/// [ThemeData] as a Flutter [ThemeExtension].
+///
+/// Material's `ColorScheme` has no slot for "this check passed" or "this is a
+/// Political link", so these roles would otherwise have nowhere to live but a
+/// second colour system. Riding on `ThemeData` means any widget reaches them
+/// through `Theme.of(context)` with no [StudioThemeScope] required, and the
+/// engine remains the only thing that decides their values.
+@immutable
+class AuthorOsSemanticColors extends ThemeExtension<AuthorOsSemanticColors> {
+  const AuthorOsSemanticColors({
+    required this.success,
+    required this.warning,
+    required this.error,
+    required this.categories,
+  });
+
+  /// Projects the status roles and categorical ramp out of [theme].
+  factory AuthorOsSemanticColors.from(ResolvedTheme theme) =>
+      AuthorOsSemanticColors(
+        success: AuthorOsTheme.color(theme.color(ThemeColorRef.success)),
+        warning: AuthorOsTheme.color(theme.color(ThemeColorRef.warning)),
+        error: AuthorOsTheme.color(theme.color(ThemeColorRef.error)),
+        categories: [
+          for (final ref in ThemeCategoryRef.values)
+            AuthorOsTheme.color(theme.category(ref)),
+        ],
+      );
+
+  final Color success;
+  final Color warning;
+  final Color error;
+
+  /// The categorical ramp, indexed by [ThemeCategoryRef.index].
+  final List<Color> categories;
+
+  Color category(ThemeCategoryRef ref) => categories[ref.index];
+
+  /// The values a host without AuthorOS [ThemeData] falls back to.
+  ///
+  /// A bare `MaterialApp` — which several widget tests and any embedding host
+  /// use — carries no extension. Falling back to the registry's light values
+  /// keeps those hosts rendering exactly what the pre-migration literals did,
+  /// rather than throwing or silently going transparent.
+  static final AuthorOsSemanticColors fallback = AuthorOsSemanticColors.from(
+    const ThemeResolver().resolve(
+      definition: ThemeRegistry.standard().byId('light'),
+      mode: AuthorOsThemeMode.light,
+      hostBrightness: ThemeBrightness.light,
+    ),
+  );
+
+  /// The nearest instance, or [fallback] when none is installed.
+  static AuthorOsSemanticColors of(BuildContext context) =>
+      Theme.of(context).extension<AuthorOsSemanticColors>() ?? fallback;
+
+  @override
+  AuthorOsSemanticColors copyWith({
+    Color? success,
+    Color? warning,
+    Color? error,
+    List<Color>? categories,
+  }) =>
+      AuthorOsSemanticColors(
+        success: success ?? this.success,
+        warning: warning ?? this.warning,
+        error: error ?? this.error,
+        categories: categories ?? this.categories,
+      );
+
+  @override
+  AuthorOsSemanticColors lerp(
+    covariant ThemeExtension<AuthorOsSemanticColors>? other,
+    double t,
+  ) {
+    if (other is! AuthorOsSemanticColors) return this;
+    return AuthorOsSemanticColors(
+      success: Color.lerp(success, other.success, t) ?? success,
+      warning: Color.lerp(warning, other.warning, t) ?? warning,
+      error: Color.lerp(error, other.error, t) ?? error,
+      categories: [
+        for (var i = 0; i < categories.length; i++)
+          Color.lerp(categories[i], other.categories[i], t) ?? categories[i],
+      ],
     );
   }
 }

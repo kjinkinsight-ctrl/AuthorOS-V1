@@ -153,7 +153,7 @@ void main() {
       });
       await pumpApp(tester);
 
-      expect(find.text('Author OS'), findsOneWidget);
+      expect(find.text('AuthorOS'), findsOneWidget);
       expect(find.byKey(const Key('startup-continue')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('startup-add-user')));

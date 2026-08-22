@@ -26,7 +26,7 @@ void main() {
     await _pumpWelcome(tester, recorded: recorded);
 
     expect(find.text('Welcome to'), findsOneWidget);
-    expect(find.text('Author OS'), findsWidgets);
+    expect(find.text('AuthorOS'), findsWidgets);
     expect(find.text('Your complete book creation studio.'), findsOneWidget);
     expect(
       find.text('PLAN  •  BUILD  •  WRITE  •  EXPLORE  •  CREATE'),

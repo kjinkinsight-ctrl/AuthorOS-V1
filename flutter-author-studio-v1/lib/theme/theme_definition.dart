@@ -55,9 +55,13 @@ class ThemeAccessibility {
 
 /// A complete set of colour roles for one brightness.
 class ThemePalette {
-  const ThemePalette(this.colors);
+  const ThemePalette(this.colors, {this.categories = const {}});
 
   final Map<ThemeColorRef, ThemeColor> colors;
+
+  /// The categorical ramp. Held here rather than in a separate service so a
+  /// palette owns every colour it renders — there is one colour system.
+  final Map<ThemeCategoryRef, ThemeColor> categories;
 
   ThemeColor operator [](ThemeColorRef ref) {
     final color = colors[ref];
@@ -67,7 +71,17 @@ class ThemePalette {
     return color;
   }
 
+  ThemeColor category(ThemeCategoryRef ref) {
+    final color = categories[ref];
+    if (color == null) {
+      throw StateError('Palette does not define category ${ref.name}.');
+    }
+    return color;
+  }
+
   bool defines(ThemeColorRef ref) => colors.containsKey(ref);
+
+  bool definesCategory(ThemeCategoryRef ref) => categories.containsKey(ref);
 
   /// Roles this palette does not define.
   List<ThemeColorRef> get missingRequiredRoles => [
@@ -75,18 +89,30 @@ class ThemePalette {
           if (!colors.containsKey(ref)) ref,
       ];
 
-  /// A copy with [overrides] applied on top. Absent keys are inherited.
-  ThemePalette merge(Map<ThemeColorRef, ThemeColor> overrides) =>
-      ThemePalette({...colors, ...overrides});
+  /// Categorical slots this palette does not define.
+  List<ThemeCategoryRef> get missingCategories => [
+        for (final ref in ThemeCategoryRef.values)
+          if (!categories.containsKey(ref)) ref,
+      ];
 
-  /// Applies [transform] to every role.
+  /// A copy with [overrides] applied on top. Absent keys are inherited.
+  ///
+  /// Studio overrides address semantic roles only; the categorical ramp is
+  /// shared, so that one category keeps one colour across every Studio.
+  ThemePalette merge(Map<ThemeColorRef, ThemeColor> overrides) =>
+      ThemePalette({...colors, ...overrides}, categories: categories);
+
+  /// Applies [transform] to every role, carrying the ramp through unchanged.
   ThemePalette map(
     ThemeColor Function(ThemeColorRef ref, ThemeColor color) transform,
   ) =>
-      ThemePalette({
-        for (final entry in colors.entries)
-          entry.key: transform(entry.key, entry.value),
-      });
+      ThemePalette(
+        {
+          for (final entry in colors.entries)
+            entry.key: transform(entry.key, entry.value),
+        },
+        categories: categories,
+      );
 }
 
 /// A registered theme: its palettes, typography, metrics, and Studio overrides.
@@ -170,6 +196,13 @@ class ThemeDefinition {
         throw FormatException(
           'Theme "$id" (${entry.key.name}) is missing colour roles: '
           '${missing.map((ref) => ref.name).join(', ')}.',
+        );
+      }
+      final missingCategories = entry.value.missingCategories;
+      if (missingCategories.isNotEmpty) {
+        throw FormatException(
+          'Theme "$id" (${entry.key.name}) is missing category slots: '
+          '${missingCategories.map((ref) => ref.name).join(', ')}.',
         );
       }
     }

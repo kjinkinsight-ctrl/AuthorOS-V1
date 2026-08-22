@@ -25,7 +25,10 @@ class ThemeResolver {
   ///    [ResolvedTheme.fallbackApplied] is set. Resolution never throws for a
   ///    renderable theme.
   /// 3. **Accessibility.** `highContrast` is applied first, then
-  ///    `reduceIntensity`. The order matters: contrast is established against
+  ///    `reduceIntensity`. Neither touches the status roles or the
+  ///    categorical ramp — those are signal colours, told apart by hue, and
+  ///    both transformations would erase the distinction they exist to carry.
+  ///    `reduceIntensity` The order matters: contrast is established against
   ///    true palette values, then decorative saturation is softened without
   ///    undoing it.
   ResolvedTheme resolve({
@@ -102,6 +105,14 @@ class ThemeResolver {
       ThemeColorRef.outline => color.lerp(extreme, 0.45),
       ThemeColorRef.outlineVariant => color.lerp(extreme, 0.35),
       ThemeColorRef.focusRing => color.lerp(extreme, 0.25),
+      // Status signals are deliberately untouched. Pushing them towards black
+      // or white is what would destroy them: success, warning and error are
+      // told apart by hue, and a high-contrast user needs that distinction
+      // more than anyone. Same reasoning as background and surface above.
+      ThemeColorRef.success ||
+      ThemeColorRef.warning ||
+      ThemeColorRef.error =>
+        color,
       _ => color,
     };
   }
@@ -132,6 +143,14 @@ class ThemeResolver {
       ThemeColorRef.selection ||
       ThemeColorRef.highlight =>
         color.lerp(neutral, 0.45),
+      // Status signals are excluded for the same reason text roles are: they
+      // are rendered as label text as well as fills, so softening them would
+      // reduce reading contrast, and desaturating a warning towards grey
+      // removes the signal rather than calming it.
+      ThemeColorRef.success ||
+      ThemeColorRef.warning ||
+      ThemeColorRef.error =>
+        color,
       _ => color,
     };
   }

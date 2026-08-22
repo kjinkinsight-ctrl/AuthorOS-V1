@@ -18,7 +18,6 @@ import 'package:flutter/painting.dart' show Offset;
 
 import '../core/connected_domain.dart';
 import '../core/knowledge_graph_record_types.dart';
-import '../core/record_scope.dart';
 import '../core/record_service.dart';
 import '../core/story_graph.dart';
 import '../persistence/authoros_database.dart';

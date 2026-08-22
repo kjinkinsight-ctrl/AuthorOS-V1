@@ -3,14 +3,12 @@ library;
 
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/knowledge_graph_record_types.dart';
-import 'package:author_studio_v1/core/record_scope.dart';
 import 'package:author_studio_v1/core/record_service.dart';
 import 'package:author_studio_v1/core/story_graph.dart';
 import 'package:author_studio_v1/core/story_graph_service.dart';
 import 'package:author_studio_v1/knowledge_graph/canvas_service.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/painting.dart' show Offset;
 import 'package:flutter_test/flutter_test.dart';
 
 final _timestamp = DateTime.utc(2026, 8, 21, 12);

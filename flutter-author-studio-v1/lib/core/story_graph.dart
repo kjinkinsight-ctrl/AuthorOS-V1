@@ -13,7 +13,6 @@ library;
 
 import 'connected_domain.dart';
 import 'connection_types.dart';
-import 'record_scope.dart';
 
 /// Which table a node came from.
 enum StoryGraphNodeKind { record, manuscriptNode }

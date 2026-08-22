@@ -323,11 +323,11 @@ class _KnowledgeGraphViewState extends State<KnowledgeGraphView> {
     // in Shortcuts/Actions, which is a much larger change than this milestone
     // needs — see the implementation map.
     return Shortcuts(
-      shortcuts: <ShortcutActivator, Intent>{
-        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
-            const _GraphSearchIntent(),
-        const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
-            const _GraphSearchIntent(),
+      shortcuts: const <ShortcutActivator, Intent>{
+        SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _GraphSearchIntent(),
+        SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+            _GraphSearchIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{

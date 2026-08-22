@@ -4,7 +4,6 @@ library;
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
 import 'package:author_studio_v1/core/connection_types.dart';
-import 'package:author_studio_v1/core/record_scope.dart';
 import 'package:author_studio_v1/core/record_service.dart';
 import 'package:author_studio_v1/knowledge_graph/knowledge_graph_view.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';

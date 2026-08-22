@@ -8,7 +8,6 @@ library;
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
 import 'package:author_studio_v1/core/connection_types.dart';
-import 'package:author_studio_v1/core/record_scope.dart';
 import 'package:author_studio_v1/core/record_service.dart';
 import 'package:author_studio_v1/core/story_graph.dart';
 import 'package:author_studio_v1/core/story_graph_service.dart';

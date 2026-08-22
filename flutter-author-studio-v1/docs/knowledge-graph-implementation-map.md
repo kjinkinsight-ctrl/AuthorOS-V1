@@ -308,8 +308,10 @@ Also carried:
 
 ## 14. Verification
 
-`flutter analyze` reports **60 issues, 0 errors** — the Phase 0 baseline, unchanged. No new
-analyzer issue was introduced.
+`flutter analyze` reports **0 errors**. The first pass over this work added eight `info`
+issues — seven `unnecessary_import` and one `prefer_const_literals_to_create_immutables` —
+and all eight were fixed rather than absorbed into the backlog, so the milestone adds no
+analyzer issue of its own.
 
 Tests: `story_graph_service_test.dart`, `story_graph_traversal_test.dart`,
 `story_graph_modes_test.dart`, `knowledge_graph_view_test.dart`, and the extended

@@ -90,6 +90,17 @@ class MapPresentationService {
     ];
   }
 
+  /// The manuscript nodes an author may choose as a reveal point, in reading
+  /// order.
+  ///
+  /// The choosing is the Studio's; the writing is `MapService.addRevealPoint`'s.
+  /// This service stays read-only, as it has been since Phase 6 landed — it
+  /// offers the list and never acts on it.
+  Future<List<MapRevealPoint>> revealTargets() async {
+    final nodes = await _manuscriptNodes();
+    return [for (final node in nodes.values) _pointFor(node, nodes)]..sort();
+  }
+
   /// Everything an export may print about itself (§35).
   ///
   /// Each field names its own source, and anything the canonical model does not

@@ -401,4 +401,158 @@ void main() {
       expect(find.byKey(const Key('map-world-panel')), findsOneWidget);
     });
   });
+
+  /// Phase 6 landed able to read reveal points and unable to write one, so no
+  /// project had any and every reader level below the author's own was empty.
+  /// This is the control that closes that, and it is the only thing in Phase 6
+  /// that touches canonical data — so what is tested is mostly that it refuses
+  /// to do so quietly.
+  group('authoring a reveal point', () {
+    testWidgets('a place with no reveal points says so plainly',
+        (tester) async {
+      await seedMap();
+      await seedManuscript();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+
+      await press(tester, 'map-location-city-aurel');
+
+      expect(find.byKey(const Key('map-reveal-none')), findsOneWidget);
+      // Not "no reveal points" as a neutral fact — the consequence, which is
+      // the thing an author actually needs to know.
+      expect(find.textContaining('readers never see it'), findsOneWidget);
+    });
+
+    testWidgets('nothing is written until the author confirms', (tester) async {
+      await seedMap();
+      await seedManuscript();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+      await press(tester, 'map-location-city-aurel');
+      final before = (await repository.snapshot()).toJson();
+
+      await press(tester, 'map-reveal-add-button');
+      expect(find.byKey(const Key('map-reveal-dialog')), findsOneWidget);
+      // Opening the dialog writes nothing, and neither does choosing.
+      await press(tester, 'map-reveal-target-chapter-nine');
+      expect((await repository.snapshot()).toJson(), before);
+
+      await press(tester, 'map-reveal-cancel');
+      expect((await repository.snapshot()).toJson(), before,
+          reason: 'cancelling a reveal dialog changed the story');
+    });
+
+    testWidgets('there is no default choice, so none can be made by accident',
+        (tester) async {
+      await seedMap();
+      await seedManuscript();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+      await press(tester, 'map-location-city-aurel');
+      await press(tester, 'map-reveal-add-button');
+
+      // Confirm is dead until something is picked. A pre-selected chapter
+      // would be Map Studio inferring a reveal point.
+      final confirm = tester.widget<FilledButton>(
+        find.byKey(const Key('map-reveal-confirm')),
+      );
+      expect(confirm.onPressed, isNull);
+      expect(find.byKey(const Key('map-reveal-summary')), findsNothing);
+    });
+
+    testWidgets('the confirmation names the place and the moment',
+        (tester) async {
+      await seedMap();
+      await seedManuscript();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+      await press(tester, 'map-location-city-aurel');
+      await press(tester, 'map-reveal-add-button');
+
+      await press(tester, 'map-reveal-target-chapter-nine');
+
+      expect(
+        find.text('Aurel is revealed in The Siege.'),
+        findsOneWidget,
+        reason: 'the author must be able to read back what they are about to '
+            'record, as a sentence',
+      );
+      expect(find.textContaining('changes your story'), findsOneWidget);
+    });
+
+    testWidgets('confirming writes the canonical relationship', (tester) async {
+      await seedMap();
+      await seedManuscript();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+      await press(tester, 'map-location-city-aurel');
+
+      await press(tester, 'map-reveal-add-button');
+      await press(tester, 'map-reveal-target-chapter-nine');
+      await press(tester, 'map-reveal-confirm');
+
+      final links = (await repository.snapshot())
+          .links
+          .where((link) => link.typeId == 'revealedIn');
+      expect(links, hasLength(1));
+      expect(links.single.sourceId, 'city-aurel');
+      expect(links.single.targetId, 'chapter-nine');
+      expect(find.byKey(const Key('map-reveal-chapter-nine')), findsOneWidget);
+    });
+
+    testWidgets('and the author can take it straight back off', (tester) async {
+      await seedMap();
+      await seedManuscript();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+      await press(tester, 'map-location-city-aurel');
+      await press(tester, 'map-reveal-add-button');
+      await press(tester, 'map-reveal-target-chapter-nine');
+      await press(tester, 'map-reveal-confirm');
+
+      await press(tester, 'map-reveal-remove-chapter-nine');
+
+      expect(
+        (await repository.snapshot())
+            .links
+            .where((link) => link.typeId == 'revealedIn'),
+        isEmpty,
+      );
+      expect(find.byKey(const Key('map-reveal-none')), findsOneWidget);
+    });
+
+    testWidgets('a project with no chapters offers nowhere to point',
+        (tester) async {
+      await seedMap();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+      await press(tester, 'map-location-city-aurel');
+
+      await press(tester, 'map-reveal-add-button');
+
+      // Said rather than shown as an empty list, and confirm stays dead.
+      expect(find.byKey(const Key('map-reveal-no-targets')), findsOneWidget);
+      final confirm = tester.widget<FilledButton>(
+        find.byKey(const Key('map-reveal-confirm')),
+      );
+      expect(confirm.onPressed, isNull);
+    });
+
+    testWidgets('an authored reveal reaches the reader controls',
+        (tester) async {
+      await seedMap();
+      await seedManuscript();
+      await seedPlace('city-aurel', 'Aurel', 200);
+      await pumpStudio(tester);
+      await press(tester, 'map-location-city-aurel');
+      await press(tester, 'map-reveal-add-button');
+      await press(tester, 'map-reveal-target-chapter-one');
+      await press(tester, 'map-reveal-confirm');
+
+      // The two halves meeting: what the author just wrote is what the reader
+      // filter reads. Before this control existed there was nothing to read.
+      final points = await presentations.revealPoints();
+      expect(points['city-aurel']!.nodeId, 'chapter-one');
+    });
+  });
 }

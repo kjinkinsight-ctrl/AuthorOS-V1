@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 
 import 'manuscript_export.dart' show ExportFileSaver;
 import 'map_export.dart';
+import 'map_reader.dart';
 
 export 'map_export.dart';
 
@@ -488,6 +489,113 @@ class _MapExportDialogState extends State<MapExportDialog> {
           onPressed: working ? null : _export,
           icon: const Icon(Icons.download_outlined),
           label: Text(working ? 'Exporting…' : 'Export'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Authoring a reveal point: the one Phase 6 control that changes the story.
+///
+/// Everything else in Phase 6 is a view setting — a theme, a decoration, a
+/// spoiler level — that can be changed freely because changing it changes
+/// nothing. This one writes a canonical relationship, so it is deliberately
+/// heavier than a toggle: it names the place and the moment in a full sentence,
+/// says in as many words that this is story metadata, and requires a second
+/// press. No reveal is ever created as a side effect of anything.
+class MapRevealPointDialog extends StatefulWidget {
+  const MapRevealPointDialog({
+    super.key,
+    required this.placeName,
+    required this.targets,
+  });
+
+  /// The thing being revealed, named in the confirmation.
+  final String placeName;
+
+  /// The manuscript nodes this reveal may point at, in reading order.
+  final List<MapRevealPoint> targets;
+
+  @override
+  State<MapRevealPointDialog> createState() => _MapRevealPointDialogState();
+}
+
+class _MapRevealPointDialogState extends State<MapRevealPointDialog> {
+  MapRevealPoint? choice;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final selected = choice;
+    return AlertDialog(
+      key: const Key('map-reveal-dialog'),
+      title: const Text('Add a reveal point'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This changes your story, not just this map. It records that '
+              '${widget.placeName} becomes known to the reader at the point '
+              'you choose, as an ordinary connection other Studios can see.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            if (widget.targets.isEmpty)
+              Text(
+                'This project has no chapters or scenes yet, so there is '
+                'nowhere for a reveal to point.',
+                key: const Key('map-reveal-no-targets'),
+                style: theme.textTheme.bodySmall,
+              )
+            else
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final target in widget.targets)
+                      ListTile(
+                        key: Key('map-reveal-target-${target.nodeId}'),
+                        selected: selected?.nodeId == target.nodeId,
+                        leading: Icon(
+                          selected?.nodeId == target.nodeId
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                        ),
+                        title: Text(target.label),
+                        subtitle: Text(target.nodeType),
+                        onTap: () => setState(() => choice = target),
+                      ),
+                  ],
+                ),
+              ),
+            if (selected != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                '${widget.placeName} is revealed in ${selected.label}.',
+                key: const Key('map-reveal-summary'),
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const Key('map-reveal-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('map-reveal-confirm'),
+          // Disabled until something is chosen: there is no default reveal
+          // point, because guessing one would be inferring a reveal.
+          onPressed: selected == null
+              ? null
+              : () => Navigator.of(context).pop(selected.nodeId),
+          child: const Text('Add reveal point'),
         ),
       ],
     );

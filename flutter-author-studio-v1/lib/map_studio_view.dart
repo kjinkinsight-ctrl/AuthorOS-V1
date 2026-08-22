@@ -11,6 +11,8 @@
 /// every position that does is map space, produced by [MapProjection].
 library;
 
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -154,6 +156,14 @@ class _MapStudioViewState extends State<MapStudioView> {
   List<MapSpoilerLevel> spoilerLevels = const [MapSpoilerLevel.everything];
   MapSpoilerLevel spoilerLevel = MapSpoilerLevel.everything;
 
+  /// The reveal points on the selected place, and the moments one could name.
+  ///
+  /// Loaded per selection rather than for the whole map: the reveal control is
+  /// about one place at a time, and an author who never opens it never pays for
+  /// the read.
+  List<MapRevealLink> selectionReveals = const [];
+  List<MapRevealPoint> revealTargets = const [];
+
   @override
   void initState() {
     super.initState();
@@ -289,6 +299,8 @@ class _MapStudioViewState extends State<MapStudioView> {
       primarySelection = value;
       if (inlineEditing != value) inlineEditing = null;
     });
+    // A read, not a write: see _loadSelectionReveals.
+    unawaited(_loadSelectionReveals());
   }
 
   void _replaceSelection(List<MapSelection> values) {
@@ -1080,6 +1092,71 @@ class _MapStudioViewState extends State<MapStudioView> {
 
   // ------------------------------------------------------- inline editing ---
 
+  // ------------------------------------------------------- reveal points ---
+
+  /// Loads the reveal points on the current selection.
+  ///
+  /// Purely a read. Opening a place, or opening the Studio at all, never brings
+  /// a reveal into existence — the only thing that does is the author pressing
+  /// the button below.
+  Future<void> _loadSelectionReveals() async {
+    final current = selection;
+    if (current == null) {
+      if (mounted) setState(() => selectionReveals = const []);
+      return;
+    }
+    final reveals = await service.revealPointsFor(current.id);
+    final targets = await presentationService.revealTargets();
+    if (!mounted) return;
+    setState(() {
+      selectionReveals = reveals;
+      revealTargets = targets;
+    });
+  }
+
+  /// Asks the author where a place becomes known, then records it.
+  ///
+  /// Two deliberate frictions, because this is the one Phase 6 action that
+  /// changes canonical data: the dialog names the place and the moment in a
+  /// sentence before it will commit, and it offers no default choice. A reveal
+  /// point is never inferred.
+  Future<void> _addRevealPoint(MapSelection target) async {
+    final data = canvas;
+    if (data == null) return;
+    final name = _nameOf(data, target);
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (context) => MapRevealPointDialog(
+        placeName: name,
+        targets: revealTargets,
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    await _runBusy(() async {
+      await service.addRevealPoint(recordId: target.id, nodeId: chosen);
+      await _loadSelectionReveals();
+    });
+  }
+
+  /// Takes a reveal point back off, returning the place to hidden.
+  Future<void> _removeRevealPoint(MapRevealLink reveal) => _runBusy(() async {
+        await service.removeRevealPoint(
+          recordId: reveal.link.sourceId,
+          nodeId: reveal.nodeId,
+        );
+        await _loadSelectionReveals();
+      });
+
+  String _nameOf(MapCanvasData data, MapSelection value) =>
+      switch (value.kind) {
+        MapSelectionKind.location =>
+          data.locations.where((item) => item.id == value.id).first.name,
+        MapSelectionKind.region =>
+          data.regions.where((item) => item.id == value.id).first.name,
+        MapSelectionKind.marker =>
+          data.markers.where((item) => item.id == value.id).first.label,
+      };
+
   void _openInlineEditor(MapSelection value) => setState(() {
         selections
           ..clear()
@@ -1342,6 +1419,9 @@ class _MapStudioViewState extends State<MapStudioView> {
           selection: selection,
           selectionCount: selections.length,
           onEdit: busy ? null : _openInlineEditor,
+          reveals: selectionReveals,
+          onAddReveal: busy ? null : _addRevealPoint,
+          onRemoveReveal: busy ? null : _removeRevealPoint,
         ),
       ],
     );
@@ -4716,6 +4796,9 @@ class _SelectionDetail extends StatelessWidget {
     required this.selection,
     required this.selectionCount,
     required this.onEdit,
+    this.reveals = const [],
+    this.onAddReveal,
+    this.onRemoveReveal,
   });
 
   final _MapPalette palette;
@@ -4723,6 +4806,12 @@ class _SelectionDetail extends StatelessWidget {
   final MapSelection? selection;
   final int selectionCount;
   final ValueChanged<MapSelection>? onEdit;
+
+  /// Where this place is already recorded as becoming known to the reader.
+  final List<MapRevealLink> reveals;
+
+  final ValueChanged<MapSelection>? onAddReveal;
+  final ValueChanged<MapRevealLink>? onRemoveReveal;
 
   @override
   Widget build(BuildContext context) {
@@ -4794,6 +4883,62 @@ class _SelectionDetail extends StatelessWidget {
           if (body.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(body, style: palette.body),
+          ],
+          if (onAddReveal != null) ...[
+            const Divider(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Reveal points',
+                    style: palette.ui.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('map-reveal-add-button'),
+                  onPressed: () => onAddReveal!(current),
+                  icon: const Icon(Icons.auto_stories_outlined, size: 16),
+                  label: const Text('Add'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              // Said plainly, because it is true and because everything else
+              // in this panel's neighbourhood is a view setting that changes
+              // nothing.
+              'Where the reader learns about this. Stored on your story, not '
+              'on this map, and visible from your other Studios.',
+              style: palette.label,
+            ),
+            const SizedBox(height: 8),
+            if (reveals.isEmpty)
+              Text(
+                'Not revealed anywhere yet, so readers never see it.',
+                key: const Key('map-reveal-none'),
+                style: palette.body,
+              )
+            else
+              for (final reveal in reveals)
+                Padding(
+                  key: Key('map-reveal-${reveal.nodeId}'),
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(reveal.label, style: palette.body),
+                      ),
+                      IconButton(
+                        key: Key('map-reveal-remove-${reveal.nodeId}'),
+                        tooltip: 'Remove this reveal point',
+                        onPressed: onRemoveReveal == null
+                            ? null
+                            : () => onRemoveReveal!(reveal),
+                        icon: const Icon(Icons.close, size: 16),
+                      ),
+                    ],
+                  ),
+                ),
           ],
         ],
       ),

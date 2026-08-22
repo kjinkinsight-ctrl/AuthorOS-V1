@@ -43,7 +43,7 @@ Three gaps, found by the audit and **reported rather than invented**:
 | --- | --- | --- |
 | Real-world scale | the map record declares `coordinateSystem` but no units-per-distance ratio | draws the bar in map units, labelled with the coordinate system's own name, and reports the gap |
 | Series title | `series` is a declared record type that no Studio creates | omits the line; uses a series record if one ever exists |
-| Reveal points | `revealedIn` exists and nothing writes it | reads what is there; reports that no Studio authors them |
+| Reveal points | `revealedIn` exists; Phase 6 shipped able to read it and not to write it | **closed** — Map Studio now authors reveal points explicitly (below) |
 
 Each is surfaced in the export dialog as a `MapPresentationGap`, so an author
 sees why an element is missing instead of finding a blank corner.
@@ -70,11 +70,53 @@ by a test:
 - A route is drawn only when **both** ends are visible. Half a road pointing off
   the edge is itself a spoiler.
 
-**The consequence, stated plainly:** nothing in AuthorOS writes `revealedIn`
-today, so on a project that has never authored a reveal, every level below "full
-story" shows nothing. That is correct for a spoiler filter and confusing for an
-author, so `MapReaderView.notice` says which link is missing rather than
-reporting an empty map.
+**Hide-by-default, stated plainly:** on a project that has never authored a
+reveal, every level below "full story" shows nothing. That is correct for a
+spoiler filter and confusing for an author, so `MapReaderView.notice` says which
+link is missing rather than reporting an empty map.
+
+## Authoring a reveal point
+
+Phase 6 first shipped read-only. It could filter a reader map by `revealedIn`,
+but nothing in AuthorOS wrote one, so *every* project's reader levels were
+empty and the filtering had nothing to act on. This is the write that closes
+that, and it is **the only write in the whole of Phase 6**.
+
+```
+MapService.addRevealPoint(recordId:, nodeId:)   → ConnectionEngine.connect
+MapService.removeRevealPoint(recordId:, nodeId:) → ConnectionEngine.disconnect
+MapService.revealPointsFor(recordId)             → what exists, for undoing
+```
+
+Five properties, each pinned by a test in `test/map_reveal_points_test.dart`:
+
+- **Explicit.** A reveal exists only because an author pressed a button. Nothing
+  infers one; nothing creates one as a side effect of drawing, exporting,
+  selecting a place or opening the Studio. The dialog offers no default choice,
+  because a pre-selected chapter would be Map Studio guessing a reveal point.
+- **Canonical.** It writes `revealedIn` — the relationship AuthorOS already
+  defines, "Revealed in" / "Reveals" — through the same `ConnectionEngine` as
+  every other Map Studio link. It is versioned and audited like any other edit.
+  There is no second spoiler system and no Map-owned reveal store.
+- **Disciplined at the endpoint.** `revealedIn` is registered with wildcard
+  endpoints, so the registry alone would accept a reveal pointing at a
+  character. A reveal has to sit somewhere in reading order to mean anything, so
+  `MapTypes.revealTargetTypes` narrows it to `chapter`, `scene` and `book`, and
+  the refusal names the type it was given.
+- **Reversible.** Removing a reveal deletes the link outright and returns the
+  record to "the author has not said when this becomes known" — which every
+  level below the author's own treats as hidden. Unrevealing is safe by exactly
+  the rule that makes an untouched project safe.
+- **Visibly canonical.** The control sits in the selection panel under its own
+  heading, says in as many words that it is "stored on your story, not on this
+  map, and visible from your other Studios", and reads the change back as a
+  sentence — "Aurel is revealed in The Siege." — before it will commit.
+
+Rendering, projection, export and reader filtering remain read-only. The
+architecture guardrail that used to read "Phase 6 never writes it" now asserts
+the stronger thing it always meant: the drawing, filtering and exporting files
+write nothing at all, the view may ask but must go through the service, and the
+service writes it the one permitted way.
 
 ## Export
 
@@ -128,14 +170,19 @@ loads a real face before drawing; the application uses the platform's fonts.
 - `test/map_reader_test.dart` — 13 tests over reveal points, spoiler levels, the
   reader projection's three withholding rules, and the presentation service's
   canonical reads and reported gaps.
-- `test/map_presentation_view_test.dart` — 12 behaviour tests through the
+- `test/map_presentation_view_test.dart` — 20 behaviour tests through the
   Studio: themes, decorations, presentation mode, its accessible description,
   export in each format through a fake saver, reader filtering proving a hidden
   city never reaches the exported bytes, and a database snapshot across the lot.
-- `test/map_architecture_test.dart` — 9 Phase 6 guardrails: no second
+- `test/map_architecture_test.dart` — 10 Phase 6 guardrails: no second
   representation, read-only by construction, filtering enforced in the model,
-  `revealedIn` never written, one drawing per renderer, one saving abstraction,
-  the domain free of Flutter, no false colour-space claim, and Phases 3–5 intact.
+  `revealedIn` written in exactly one place, a reveal naming only a moment in
+  reading order, one drawing per renderer, one saving abstraction, the domain
+  free of Flutter, no false colour-space claim, and Phases 3–5 intact.
+- `test/map_reveal_points_test.dart` — 19 tests over authoring a reveal point:
+  the direction it is written in, that it is the canonical type, that it is
+  versioned and audited, endpoint discipline, reversal, and that a project with
+  no authored reveals stays spoiler-safe under every read.
 
 Three earlier guardrails fired and were **narrowed rather than weakened**: the
 "no asset fetching" rule banned the substring `http`, which SVG's namespace URL

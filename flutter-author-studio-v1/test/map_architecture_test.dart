@@ -982,24 +982,77 @@ void main() {
       expect(reader, isNot(contains('package:flutter/')));
     });
 
-    test('a reveal is the canonical relationship, and Phase 6 never writes it',
+    test('a reveal is the canonical relationship, written in exactly one place',
         () {
+      // Narrowed, deliberately, from "Phase 6 never writes it". Phase 6 landed
+      // read-only, which left every reader level below the author's own empty
+      // on every project, because nothing in AuthorOS authored a reveal. The
+      // invariant was never "no writes" — it is that **rendering, projection,
+      // export and the view** never write, and that the one write that does
+      // exist is an explicit author action going through the canonical engine.
+      // That is what is asserted here, and it is strictly stronger than the
+      // file-by-file ban it replaces.
       final registry = BuiltInConnectionTypes.registry();
       expect(
         () => registry.resolve(MapPresentationLinks.revealedIn),
         returnsNormally,
       );
+
+      // Every drawing, filtering and exporting file: still no writes at all.
       for (final path in const [
         'lib/map_presentation.dart',
         'lib/map_reader.dart',
         'lib/map_presentation_service.dart',
         'lib/map_export.dart',
         'lib/map_presentation_view.dart',
-        'lib/map_studio_view.dart',
       ]) {
-        expect(read(path), isNot(contains("typeId: 'revealedIn'")),
-            reason: '$path writes a reveal; Phase 6 only reads them');
+        final source = read(path);
+        expect(source, isNot(contains("typeId: 'revealedIn'")),
+            reason: '$path writes a reveal; only MapService may');
+        // The call, not the name: the read layer's doc comment points at
+        // MapService.addRevealPoint to say where writing happens, and saying
+        // where the write lives is the opposite of doing one.
+        expect(source, isNot(contains('addRevealPoint(')),
+            reason: '$path authors a reveal; only MapService may');
       }
+
+      // The view may ask, but may not write: the existing "the view issues no
+      // record or link writes itself" guard already bans ConnectionEngine and
+      // connect( there, so the reveal control has to go through the service.
+      final view = read('lib/map_studio_view.dart');
+      expect(view, isNot(contains("typeId: 'revealedIn'")));
+      expect(view, contains('service.addRevealPoint'));
+      expect(view, contains('service.removeRevealPoint'));
+
+      // And the one writer writes it the only permitted way.
+      final service = read('lib/map_service.dart');
+      expect(service, contains('Future<RecordLink> addRevealPoint'));
+      expect(service, contains('Future<bool> removeRevealPoint'));
+      expect(service, contains('typeId: MapTypes.revealedIn'));
+      expect(service, contains('connections.connect('));
+      expect(service, contains('connections.disconnect('));
+      // No Map-owned spoiler vocabulary anywhere: one relationship, canonical.
+      for (final banned in const [
+        'class RevealStore',
+        'class SpoilerStore',
+        "typeId: 'mapRevealedIn'",
+        "typeId: 'spoiler'",
+      ]) {
+        expect(service, isNot(contains(banned)),
+            reason: 'MapService declares a second spoiler system: $banned');
+      }
+    });
+
+    test('a reveal point can only name a moment in reading order', () {
+      // `revealedIn` is registered with wildcard endpoints, so the registry
+      // alone would accept a reveal pointing at a character. The discipline has
+      // to live in the service, and this is the assertion that it does.
+      final service = read('lib/map_service.dart');
+      expect(service, contains('MapTypes.revealTargetTypes'));
+      expect(
+        read('lib/map_domain.dart'),
+        contains("static const revealTargetTypes = {'chapter', 'scene', 'book'}"),
+      );
     });
 
     test('one drawing feeds every renderer', () {

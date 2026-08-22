@@ -48,7 +48,19 @@ Invariant I-16 is untouched and its guardrail still passes: `writing_session_row
 foreign key into `connected_entities`, no registered record type, and no connection type
 takes a session as an endpoint. Being *archived* is not being a *node*.
 
-### 1.2 Prose travels beside the snapshot, untyped
+### 1.2 The manuscript travels in two halves
+
+> **Superseded in part.** This section said prose could not arrive through
+> `ConnectedDomainSnapshot` because it was not in the database. Prose has since
+> moved into `scene_prose_rows` — see
+> [Manuscript Prose Persistence Implementation Map](manuscript-prose-persistence-implementation-map.md)
+> — so it now travels in the snapshot as `content/scene-prose.jsonl`, and
+> `data/manuscripts.jsonl` carries the manuscript's *structure* alone. The two
+> do not overlap: the store writes its blob with `includeProse: false`, so
+> exactly one copy of the prose is in the file. What follows describes why
+> structure stays untyped, which is unchanged.
+
+#### Structure travels beside the snapshot, untyped
 
 Prose is not in the database, so it cannot arrive through `ConnectedDomainSnapshot`. It is
 passed to `exportSnapshot` as already-serialised `ManuscriptProjectSummary` JSON and comes

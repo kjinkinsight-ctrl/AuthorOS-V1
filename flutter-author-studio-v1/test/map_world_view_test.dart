@@ -261,12 +261,18 @@ void main() {
       await seedWorld();
       await pumpStudio(tester);
 
+      // Targeted by key rather than by text: 'Historical' is also the name of
+      // a Phase 6 map theme, and a bare text finder would match either.
+      String stateKind() => tester
+          .widget<Text>(find.byKey(const Key('map-world-state-kind')))
+          .data!;
+
       expect(find.text('The whole story'), findsOneWidget);
-      expect(find.text('Current'), findsOneWidget);
+      expect(stateKind(), 'Current');
 
       await press(tester, 'map-world-era-prev');
       expect(find.text('The whole story'), findsNothing);
-      expect(find.text('Historical'), findsOneWidget,
+      expect(stateKind(), 'Historical',
           reason: 'the first dated moment is before the last');
 
       await press(tester, 'map-world-whole-story');

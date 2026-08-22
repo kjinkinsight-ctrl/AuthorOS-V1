@@ -1198,9 +1198,17 @@ class ManuscriptService {
       final otherNode = record == null
           ? await repository.manuscriptNodeById(otherId)
           : null;
+      // Read from this node's side: the inverse label when the edge points
+      // inward, the display name when it points outward. The forward name in
+      // both directions made a scene's panel read "Appears in Kali Vale",
+      // which inverts the relationship the author recorded.
+      final incoming = link.targetId == nodeId;
       String displayName;
       try {
-        displayName = registry.resolve(link.typeId).displayName;
+        final definition = registry.resolve(link.typeId);
+        displayName =
+            incoming ? definition.inverseLabel : definition.displayName;
+        if (displayName.isEmpty) displayName = link.typeId;
       } on StateError {
         displayName = link.typeId;
       }
@@ -1213,7 +1221,7 @@ class ManuscriptService {
         destination: searchDestinationForType(
           record?.typeId ?? otherNode?.nodeType ?? '',
         ),
-        incoming: link.targetId == nodeId,
+        incoming: incoming,
         displayName: displayName,
         exists: record != null || otherNode != null,
       ));

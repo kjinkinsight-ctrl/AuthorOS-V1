@@ -1,261 +1,445 @@
-# Codex — Universal Knowledge System Implementation Map
+# AuthorOS — Codex / Universal Knowledge
 
-Status: Implemented and covered by focused domain and widget tests
-Updated: August 21, 2026
-Verification baseline: 1206 tests passing, 57 analyzer issues (0 errors), Flutter 3.44.9
+Status: **Phases 1 and 2 implemented — cross-book scope and deterministic
+intelligence are live. Phases 3-4 designed, not built.**
+Audited: 2026-08-22, from the working tree at `d1b74c8` (PR #35, Knowledge Graph);
+re-verified after merging `main` at `9b629e4` (PR #55)
+Scope: series-wide and cross-book knowledge in the Story Codex, and the phase
+order for the rest of the Codex vision
+Builds on: `docs/story-codex-implementation-map.md`,
+`docs/universal-story-graph-architecture.md`,
+`docs/authoros-2-master-plan.md` §6.1, §12, §14 (M4)
+Delivered work: `docs/codex-universal-knowledge-delivery-map.md` maps the shipped
+services, records and screens for this milestone
+Decision in force: **D-3** — scenes and chapters remain manuscript-domain nodes
 
-## Architecture
+---
 
-The Codex is a knowledge layer over the shared AuthorOS record architecture, not a
-second database. Every entity is an `AuthorRecord`; every relationship is a
-`RecordLink`; all persistence stays in `DriftConnectedDomainRepository`.
+## 0. What this milestone is
 
-Nothing here adds a table. The schema is still version 9.
+The Codex vision has three parts: **cross-book knowledge**, **automatic
+intelligence**, and **structured knowledge**. The audit below found that the
+third is largely built, the first was plumbed but never instantiated, and the
+second has a foundation nobody has pointed at prose yet.
 
-Six services compose what already exists and own no storage of their own:
+They are not independent. Cross-book scope is the substrate: entity recognition
+that cannot see book two's characters is a worse feature, and a reader-facing
+export that cannot express "this is series canon" is a wrong one. So Phase 1 is
+scope, and it is the phase this document ships.
 
-| Service | Owns | Delegates to |
+**Codex and Knowledge Graph stay distinct.** The Codex is what the author knows
+about the world. The Graph is how it connects. They read the same records
+through the same repository; neither owns the other's storage.
+
+### The graph boundary, restated for scope
+
+A scope is not a node. `series` and `project` records exist so that scope has
+somewhere indexed to live, but they describe containment, not the world, and
+`kScopeContainerTypeIds` keeps them out of every list of *entries*. This is the
+same rule `kNonGraphRecordTypeIds` applies to the graph's own canvas.
+
+---
+
+## 1. Repository reality discovered
+
+Audited before writing any code. Every claim here was checked against the tree,
+not carried forward from an earlier document.
+
+| Claim | Finding |
+|---|---|
+| The Codex is unbuilt | **False.** `story_codex_service.dart` (1428 lines), `story_codex_workspace.dart` (4009 lines, 7 tabs), `core/story_codex_domain.dart` (655 lines). Templates, categories, tags, collections, saved views, sources, aliases, per-field visibility, branches, validation, safe-delete and version history all exist |
+| Series scope is unmodelled | **False.** `RecordScopeType` has carried `library, universe, series, project, book, branch, manuscript` since Universal Records. `AuthorRecordRows` has `scope_type, scope_id, project_id, series_id, book_id, branch_id, canon_status` plus the `author_records_series_book` index, and the FTS5 table indexes `series_id`/`book_id`/`canon_status` |
+| Nothing writes a series | **True, and this was the gap.** No UI ever set `seriesId`; no series record instance had ever existed; `SearchDestination.seriesStudio` routed to a placeholder |
+| Reads are project-bound | **True.** Every read was `recordsByProject(projectId)` or `recordsByScope(scopeId)`. `UniversalSearchService.searchBySeries` filtered *within* one project |
+| `StoryGraphFilter` cannot filter by series | **False.** `story_graph_service.dart:523-527` already filters `seriesId`/`bookId`/`branchId`. It had no data and no control |
+| Promote/demote needs new machinery | **False.** `RecordService.changeScope` already preserved id, `createdAt` and `typeId`, bumped revision, validated through `RecordScope.validate()`, and wrote `AuditChangeType.scopeChanged` through `putRecordWithHistory`. It had two callers, both in tests |
+| `_ProjectsStudioView` manages projects | **False.** `lib/main.dart:1982` is an in-memory `List<_ProjectRecord>` seeded in `initState`, never persisted. The application is effectively single-project: one `StarterProject` from onboarding, in shared preferences |
+| `getEntries` is a scoped query | **False.** It read `repository.snapshot()` — every row in the database — and filtered in Dart |
+
+### Three blockers the design had to clear
+
+1. **Links are bound to one project.** `ConnectionEngine.connect` and
+   `RelationshipValidator` reject an edge whose endpoints are not the engine's
+   project (invariant I-2, pinned by `story_graph_architecture_test.dart`). A
+   `partOfSeries` edge is therefore unbuildable without relaxing project
+   isolation. Membership is a column instead.
+2. **History forked per editor.** `VersionAuditService._build` stamped the
+   *calling service's* `projectId` on every version and used it to find the
+   previous one. Promote in book one, edit from book two, and the record grew
+   two disjoint chains each restarting at sequence 1. Fixed here; shipping
+   cross-book editing on top of it would have been a silent data-integrity bug.
+3. **The FTS snippet index is positional.** `snippet(author_search, 11, …)` is a
+   column ordinal. Any new FTS column inserted before `title` silently renders
+   the wrong column. This is why cross-book *search* is deferred rather than
+   bolted on — see §6.
+
+---
+
+## 2. Files
+
+| Path | Role |
+|---|---|
+| `lib/core/record_scope.dart` | `kSharedScopeTypes` and `isInheritedSharedScope` — the single definition of "inherited", shared by the repository, the record service, the validator and the Codex |
+| `lib/core/scope_resolver.dart` | **New.** `ScopeChain`, `ScopeResolver`, `kScopeContainerTypeIds`. The one answer to "what may this book read?" |
+| `lib/core/series_scope.dart` | **New.** `SeriesScope`, `SeriesScopeService` — create, enrol, withdraw, promote, demote, rehome |
+| `lib/persistence/authoros_database.dart` | `recordsByType`, `projectsInSeries`, `recordsVisibleToProject`. Queries only — no table, no column |
+| `lib/core/version_audit_service.dart` | History partitions by the record's provenance, not by the editor. Adds `getVersionHistoryForRecord` |
+| `lib/core/record_service.dart` | Optional `inheritedScopeIds`; `_belongsToProject` admits inherited shared canon |
+| `lib/core/record_validation.dart` | Same widening, so a read that succeeds is not followed by a write that fails validation |
+| `lib/core/story_codex_domain.dart` | `CodexScopeFacet`, `CodexEntry.scopeFacet`/`isShared`, `CodexEntryFilter.scopes` |
+| `lib/story_codex_service.dart` | Scoped reads, `promoteToSeries`/`demoteToProject`, scope-aware relationship reads |
+| `lib/story_codex_workspace.dart` | Series control, scope facet, scope chip, shared marker, read-only banner, create-dialog scope selector |
+
+### Phase 2
+
+| Path | Role |
+|---|---|
+| `lib/core/entity_recognition.dart` | **New.** The one definition of what counts as a mention. Replaces three copies of the same predicate |
+| `lib/core/codex_intelligence.dart` | **New.** `CodexSuggestion`, `CoOccurrenceDiscovery`, `CodexSuggestionBuilder` |
+| `lib/codex_suggestions.dart` | **New.** `CodexSuggestionService` — the project-wide sweep and the dismissal store |
+| `lib/manuscript_store.dart` | `peekStudio` — reads prose without seeding a manuscript |
+| `lib/manuscript_continuity.dart`, `lib/codex_continuity.dart`, `lib/world_continuity.dart` | Private matchers deleted; all three now recognise names identically |
+| `lib/story_codex_service.dart` | `connectableRecords` reads the visible set; `suggestions` facade |
+| `lib/story_codex_workspace.dart` | The suggestions inbox, accept and dismiss |
+
+---
+
+## 3. Layering
+
+```
+        ScopeResolver          <- resolves Series -> Project, owns no storage
+              |
+      SeriesScopeService       <- create/enrol/promote/demote, via RecordService
+              |
+       StoryCodexService       <- a view over records; owns no second store
+              |
+      StoryCodexWorkspace      <- widgets only
+```
+
+Dependency direction is unchanged: core -> storage -> services -> studios.
+Nothing added here imports a Studio.
+
+---
+
+## 4. Where a series lives, and what `projectId` means
+
+A series is an ordinary `AuthorRecord`:
+
+```
+id:        <seriesId>
+typeId:    'series'                  // registered since Universal Records
+scopeType: RecordScopeType.series
+scopeId:   <seriesId>                // RecordScope.validate: a series names its own scope
+seriesId:  <seriesId>                // the indexed column
+projectId: <founding book>           // provenance
+```
+
+**On a cross-book record, `projectId` is provenance — which book's workspace
+authored this row — not containment. Containment is `(scopeType, scopeId)`.**
+This is forced, not chosen:
+
+- `RecordScope.validate()` rejects an empty `projectId` for every scope type.
+  Null is not available.
+- `RecordValidator` admits a record when `scopeId == projectId` **or**
+  `owningProjectId == projectId`. Provenance makes the series editable from its
+  founding book with no validator change.
+- `RelationshipEndpoint.fromRecord` derives an endpoint's project from
+  `record.projectId ?? … ?? record.scopeId`. Setting `projectId = seriesId`
+  would make the series record unlinkable from every book.
+- `_indexEntity` gives the FTS row both a real `project_id` and a real
+  `series_id` only if provenance is kept.
+
+Accepted consequence: **shared canon is read-only in every book except the one
+that owns it.** That is master-plan §6.1 ("scope inheritance is read-only by
+default") falling out of the model rather than being enforced on top of it. The
+owning book is where the default is lifted. `rehomeSeries` exists so a series
+whose founding book is deleted does not become uneditable.
+
+### Membership is a column, not an edge
+
+`series_id` on the book's own `project` record. One primary-key read answers
+"which series is this book in?". Two alternatives were rejected:
+
+- **A `partOfSeries` link.** Blocked by project isolation (§1, blocker 1).
+  Relaxing that rule is far larger and more dangerous than reading a column
+  that already exists and is already indexed.
+- **A membership list in the series record's `fields` JSON.** Unindexed, needs a
+  full type scan to answer a per-book question, and puts containment somewhere
+  `StoryGraphFilter`, the search index and `RecordVersion` cannot see.
+
+The cost is that a book must exist as a record. `ensureProjectRecord` is
+idempotent and runs from `ensureFoundation`, which already materialises
+infrastructure records on every Codex open.
+
+---
+
+## 5. Guardrails
+
+`test/scope_architecture_test.dart`, in the shape of
+`test/story_graph_architecture_test.dart`. Each pins a decision in this document:
+
+| Test | Pins |
+|---|---|
+| a series is an AuthorRecord, not a new table | no `series_rows`/`universe_rows`/`scope_rows`; `series` stays a registered record type |
+| there is exactly one scope-resolution path | only `ScopeResolver` calls `projectsInSeries` |
+| no second scope store has appeared in lib/ | no `series_repository.dart`, `scope_store.dart`, … |
+| scope changes only through `changeScope` | `copyWith` still cannot express a scope change |
+| no cross-project connection type was introduced | no built-in link id names a series or universe |
+| project isolation still holds for a promoted record | a promoted record still cannot link outside its book |
+| a record has exactly one history partition | `SELECT DISTINCT project_id FROM record_version_rows` returns one row |
+| universe membership has no second home | no `_universe.` field key hides the deferred tier in JSON |
+| entity recognition has one definition | nothing inlines the mention predicate instead of calling `mentionsName` |
+| a derived edge never becomes a link on its own | discovery constructs no `RecordLink`, touches no `ConnectionEngine`, and stamps its derivation |
+| the intelligence layer stays deterministic and offline | no HTTP, no model, no `Random` in any file that produces recommendations |
+| the Codex reads prose without creating any | the sweep never calls `loadStudio` or `saveStudio` |
+| the shared-scope predicate has one definition | nothing inlines the shared-scope set instead of calling `isInheritedSharedScope` |
+| scope containers are named in one place | no hand-rolled `{'project', 'series'}` copy |
+
+---
+
+## 6. Deliberately not in this milestone
+
+- **The universe tier.** `RecordScopeType.universe` exists and the read
+  predicate already accepts it, but there is no `universe_id` column, so
+  "which universe is this series in?" has no indexed answer. Putting it in a
+  `fields` blob is exactly the second resolution path the guardrails forbid.
+  When it ships it gets a nullable column via `migrator.addColumn`, following
+  the v6 pattern, and `ScopeChain` gains a third link. A guardrail fails today
+  if anyone hides it in JSON first.
+- **Cross-book search.** `UniversalSearchService` is still project-bound, so
+  `searchBySeries` still means "within this book, tagged with this series". Making
+  it genuine needs `scope_type`/`scope_id` in the FTS5 table and a schema bump to
+  v10, and the new columns must be **appended after `tags`** — `snippet(author_search, 11, …)`
+  is a positional ordinal for `body`. Nothing regresses by deferring it: search
+  works exactly as it did.
+- **Graph reads across books.** `StoryGraphService` still sources nodes from
+  `recordsByProject`, so shared canon does not yet appear in book two's graph.
+  The filter half is already built. Edges stay project-owned either way.
+- **Real multi-project management.** `_ProjectsStudioView` is untouched. Because
+  the running app has one book, cross-book reads are proven in tests but cannot
+  yet be *demonstrated* in the UI by opening a second book. That is the honest
+  cost of not rewriting project management in this PR, and it is the next PR.
+- **`SearchDestination.seriesStudio`** still routes to the placeholder.
+
+---
+
+## 6a. Open question — two series, one word
+
+> **Status update, 2026-08-22:** answered in principle. The direction is locked
+> to option (1) below — the Projects/Series system owns identity, the Codex
+> consumes it. The full design is in
+> [`series-identity-delta.md`](series-identity-delta.md), which is **proposed and
+> awaiting approval**. No production code until it is approved; Codex Phase 3 is
+> gated behind it.
+
+**Q-S1. `WritingSeries` and series scope are two identities for the same noun,
+and nothing reconciles them.** Raised here rather than resolved, because it is
+an architecture decision and both halves are days old.
+
+While this branch was in flight, `main` landed a series of its own
+(`lib/core/writing_series.dart`, the `series_rows` table,
+`ProjectRosterEntry.seriesId`/`seriesPosition`, `project_roster_store.dart`).
+That series is a **planning** object: a name, the word target a joining book
+inherits, and a book's position on the roster. It is the right shape for the
+Projects Studio and for series analytics.
+
+Series scope, in this document, is a different thing: an `AuthorRecord` that
+**owns a record scope**, so a character can be canon in every book of a series
+without being typed again. It is the right shape for shared knowledge.
+
+They are genuinely different concerns, so neither is wrong. The hazard is that
+an author can today create "The Endovier Cycle" in the Projects Studio and "The
+Endovier Cycle" in the Codex and get two unrelated ids — the exact
+"we built them separately and in six months they do not connect" failure
+`NEXT.md` warns about.
+
+**What this branch did about it.** Nothing that presumes an answer, and one
+thing that keeps every answer open: `SeriesScopeService.createSeries` takes an
+optional `id`, so scope never mints an identity it could not have been handed.
+A guardrail asserts it. Unifying is therefore a change to *callers*, not to this
+layer.
+
+**The three ways out, for the record:**
+
+1. **The roster owns identity; scope follows.** The Codex stops creating series
+   and offers only the roster's. One id, one name, one place to rename. Costs a
+   `ProjectRosterStore` dependency in the Codex, and means a series cannot exist
+   before it has a book.
+2. **Scope owns identity; the roster follows.** `series_rows` keys off the
+   series record's id. Keeps the "everything is a record" line, but rewrites a
+   table that just shipped.
+3. **Leave them separate and link them.** A `rosterSeriesId` field on the series
+   record. Cheapest, and the one that rots — two names that can drift apart is
+   what a reader will hit first.
+
+Recommendation: **(1)**. Identity belongs where the author creates the thing,
+and that is the Projects Studio. Scope should be derived from membership, not
+declared twice.
+
+---
+
+## 7. Carried risks — stated, not fixed
+
+Existing risks from `docs/universal-story-graph-architecture.md` §18 that this
+milestone touches or inherits:
+
+- **R-8** — seven raw validated-write bypasses in `story_codex_service.dart`.
+  Records written through those paths skipped validation; the scope layer reads
+  them as-is and cannot tell.
+- **R-2 / R-22** — prose and writing sessions are still outside the archive. A
+  series exported and restored is structure-only. Scope does not change this,
+  and must not be read as evidence that it did.
+- **New: shared canon is not in the portable archive as a series.**
+  `AuthorOsArchiveService` is project-scoped. Exporting book one carries the
+  records it owns, including ones it promoted, but there is no series-level
+  archive. M4's "portable series/universe archive" is unmet.
+- **Reconciled with `main`:** `a2f5f87` fixed `StoryGraphService._allows` so a
+  null `bookId` is read as "not book-specific — series canon" rather than as
+  unassigned, and stops a book filter from hiding shared canon. That is the same
+  reading of a null book id this branch relies on, arrived at independently, and
+  the two agree.
+- **New: a member book sees shared canon with no relationships.** Edges are
+  project-owned, so book two sees a shared character with only the edges book
+  two drew. This is correct under I-2 and is documented rather than fixed; the
+  Codex returns book two's own edges instead of throwing.
+
+---
+
+## 8. The remaining phases
+
+**Phase 2 — automatic intelligence, deterministic. Built.** The audit found that
+recognition already existed and had simply never been aggregated:
+`ManuscriptContinuityIntelligence.analyzeScene` was already scanning scene prose
+for record names and aliases, and `CodexContinuityIntelligence` was already
+emitting the finding/action pair the workspace renders and resolves. What was
+missing was scope, a sweep, discovery, and somewhere to put the answers.
+
+So Phase 2 is mostly *reach*, not new inference:
+
+* **One recogniser.** The mention predicate was written three times — in the
+  Manuscript, Codex and World analyzers, byte for byte. Three copies of a
+  matching rule are three chances for the Studios to disagree about whether a
+  character appears in a scene. `entity_recognition.dart` is now the only
+  definition, and a guardrail fails if a fourth appears.
+* **Series reach.** `connectableRecords` reads `recordsVisibleToProject`, so a
+  character shared with the series is recognised in book three's prose and a
+  character private to another book is not.
+* **A project-wide sweep.** `CodexSuggestionService` runs both analyzers over
+  every visible entry and every scene, ranks the findings by severity then
+  confidence, and deduplicates them. It is a view over findings, not a second
+  store: accepting one goes back through `ContinuityActionService`, the same
+  path the per-entry Continuity tab has always used.
+* **Relationship discovery.** `CoOccurrenceDiscovery` counts records that share
+  scenes and returns `DerivedStoryGraphEdge` — the Story Graph's own type for
+  inferences, which has no id and cannot be persisted. One shared scene is a
+  coincidence and is not reported; the per-scene unlinked-mention rule already
+  covers it.
+* **Dismissals.** A suggestion's id is derived from its content, so it is stable
+  across sweeps and a dismissal sticks without storing the suggestion itself.
+  Dismissals are recoverable, and the count of hidden ones is always shown — a
+  quiet inbox must never be mistaken for an empty one.
+
+Two decisions worth recording:
+
+* **Sweeping is not part of opening the Codex.** It reads every entry and every
+  scene, so making the workspace await it would make a project's size the cost
+  of opening it. The sweep runs when the author asks for suggestions, and the
+  header badge stays blank until one has run — a zero would claim the project is
+  clean when nothing had looked at it.
+* **Reading prose must not create prose.** `ManuscriptStore.loadStudio` seeds and
+  *writes* a starter manuscript on a miss, which is right for the Manuscript
+  Studio opening its own project and wrong for a reader. `peekStudio` returns
+  null instead, and a guardrail keeps the Codex off `loadStudio`.
+
+Nothing here is generative and nothing reaches the network; a guardrail asserts
+that over the whole intelligence layer. This is string matching over
+author-authored aliases — the AI-free differentiator `NEXT.md` §9 sells and the
+determinism master-plan §12 requires.
+
+**Phase 3 — hierarchical worldbuilding and deep linking.** The universe tier
+lands here and pays for the `universe_id` column. Hierarchy *inside* a scope —
+continent contains region contains city — is the existing `partOf` connection
+type plus a `StoryGraphMode` that walks only `partOf`; no new edge model.
+Deep linking is a `[[Name]]` resolver over the alias index Phase 2 builds,
+routing through the existing `searchDestinationForType`.
+
+**Phase 4 — reader-facing presentation.** `CodexFieldVisibility`
+(`publicKnowledge`/`privateKnowledge`/`authorKnowledge`) is already stored
+per-field and already editable in the workspace; nothing consumes it. Phase 4 is
+a read-only projection that drops every field not marked public, plus a reveal
+point resolved deterministically against reading position. A renderer over
+existing data — no second store, no second copy of an entry, no second
+visibility model.
+
+---
+
+## 9. Verification
+
+Run locally against Flutter **3.44.9** (revision `6b182d2c75`) — the revision
+`.metadata` records and CI pins.
+
+Re-measured after every rebase onto a moving `main`. The figures below are
+against `main` at `9b629e4`, which by then carried the Command System, the sync
+engine, the project roster, Map Studio phase 5 and the Author Performance
+system.
+
+| Step | `main` at `9b629e4` | This branch |
 |---|---|---|
-| `SeriesService` | Books, book membership, per-book entity state | `RecordService`, `ConnectionEngine`, `SafeDeleteService` |
-| `EntitySuggestionService` | Recognition over prose, suggestion state | `EntityNameIndex`, `ConnectionEngine`, `RecordService` |
-| `CanonConflictAnalyzer` | Contradiction rules, canon confidence | `ContinuityAnalyzer`, `RecordService` |
-| `EntityProfileService` | The profile and the usage report | `UniversalRecordInspector`, `SeriesService`, `CanonConflictAnalyzer` |
-| `EntityNameIndex` | Name matching, shared by every Studio | — |
-| `BookScope` | The single definition of book membership | — |
+| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 57 issues, 0 errors | **57 issues, 0 errors** |
+| `flutter test` | 1663 passed, 0 failed | **1749 passed, 0 failed** |
+| `flutter build web --release --no-web-resources-cdn` | green | green |
 
-## Universal Entities
+The analyzer count is unchanged: this work added no new issues and cleared
+every one it introduced along the way. The 86 tests it adds are the difference
+between 1663 and 1749.
 
-The record registry covers People, Places, Organizations, Concepts, Story Objects and
-Events. Nine ids were added to close the gaps: `person`, `historical-figure`,
-`public-figure`, `guild`, `company`, `military-unit`, `vehicle`, plus `entity-state`,
-and `series`/`book` gained real fields.
+Phase 1 added 36 tests. Phase 2 adds 50 more:
+`entity_recognition_test.dart` (15), `codex_intelligence_test.dart` (14),
+`codex_suggestions_test.dart` (12), `codex_suggestion_inbox_test.dart` (5), and
+four guardrails appended to `scope_architecture_test.dart`. The 35 existing
+tests over the three continuity analyzers were left untouched and still pass,
+which is what proves collapsing their three private matchers into one shared
+recogniser changed no behaviour. The 36 new tests are
+`scope_resolver_test.dart` (7), `series_scope_test.dart` (6),
+`scoped_records_test.dart` (8), `scope_architecture_test.dart` (10),
+`story_codex_series_view_test.dart` (5).
 
-"Leader", "military group" and "org member" are deliberately **not** types. They are
-roles and relationships, already expressed by `memberOf{rank}`. A type for every noun
-would make the registry a thesaurus.
+### Gate — Phase 2
 
-`test/universal_entity_vocabulary_test.dart` asserts the coverage claim rather than
-leaving it to prose.
+- [x] a name in a Codex entry's prose that matches another entry is offered as a
+      link, and the entry's own name is never matched against itself
+- [x] a name in the manuscript that has no record is offered as a record
+- [x] a record shared with the series is recognised in a second book's prose
+- [x] records that share two or more scenes are discovered as a relationship,
+      and a pair already linked is not offered again
+- [x] a sweep writes nothing: no link reaches `record_link_rows` until the
+      author accepts one
+- [x] accepting goes through `ContinuityActionService`, so it is validated,
+      versioned and audited like a hand-made change
+- [x] a dismissed recommendation stays dismissed across sweeps, is counted, and
+      can be restored
+- [x] opening the Codex does not sweep
+- [x] a project with no manuscript, or an unreadable one, still produces Codex
+      suggestions and says which happened
 
-### A reserved id
+### Gate — Phase 1
 
-`universe` is already a **cosmic place** type while `RecordScopeType.universe` means a
-canon container. Anything building the master plan's M4 universe scope must use
-`story-universe`, which is reserved and pinned by a test.
+- [x] a book can start a series, join one, and leave one
+- [x] an entry can be shared with the series and returned to its book
+- [x] moving an entry in and out preserves its id, creation time, fields, tags
+      and relationships (master plan §14, M4)
+- [x] a member book reads shared canon; a non-member book does not
+- [x] a book-scoped record that merely carries a series id is not shared
+- [x] shared canon is read-only in books that do not own it, and the save path
+      refuses the write rather than only hiding the button
+- [x] a shared record keeps one version chain across books
+- [x] a book that belongs to no series reads exactly what it read before
 
-## Cross-Book Entities
+### Not verified here
 
-**The project is the series.** AuthorOS persists one project, so a series is not a
-container above projects — it is the project, and a book is a record inside it.
-
-Everything therefore stays inside one project's isolation boundary.
-`ConnectionEngine.connect`, `RelationshipValidator`'s endpoint rule and the search
-index's project filter are **untouched**, and the guardrail test *"project isolation
-holds: the graph cannot link across projects"* keeps passing as the proof.
-
-| Directive term | Representation |
-|---|---|
-| Series canon | the record itself, `bookId` null, visible from every book |
-| Book usage | `appearsIn` link, entity → `book` record, metadata carries role and status |
-| Scene usage | `appearsIn` / `mentionedIn` link, entity → scene manuscript node |
-| Chapter → book | `ManuscriptChapter.bookId`, projected into the chapter node |
-| Version/state | an `entity-state` record holding only what differs from canon |
-
-### The three rules
-
-- **B-1.** Book membership is `AuthorRecord.bookId`. Never derived, never inferred from
-  links, changed only by an audited author action.
-- **B-2.** A `book` record's own `bookId` is its own id, so `bookId == null`
-  unambiguously means series canon rather than "unfiled".
-- **B-3.** `RecordScopeType.book` stays reserved. `RecordScope` requires a `seriesId`
-  for book scope and there is no series *scope* inside one project, so book-specific
-  records stay project-scoped and carry their book in the column the database, its
-  index and the search index already read.
-
-Every read of book membership goes through `BookScope`. If a future multi-project
-library ever makes each book its own project, "which book is this in" changes in one
-file rather than at every call site.
-
-### What this unlocked for free
-
-`searchByBook`, `UniversalSearchFilter.bookId`, the `author_records_series_book` index
-and the FTS `book_id` column were all already built. They returned nothing because no
-service had ever set the column.
-
-### Why a state is a record and not an overlay row
-
-`BranchRecordOverlayRows` has the right shape, and the wrong meaning. A branch overlay
-is a what-if deliberately kept out of canon. A book state **is** canon at a point in the
-series, so it has to be searchable, linkable, versioned and exported like any other
-record. It is a difference, never a copy: editing canon still reaches every book that
-does not override that field.
-
-## Entity Recognition
-
-One matcher, in `lib/core/entity_recognition.dart`. Manuscript, Codex and World Studio
-previously each carried a byte-identical private `_mentions`; a guardrail test now fails
-if a fourth appears.
-
-Exact, case-insensitive, word-boundary matching against titles and aliases the author
-wrote down. No fuzzy matching, no stemming, no scoring, no model. Names shorter than four
-characters are ignored — a blunt rule that will miss a genuinely short name, and the
-deliberate trade for a recogniser that does not cry wolf.
-
-| State | Rule |
-|---|---|
-| Confirmed | an `appearsIn`/`mentionedIn` link already joins entity and scene |
-| Suggested | exactly one entity answers to the name, nothing connects them |
-| Unconfirmed | the name means two entities, or none |
-
-Recognition is book-aware: a Book 2 entity is not suggested against a Book 1 scene.
-
-## Entity Suggestions
-
-Link, Ignore, Create Entity, Create Alias, Review.
-
-Create Entity delegates to `ContinuityActionService`, which already knows how to mint a
-character or a location and refuses when a matching record exists. It accepts only those
-two kinds — anything else belongs in its own Studio, where its required fields are known.
-
-**A scan writes nothing.** A test pins that scanning leaves the record and link counts
-untouched. Only an explicit author action mutates anything, and `link` refuses an
-ambiguous name until the author says which entity they meant.
-
-A promoted link carries `extensionData {derivedFrom: entityRecognition, matchedName}`,
-so a relationship AuthorOS proposed can always be told from one the author drew by hand.
-
-Dismissals persist on a project-scoped infrastructure record — the same class of thing as
-a saved view or a pin, and stored the same way. Written straight to the repository rather
-than through `RecordService`: dismissing a suggestion is housekeeping and should not put a
-version snapshot in the author's history per click. Unlike a table it also travels in the
-archive. A dismissal silences an open question and never an established fact — linking an
-entity the author previously ignored still reads as Confirmed.
-
-## Canon Management
-
-`CanonFactStatus` gives the directive's seven values without touching `CanonStatus`,
-which is persisted in a database column and an FTS column and describes a whole record
-rather than one field.
-
-- Retired maps onto the existing `deprecated`.
-- **Contradicted and Unknown are derived and refuse to be stored.** A stored
-  "contradicted" goes stale the moment the author fixes the disagreement, so writing one
-  throws.
-
-Four contradiction rules, all over typed data:
-
-1. Canon versus a book state — the directive's own example, profile says 27 and Book
-   Three says 29. Two drafts disagreeing are alternatives, not a contradiction.
-2. A number that cannot go backwards. Which fields are monotonic is declared, not
-   inferred.
-3. Duplicate canon — two active canon records sharing a title or alias.
-4. A relationship there can only be one of — two birthplaces contradict, two friends
-   do not.
-
-**Prose is never parsed for facts.** A rule that guessed at a number in a sentence would
-produce contradictions the author has to argue with, and the first false accusation is
-the one that gets the whole feature switched off.
-
-`canonConfidence` is a pure function of a declared status and three counts, pinned to the
-digit by a test. A confidence an author cannot predict is a confidence they cannot use.
-
-The analyzer performs zero writes — pinned, including revision counts.
-
-## Where Is This Used
-
-`EntityUsageReport` groups usage Books → Chapters → Scenes, with buckets for plot,
-timeline, map and research. Built from a single `UniversalRecordInspection` rather than a
-second walk of the edge table; a second traversal would be a second answer.
-
-Manuscript structure is read through `repository.manuscriptNodesByProject`, never through
-`ManuscriptStore.loadStudio` — that seeds a starter manuscript on a project nobody has
-opened, and a report must not be able to invent a chapter by looking at one.
-
-Derived usage is returned in its own collection and never merged with recorded usage.
-
-## Universal Entity Profiles
-
-`EntityProfileView` renders the same sections for a character, a city and plain lore. It
-is reusable across Studios on purpose: the profile belongs to the entity, not to the
-screen showing it. Story Codex hosts it as a Profile tab.
-
-## User Interface
-
-| Surface | What it does |
-|---|---|
-| Series Studio (`StudioSection.series`) | Books, order, chapter assignment, per-book rosters |
-| Codex Profile tab | The full profile and usage explorer |
-| Manuscript continuity panel | Suggestions for the open scene, below the continuity issues |
-
-`SearchDestination.seriesStudio` now routes to the Series Studio at all four sites that
-previously dead-ended at the hardcoded Projects demo.
-
-## Known Limitations
-
-- **Ghost manuscript nodes (audit R-1).** `putManuscriptNodes` is upsert-only and
-  `ManuscriptNodeReference` has no status, so a deleted scene leaves its node behind.
-  The usage report surfaces these as ghosts rather than counting them as real usage.
-  Fixing the lifecycle belongs to the separately-directed Story Graph Phase 0 milestone.
-- **Scene prose is outside the graph and outside the archive (audit R-2).** Recognition
-  reads `SharedPreferences` content the archive does not export. The suggestions and the
-  links they produce are archived; the prose they came from is not.
-- **`EntityProfileService`'s derived usage sees only what a manuscript node carries** —
-  its title and notes, not the scene body. The manuscript-side scan sees the full text.
-- **`_ProjectsStudioView` is still a hardcoded demo.** Two screens now list the author's
-  work and one of them is fiction. Deciding what Projects becomes is a product call.
-- **One project, one series.** Master plan M4's multi-project series remains future work;
-  see below.
-*(Resolved: `changeScope` used to erase sibling scope columns. It now preserves anything
-the caller did not name — see Scope Changes below.)*
-
-## Scope Changes
-
-`RecordService.changeScope` **preserves the scope columns you did not ask it to change.**
-Passing `seriesId`, `bookId` or `branchId` sets it; passing the matching `clear…` flag
-nulls it; omitting both leaves it alone. The asymmetry exists because Dart cannot tell an
-omitted named argument from one passed as null, so losing data takes an explicit flag.
-
-It previously assigned all three unconditionally, which meant a scope move silently erased
-whichever of them the caller had not thought to re-supply — a record could lose its book
-membership as a side effect of a move that had nothing to do with books.
-
-`changeBookAssignment` is a thin wrapper over it: book membership changes often and on its
-own, so it gets a method that says so and cannot be called with the wrong scope by
-accident. Both share one write path, so they cannot disagree about which columns a move
-carries or how it is audited.
-
-Scope consistency is enforced either way — `RecordValidator` runs `RecordScope.validate`,
-so a book scope without a matching `bookId` is rejected with `invalid-scope-hierarchy`
-rather than written, and a rejected move leaves the record untouched. The audit trail
-records `previousBookId`/`newBookId` and its siblings only when they actually move.
-
-## Forward Path to M4
-
-If a real multi-project library later makes each book its own project:
-
-1. For each `book` record `B`: mint a project id; re-home every record with `bookId == B`
-   and the matching manuscript chapters.
-2. Records with `bookId == null` become series-scoped.
-3. Rewrite `record_link_rows.scopeId` to the narrowest scope both endpoints share.
-4. Relax exactly one function — `RelationshipValidator`'s endpoint-project rule —
-   replacing "both endpoints share a projectId" with "both endpoints sit in the writing
-   project's scope chain".
-
-**No entity id and no link id changes in any step.** That is what `BookScope` exists to
-protect: step 4 is a one-function change because nothing reads `record.bookId` inline.
-
-## Tests
-
-| File | Pins |
-|---|---|
-| `universal_entity_vocabulary_test.dart` | §1.1 coverage, the series spine, book-usage metadata, the reserved `universe` id |
-| `series_service_test.dart` | Book lifecycle, membership, promote/restrict reversibility, `searchByBook`, close and reopen |
-| `manuscript_book_assignment_test.dart` | Chapter→book, scene inheritance, legacy blobs, reads that never seed |
-| `entity_book_state_test.dart` | One entity across four books, canon showing through, archive round trip |
-| `entity_recognition_test.dart` | The matcher, aliases, ambiguity, longest-name-first, one-matcher guardrail |
-| `entity_suggestions_test.dart` | Three states, five actions, dismissal persistence, scans that never write |
-| `canon_conflict_test.dart` | Each rule and its near-miss, the confidence arithmetic, zero writes |
-| `entity_profile_test.dart` | Usage grouping, derived kept apart, profile assembly, zero writes |
-| `entity_profile_view_test.dart` | Header, empty state, contradiction surfaced not resolved |
-| `series_studio_view_test.dart` | Book list, chapter assignment, no persistence of its own |
-| `record_scope_change_test.dart` | `changeScope` preserves unnamed columns; `clear…` flags; scope validation; audit metadata |
+Manual exercise on a packaged target, and close/reopen persistence in the
+running app, per the batch discipline in
+`docs/story-codex-implementation-map.md`. The application is single-project, so
+the two-book path cannot be walked by hand yet — it is covered by
+`scoped_records_test.dart` and `story_codex_series_view_test.dart`, both of
+which drive two real project ids against one database.

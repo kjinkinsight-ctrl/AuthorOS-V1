@@ -16,6 +16,9 @@ import 'package:flutter/material.dart';
 
 import 'map_overlay_service.dart';
 import 'map_service.dart';
+import 'manuscript_export.dart' show ExportFileSaver, NativeExportFileSaver;
+import 'map_presentation_service.dart';
+import 'map_presentation_view.dart';
 import 'map_world_service.dart';
 import 'onboarding.dart';
 import 'theme/flutter/authoros_theme.dart';
@@ -38,6 +41,8 @@ class MapStudioView extends StatefulWidget {
     this.overlays,
     this.onNavigate,
     this.world,
+    this.presentations,
+    this.fileSaver = const NativeExportFileSaver(),
   });
 
   final StarterProject project;
@@ -49,6 +54,13 @@ class MapStudioView extends StatefulWidget {
   /// The world-state projection. Read-only, and injectable for tests exactly
   /// like [service] and [overlays].
   final MapWorldService? world;
+
+  /// The presentation read layer: reveal points and export metadata.
+  final MapPresentationService? presentations;
+
+  /// Where an export's bytes go. Injectable so a test can export without a
+  /// file dialog.
+  final ExportFileSaver fileSaver;
 
   /// Opens another Studio, using the shell's own navigation. Map Studio adds no
   /// routing of its own.
@@ -66,6 +78,7 @@ class _MapStudioViewState extends State<MapStudioView> {
   late final MapService service;
   late final MapOverlayService overlayService;
   late final MapWorldService worldService;
+  late final MapPresentationService presentationService;
 
   bool loading = true;
   bool busy = false;
@@ -128,10 +141,28 @@ class _MapStudioViewState extends State<MapStudioView> {
   MapWorldQueryResult? queryResult;
   Set<String> highlightedIds = const {};
 
+  /// Phase 6 presentation state. All of it is how the map is shown, never what
+  /// the map is: nothing here is written, and leaving the Studio discards it.
+  MapPresentationTheme presentationTheme = MapPresentationTheme.studio;
+  MapDecorations decorations = const MapDecorations({
+    MapDecoration.legend,
+    MapDecoration.scaleBar,
+  });
+
+  /// Reveal points, and the levels a reader map can stand at.
+  Map<String, MapRevealPoint> revealPoints = const {};
+  List<MapSpoilerLevel> spoilerLevels = const [MapSpoilerLevel.everything];
+  MapSpoilerLevel spoilerLevel = MapSpoilerLevel.everything;
+
   @override
   void initState() {
     super.initState();
     service = widget.service ?? MapService.forProject(widget.project.id);
+    presentationService = widget.presentations ??
+        MapPresentationService(
+          projectId: widget.project.id,
+          repository: service.repository,
+        );
     worldService = widget.world ??
         MapWorldService(
           projectId: widget.project.id,
@@ -177,6 +208,11 @@ class _MapStudioViewState extends State<MapStudioView> {
       final world = active == null
           ? null
           : await worldService.loadWorldState(active, moment: worldMoment);
+      final reveals =
+          active == null ? const <String, MapRevealPoint>{} : await presentationService.revealPoints();
+      final levels = active == null
+          ? const <MapSpoilerLevel>[MapSpoilerLevel.everything]
+          : await presentationService.spoilerLevels();
       if (!mounted) return;
       setState(() {
         maps = loaded;
@@ -184,6 +220,11 @@ class _MapStudioViewState extends State<MapStudioView> {
         canvas = data;
         overlayData = overlays;
         worldData = world;
+        revealPoints = reveals;
+        spoilerLevels = levels;
+        if (!levels.contains(spoilerLevel)) {
+          spoilerLevel = MapSpoilerLevel.everything;
+        }
         travelEstimate = null;
         queryResult = null;
         highlightedIds = const {};
@@ -917,6 +958,126 @@ class _MapStudioViewState extends State<MapStudioView> {
         highlightedIds = const {};
       });
 
+  // ---------------------------------------------------------- presentation ---
+  //
+  // Phase 6 is a projection of everything above it. It reads the canvas, the
+  // overlays and the world state, applies a theme, a set of decorations and a
+  // reader level, and paints or writes the result. It changes no record.
+
+  /// The colours an export uses, resolved from the Theme Engine.
+  ///
+  /// The drawing model carries plain integers so it can live outside Flutter;
+  /// this is the one place that turns engine tokens into them, so an exported
+  /// map is coloured by the same theme as the map on screen.
+  MapDrawPalette _drawPalette(_MapPalette palette, MapVisualStyle style) =>
+      MapDrawPalette(
+        background: palette.surfaceContainer.toARGB32(),
+        surface: palette.canvasSurface.toARGB32(),
+        ink: palette.onSurface.toARGB32(),
+        muted: palette.onSurfaceVariant.toARGB32(),
+        outline: palette.outline.toARGB32(),
+        accent: palette.primary.toARGB32(),
+        regionFill: palette.regionFill.toARGB32(),
+        terrain: {
+          for (final kind in MapTerrainKind.values)
+            kind: palette.terrainColor(kind, style).toARGB32(),
+        },
+      );
+
+  /// What a reader at the current level is allowed to see.
+  ///
+  /// At [MapSpoilerLevel.everything] this is the author's own map, unfiltered.
+  MapReaderView _readerView(MapCanvasData data) => MapReaderProjection.apply(
+        level: spoilerLevel,
+        canvas: data,
+        overlays: overlayData,
+        world: worldData,
+        revealed: revealPoints,
+      );
+
+  Future<MapExportRequest?> _exportRequest(_MapPalette palette) async {
+    final data = canvas;
+    final map = selectedMap;
+    if (data == null || map == null) return null;
+    final metadata = await presentationService.metadataFor(
+      map,
+      projectTitle: widget.project.title,
+      eraLabel: worldData?.moment?.label ?? '',
+    );
+    final view = _readerView(data);
+    final style = presentationTheme.styleFor(map.visualStyle);
+    return MapExportRequest(
+      presentation: MapPresentation(
+        metadata: metadata,
+        theme: presentationTheme,
+        decorations: decorations,
+        credit: metadata.authorName.isEmpty ? '' : '© ${metadata.authorName}',
+        scaleBar: presentationService.scaleBarFor(map),
+      ),
+      canvas: view.canvas,
+      overlays: view.overlays,
+      world: view.world,
+      palette: _drawPalette(palette, style),
+      preset: MapExportPreset.screen,
+      format: MapExportFormat.png,
+    );
+  }
+
+  Future<void> _present(_MapPalette palette) async {
+    final request = await _exportRequest(palette);
+    if (request == null || !mounted) return;
+    final drawing = const MapDrawingBuilder().build(request);
+    final data = canvas;
+    final view = data == null ? null : _readerView(data);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => MapPresentationPage(
+          drawing: drawing,
+          title: request.presentation.title,
+          background: palette.surfaceContainer,
+          semanticsLabel: _presentationSummary(request),
+          notice: view == null || spoilerLevel.isEverything ? '' : view.notice,
+          onClose: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+  }
+
+  /// What a screen reader is told the map shows.
+  ///
+  /// A map is a picture, and a picture with no description is nothing at all to
+  /// a reader who cannot see it — so the description names the map, the era and
+  /// what is actually on it.
+  String _presentationSummary(MapExportRequest request) {
+    final parts = <String>[
+      request.presentation.title,
+      if (request.presentation.metadata.eraLabel.isNotEmpty)
+        request.presentation.metadata.eraLabel,
+      '${request.canvas.locations.length} places',
+      if (request.canvas.regions.isNotEmpty)
+        '${request.canvas.regions.length} regions',
+      if ((request.world?.routes.length ?? 0) > 0)
+        '${request.world!.routes.length} routes',
+      if ((request.overlays?.items.length ?? 0) > 0)
+        '${request.overlays!.items.length} story overlays',
+    ];
+    return parts.join(', ');
+  }
+
+  Future<void> _export(_MapPalette palette) async {
+    final request = await _exportRequest(palette);
+    if (request == null || !mounted) return;
+    final drawing = const MapDrawingBuilder().build(request);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => MapExportDialog(
+        drawing: drawing,
+        request: request,
+        saver: widget.fileSaver,
+      ),
+    );
+  }
+
   // ------------------------------------------------------- inline editing ---
 
   void _openInlineEditor(MapSelection value) => setState(() {
@@ -1150,6 +1311,8 @@ class _MapStudioViewState extends State<MapStudioView> {
             style: data.map.visualStyle,
           ),
         ],
+        const SizedBox(height: 12),
+        _buildPresentationPanel(palette),
         if (worldData != null) ...[
           const SizedBox(height: 12),
           _buildWorldPanel(palette, worldData!),
@@ -1181,6 +1344,118 @@ class _MapStudioViewState extends State<MapStudioView> {
           onEdit: busy ? null : _openInlineEditor,
         ),
       ],
+    );
+  }
+
+  /// The Phase 6 presentation controls.
+  ///
+  /// Theme, decorations, reader level, and the two things an author actually
+  /// wants: show me the map, and give me a file.
+  Widget _buildPresentationPanel(_MapPalette palette) {
+    final data = canvas;
+    final view = data == null ? null : _readerView(data);
+    return _Panel(
+      key: const Key('map-presentation-panel'),
+      palette: palette,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Presentation',
+                  style: palette.ui.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              OutlinedButton.icon(
+                key: const Key('map-present-button'),
+                onPressed: busy ? null : () => _present(palette),
+                icon: const Icon(Icons.slideshow_outlined),
+                label: const Text('Present'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                key: const Key('map-export-button'),
+                onPressed: busy ? null : () => _export(palette),
+                icon: const Icon(Icons.ios_share_outlined),
+                label: const Text('Export'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text('Theme', style: palette.label),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final theme in MapPresentationTheme.values)
+                _ToolButton(
+                  key: Key('map-theme-${theme.name}'),
+                  palette: palette,
+                  icon: Icons.palette_outlined,
+                  label: theme.label,
+                  selected: presentationTheme == theme,
+                  onPressed: () => setState(() {
+                    presentationTheme = theme;
+                    decorations = MapDecorations({...theme.decorations});
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text('Decorations', style: palette.label),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final decoration in MapDecoration.values)
+                _ToolButton(
+                  key: Key('map-decoration-${decoration.name}'),
+                  palette: palette,
+                  icon: Icons.check_box_outlined,
+                  label: decoration.label,
+                  selected: decorations.has(decoration),
+                  onPressed: () => setState(
+                    () => decorations = decorations.toggling(decoration),
+                  ),
+                ),
+            ],
+          ),
+          if (spoilerLevels.length > 1) ...[
+            const SizedBox(height: 12),
+            Text('Reader map', style: palette.label),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final level in spoilerLevels)
+                  _ToolButton(
+                    key: Key('map-spoiler-${level.label.hashCode}'),
+                    palette: palette,
+                    icon: level.isEverything
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    label: level.label,
+                    selected: spoilerLevel.label == level.label,
+                    onPressed: () => setState(() => spoilerLevel = level),
+                  ),
+              ],
+            ),
+            if (view != null && !spoilerLevel.isEverything) ...[
+              const SizedBox(height: 8),
+              Text(
+                view.notice,
+                key: const Key('map-reader-notice'),
+                style: palette.body,
+              ),
+            ],
+          ],
+        ],
+      ),
     );
   }
 

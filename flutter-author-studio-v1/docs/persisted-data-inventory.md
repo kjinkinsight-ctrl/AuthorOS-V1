@@ -41,6 +41,7 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 - Chapter fields: `id`, `title`, `order`, `status`, `summary`, `prompt`, `pov`, `linkedChapterIds`, `scenes`, `createdAt`, `updatedAt`
 - Scene fields: `id`, `chapterId`, `title`, `order`, `content`, `status`, `pov`, `location`, `timeLabel`, `notes`, `relationships`, `createdAt`, `updatedAt`
 - Scene relationship fields: `id`, `type`, `targetId`, `label`, `metadata`
+- Prose: `content` is now written empty. Scene body text lives in `scene_prose_rows` in the embedded database; this key holds structure only. Scene history is separate again, in `scene_revision_rows`. See [Manuscript Prose Persistence Implementation Map](manuscript-prose-persistence-implementation-map.md). Blobs written before that split still carry prose, and are migrated on first read or first write.
 - 2.0 destination: specialized manuscript repository plus canonical links
 - Migration concerns: generated or missing IDs, ordering normalization, parent-ID repair, local relationship enum mapping, unknown relationship targets
 - Fixture coverage: simple, large manuscript, malformed JSON, duplicate IDs, missing parent IDs, partially migrated version
@@ -148,6 +149,13 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 - Behavior: current structured manuscript writes also refresh this flattened representation unless disabled
 - 2.0 treatment: migration fallback only; structured manuscript wins when valid
 
+### `author_studio.manuscript_prose_backup.{projectId}`
+
+- Owner: `ManuscriptStore`
+- Storage type: JSON object string, or an empty string
+- Behavior: the structure blob exactly as it stood before its prose moved into the database, written before the prose rows so an interrupted migration simply runs again. An empty value means there was nothing to migrate, and doubles as the marker that stops every later save from re-checking.
+- 2.0 treatment: retain through the migration support window and include in diagnostic recovery export; never treat as a second authoritative manuscript
+
 ### `author_studio.manuscript_legacy_backup.{projectId}`
 
 - Owner: `ManuscriptStore`
@@ -203,25 +211,146 @@ These values describe backup health; they are not the backup itself. The 2.0 bac
 - Type: JSON array string
 - Shape: `SyncOperation[]`
 - Fields: `operationId`, `recordType`, `recordId`, `action`, `baseRevision`, `enqueuedAt`, `retryCount`, `deletedAt`, `payload`
+- `recordType` values in use: `project` (the roster row, series membership included), `writing-goals`, `series`
+- `action` takes `delete` as well as `upsert`: removing a project from the roster, deleting a series, and restoring a project's goals to "never customized" all enqueue tombstones
 - Treatment: current protocol compatibility only; drain or explicitly migrate before enabling entity-level 2.0 sync
 
 ### `author_studio.sync.revisions`
 
 - Type: JSON object string
 - Shape: map keyed by `{recordType}:{recordId}` to non-negative revision
+- Now read as well as written: the pull path compares a remote record's revision against this map to decide whether to apply it
 - Treatment: preserve for current protocol; new entity repository owns revisions in 2.0
 
 ### `author_studio.sync.cursor`
 
-- Type: nullable string
-- Meaning: remote synchronization cursor
+- Type: nullable string (UTC ISO-8601)
+- Meaning: remote synchronization cursor — the high-water mark of
+  `sync_records.updated_at` this device has processed
+- Live as of the two-way sync work; it had no reader before that. Records are
+  fetched at-or-after it rather than strictly after, so a record sharing the
+  cursor's exact instant is never skipped
+- Clearing it forces a full re-pull, which is safe: applying a record the
+  device already holds is a no-op
 - Treatment: protocol-version-specific operational value; clear only through an explicit protocol migration
+
+## Synchronization model
+
+Two-way as of the goals-and-roster sync work, over the generic
+`public.sync_records` table. Three record types travel: `project` (the roster
+row, carrying series membership), `writing-goals`, and `series`. No Supabase
+schema change was needed — `record_type` is free text and `payload` is `jsonb`.
+
+Conflicts resolve **last-writer-wins at record granularity, with no merge**.
+A remote record is applied when its revision is above the one this device
+holds, or level with it and written by another device; a tie applies so two
+devices converge rather than diverging silently. The cost is real and worth
+stating: an author who edits the same project's goals on two offline devices
+loses one of those edits entirely — not merged field by field, lost — and
+nothing warns them. The only structural protection is granularity, so the
+blast radius of any one conflict is one project's three numbers, or one
+series' name and default.
+
+**Manuscript prose is synchronized, under a stricter rule than everything
+else.** Scenes travel individually as `scene` records and the chapter outline
+as `manuscript-structure`, so typing does not re-send the outline and
+reordering does not re-send the book.
+
+Prose never resolves last-writer-wins. When two devices have both changed a
+scene, the arriving version is applied **and the local version is kept beside
+it** as a new scene titled `<title> (conflict copy)`, in the same chapter,
+directly below. Nothing is destroyed, and the author finds both versions in the
+manuscript rather than being told about a hidden store. This is what
+`docs/authoros-2-master-plan.md` requires: *"manuscript text conflicts preserve
+both versions and require user resolution."*
+
+Worth knowing: a conflict copy is an ordinary scene. It counts toward word
+totals and appears in exports until the author merges or deletes it. That is
+the deliberate price of never losing prose in a collision.
+
+It is no longer the only prose recovery, though. Scene revision history (below)
+covers the case a conflict copy cannot: an author overwriting their own words
+on one device, with no second device involved.
+
+Prose is queued at the 700ms autosave but uploaded only at natural boundaries —
+leaving a scene, closing the manuscript, backgrounding the app — so the network
+is never in the middle of typing. Queue entries carry a scene *reference*; the
+text is read again at flush time, so the queue never holds a second copy of the
+manuscript and what uploads is current rather than a snapshot.
+
+### `author_studio.manuscript_sync_shadow.{projectId}`
+
+- Type: JSON object string
+- Shape: map of scene id to the `updatedAt` that scene carried when it last synced
+- Meaning: what this device believes the server already has, so a save that
+  rewrites the whole manuscript can still be reduced to the scenes that changed
+- Treatment: operational; safe to clear, at the cost of re-uploading every
+  scene once. Losing it is never wrong, only wasteful — the opposite mistake
+  would silently skip scenes that had never reached the server
+
+### `author_studio.manuscript_sync_structure.{projectId}`
+
+- Type: string fingerprint of the chapter outline
+- Meaning: the outline as this device last sent it, so prose edits do not
+  re-upload the chapter list
+- Treatment: operational; safe to clear, at the cost of one redundant outline
+  upload
+
+## Scene revision history
+
+Prose history is **not** a preference key. It lives in the canonical AuthorOS
+database as `scene_revision_rows` (schema 12), alongside writing sessions and
+for the same reason: it is append-only historical data with a query shape
+preferences cannot serve.
+
+Until it existed, AuthorOS could not return a single overwritten word.
+`record_version_rows` stores manuscript *nodes* — titles, statuses, metadata —
+and `ManuscriptService.restoreVersion` says in its own doc comment that it does
+not roll prose back, because the snapshot it holds has never contained any. The
+only prose backup, `author_studio.manuscript_legacy_backup.{projectId}`, is
+written once during the v1 migration. Every 700ms autosave destroyed what came
+before it.
+
+**What is captured, and when.** Never on the autosave — a snapshot per keystroke
+burst would be a second copy of the novel every few seconds. Capture is an
+explicit call the Manuscript Studio makes at four moments:
+
+| Trigger | When |
+|---|---|
+| `boundary` | The author leaves a scene, closes the manuscript, or backgrounds the app |
+| `remoteApply` | Immediately before a sync writes another device's prose over this device's |
+| `restore` | Immediately before restoring an older revision, which is what makes a restore undoable |
+| `deletion` | A scene is deleted — the one snapshot with no scene left to live in |
+
+Two filters keep the history readable: empty prose is never captured, and
+prose identical to the scene's newest revision is never captured twice. Leaving
+and re-entering a scene without typing writes nothing at all.
+
+**Retention.** Unbounded history would eventually hold more prose than the
+manuscript it protects, so `SceneRevisionRetention` thins it, working
+newest-first. A revision survives if it is one of the newest 15 and within the
+last 6 hours, or if it is the first seen in its bucket — an hour within the last
+day, a day within the last month, a week beyond that. What survives is capped at
+50 per scene. The recent allowance is a budget rather than a window, which is
+what stops a dense burst of editing filling the ceiling with the last twenty
+minutes and pruning every older bucket underneath it.
+
+**Deliberately device-local.** Revisions are not a synced record type and never
+travel. Syncing them would multiply every prose upload by the retention depth to
+guard against a loss the conflict-copy rule already handles; local history
+answers the other question — "I overwrote my own scene an hour ago" — which no
+amount of syncing could.
+
+**Not graph truth.** A revision is an archived body of text. It carries no
+foreign key into `connected_entities`, is not a registered record type, is not
+an endpoint of any connection, and is never indexed into `author_search` — the
+manuscript itself deliberately keeps prose out of the search index (risk R-14),
+and a revision table that leaked into it would reverse that silently.
 
 ## Data not currently represented as durable creative storage
 
 The audit found no canonical persisted 1.x stores for:
 
-- universes or series
 - custom record-type definitions
 - general typed links independent of scenes
 - managed project assets and checksums
@@ -230,7 +359,7 @@ The audit found no canonical persisted 1.x stores for:
 - book-layout specifications
 - writing-session history and heat maps
 - complete project archive manifests
-- per-entity tombstones and revision history
+- per-entity tombstones
 
 These must be introduced by the 2.0 domain rather than inferred from unrelated settings.
 

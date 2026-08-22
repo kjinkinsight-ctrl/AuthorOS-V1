@@ -523,7 +523,15 @@ class StoryGraphService {
       if (filter.seriesId != null && record.seriesId != filter.seriesId) {
         return false;
       }
-      if (filter.bookId != null && record.bookId != filter.bookId) return false;
+      // A null `bookId` is not "unassigned", it is *series canon*: a record
+      // shared by every book (`BookScope` rule B-1). Narrowing to Book 1 must
+      // therefore keep it, or the shared entities the Codex exists to create
+      // would be the first thing a book filter hides.
+      if (filter.bookId != null &&
+          record.bookId != null &&
+          record.bookId != filter.bookId) {
+        return false;
+      }
       if (filter.branchId != null && record.branchId != filter.branchId) {
         return false;
       }

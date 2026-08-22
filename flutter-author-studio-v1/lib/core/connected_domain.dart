@@ -1,5 +1,6 @@
 import 'record_scope.dart';
 import 'record_types.dart';
+import 'scene_prose.dart';
 import 'connection_types.dart';
 import 'branch_domain.dart';
 import 'branch_engine.dart';
@@ -288,6 +289,7 @@ class ConnectedDomainSnapshot {
     this.versions = const [],
     this.auditEvents = const [],
     this.writingSessions = const [],
+    this.sceneProse = const [],
   });
 
   final List<AuthorRecord> records;
@@ -310,6 +312,19 @@ class ConnectedDomainSnapshot {
   /// every daily total, streak and longitudinal metric the author had built up.
   final List<WritingSession> writingSessions;
 
+  /// The current prose of every scene in the snapshot.
+  ///
+  /// Prose is not graph data -- it has no entity row and no links -- but it
+  /// travels here for the same reason [versions], [auditEvents] and
+  /// [writingSessions] do: backup is a separate concern from graph
+  /// membership, and a snapshot that omitted it would be a backup of
+  /// everything about the book except the book.
+  ///
+  /// Scene *history* is not here. Revisions are device-local by design, and
+  /// carrying every retained copy of every scene would multiply an archive by
+  /// its retention depth for no gain to the author restoring it.
+  final List<SceneProse> sceneProse;
+
   Map<String, Object?> toJson() => {
         'schemaVersion': 1,
         'records': records.map((record) => record.toJson()).toList(),
@@ -331,6 +346,7 @@ class ConnectedDomainSnapshot {
         'auditEvents': auditEvents.map((event) => event.toJson()).toList(),
         'writingSessions':
             writingSessions.map((session) => session.toJson()).toList(),
+        'sceneProse': sceneProse.map((prose) => prose.toJson()).toList(),
       };
 
   factory ConnectedDomainSnapshot.fromJson(Map<String, dynamic> json) {
@@ -362,6 +378,7 @@ class ConnectedDomainSnapshot {
       writingSessions: _mapList(json['writingSessions'])
           .map(WritingSession.fromJson)
           .toList(),
+      sceneProse: _mapList(json['sceneProse']).map(SceneProse.fromJson).toList(),
     );
   }
 }

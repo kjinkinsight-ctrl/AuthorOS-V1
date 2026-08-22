@@ -204,6 +204,33 @@ class WritingSessionRecorder {
     return session;
   }
 
+  /// The manuscript changed underneath the author, and they did not do it.
+  ///
+  /// A sync applying prose from another device moves the canonical word count
+  /// while the editor is open. Left alone, the next keystroke would credit the
+  /// whole arriving jump to the author: 5,000 words locally, 12,000 after the
+  /// pull, one character typed, and [noteActivity] opens a session reporting
+  /// 7,001 words written. It would qualify on the word count alone — the
+  /// duration is never consulted once the words clear the threshold — and land
+  /// in the history as a several-thousand-word session lasting no time at all,
+  /// poisoning every daily total, streak and velocity derived from it.
+  ///
+  /// [noteBaseline] cannot fix this on its own: it is deliberately a no-op
+  /// while a session is open, so an author who typed in the last few minutes
+  /// would keep the stale baseline and inflate anyway. [discardOpenSession]
+  /// cannot either — it re-baselines to the pre-arrival count.
+  ///
+  /// So this ends the session in progress first, which records what the author
+  /// genuinely did write up to this moment, and only then re-baselines to the
+  /// count the manuscript now has. The arriving words belong to whoever wrote
+  /// them on the other device.
+  Future<WritingSession?> noteRemoteChange(int wordCount) async {
+    final finalized = await finalizeSession();
+    // Succeeds now: finalizeSession detached the open session above.
+    noteBaseline(wordCount);
+    return finalized;
+  }
+
   /// Abandons the session in progress without persisting it.
   ///
   /// For teardown paths that must not record anything — never a substitute

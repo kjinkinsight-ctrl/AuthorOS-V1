@@ -1,4 +1,32 @@
+/// Deterministic entity recognition: finding an author's names in an author's
+/// prose.
+///
+/// This is the one place in the application that decides what counts as a
+/// mention. Before this file existed the same predicate was written three
+/// times — in `manuscript_continuity.dart`, `codex_continuity.dart` and
+/// `world_continuity.dart` — and three copies of a matching rule are three
+/// chances for the Manuscript, the Codex and the World to disagree about
+/// whether a character appears in a scene.
+///
+/// Nothing here is generative and nothing reaches the network. Recognition is
+/// author-authored names matched against author-written prose, which is what
+/// makes the result reproducible and explainable — the differentiator
+/// `NEXT.md` §9 sells and the determinism the master plan §12 requires.
+///
+/// Two shapes over one rule. [EntityNameMatcher] and [EntityNameIndex] are for
+/// callers scanning prose for many names at once; the top-level [mentionsName],
+/// [firstMention], [splitNames] and [aliasesOfRecord] are the one-shot form the
+/// continuity analyzers use. Both are the same predicate — the free functions
+/// delegate — so there is still exactly one definition of a mention.
+library;
+
 import 'connected_domain.dart';
+
+/// The shortest name worth matching.
+///
+/// Shorter names are common words far more often than they are entities, and a
+/// false positive costs the author more attention than a missed short name.
+const int kMinimumMentionLength = 4;
 
 /// How AuthorOS recognises an entity named in prose.
 ///
@@ -26,6 +54,7 @@ class EntityNames {
     'historicalNames',
     'localNames',
     'nicknames',
+    'identity.aliases',
   ];
 
   /// Splits a stored name value into individual names.
@@ -88,7 +117,7 @@ class EntityNames {
 /// Case-insensitive and bounded by non-alphanumerics, so "Kali" matches
 /// `Kali entered` and `"Kali,"` but not `Kalinda`.
 class EntityNameMatcher {
-  const EntityNameMatcher({this.minimumLength = 4});
+  const EntityNameMatcher({this.minimumLength = kMinimumMentionLength});
 
   /// Names shorter than this are ignored so common words produce no noise.
   ///
@@ -176,7 +205,7 @@ class EntityNameIndex {
 
   factory EntityNameIndex.fromRecords(
     Iterable<AuthorRecord> records, {
-    int minimumLength = 4,
+    int minimumLength = kMinimumMentionLength,
     List<String> aliasFieldIds = EntityNames.aliasFieldIds,
   }) {
     final idsByName = <String, List<String>>{};
@@ -271,3 +300,46 @@ class EntityNameIndex {
     return mentions;
   }
 }
+
+/// The shared matcher behind the one-shot functions below.
+const _matcher = EntityNameMatcher();
+
+/// Whether [name] appears in [prose] as a whole word.
+///
+/// Boundaries are `[^a-z0-9]` rather than `\b`, which is deliberate: it makes
+/// possessives and punctuation count as boundaries, so "Kali's blade" and
+/// "Kali," both match "Kali", while "Kalina" does not.
+bool mentionsName(String prose, String name) => _matcher.mentions(prose, name);
+
+/// The first of [names] that appears in [prose], or null.
+///
+/// Returning the matched name rather than a boolean is what lets a
+/// recommendation quote the author's own word back at them.
+String? firstMention(
+  String prose,
+  Iterable<String> names, {
+  int minimumLength = kMinimumMentionLength,
+}) {
+  final matcher = minimumLength == kMinimumMentionLength
+      ? _matcher
+      : EntityNameMatcher(minimumLength: minimumLength);
+  for (final name in names) {
+    final trimmed = name.trim();
+    if (!matcher.isLongEnough(trimmed)) continue;
+    if (matcher.mentions(prose, trimmed)) return trimmed;
+  }
+  return null;
+}
+
+/// Splits a delimited roster value into names.
+///
+/// Accepts the two shapes templates actually store: a delimited string, or a
+/// list.
+List<String> splitNames(Object? value) => EntityNames.split(value);
+
+/// The alternative names a record answers to.
+///
+/// Reads every alias field any Studio writes, so a name recognised in the
+/// World is recognised identically in the Codex and the Manuscript.
+List<String> aliasesOfRecord(AuthorRecord record) =>
+    EntityNames.aliasesOf(record);

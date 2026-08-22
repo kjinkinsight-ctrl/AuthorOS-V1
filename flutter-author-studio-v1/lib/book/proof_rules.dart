@@ -39,12 +39,17 @@ class BuiltInProofRules {
     SpellingRule(),
   ];
 
+  /// The layout rules.
+  ///
+  /// `blankPages` and `signature` used to live here and moved to
+  /// `preflight_checks.dart` in Phase 5. They were always preflight questions
+  /// filed in the wrong drawer: both describe what a *printer* will do and what
+  /// it will cost, not how the text is set. What is left is typesetting
+  /// quality, which is what this stage is for.
   static const List<LayoutProofRule> layout = [
     RiverRule(),
     WidowOrphanRule(),
     ShortChapterEndRule(),
-    BlankPageRule(),
-    SignatureRule(),
   ];
 
   static ProofRule? byId(String id) {
@@ -1075,62 +1080,4 @@ class ShortChapterEndRule extends LayoutProofRule {
   }
 }
 
-/// How many pages the book spends on nothing.
-class BlankPageRule extends LayoutProofRule {
-  const BlankPageRule();
 
-  @override
-  String get id => 'blankPages';
-  @override
-  String get label => 'Blank pages';
-  @override
-  String get description =>
-      'Pages left blank so chapters open on the right-hand side.';
-
-  @override
-  Iterable<ProofFinding> run(PaginatedBook book) sync* {
-    final blanks = book.stats.blankPageCount;
-    if (blanks == 0) return;
-    yield ProofFinding(
-      ruleId: id,
-      stage: ProofStage.layout,
-      severity: ProofSeverity.notice,
-      title: '$blanks blank page${blanks == 1 ? '' : 's'}',
-      message: 'These exist so chapters open on a right-hand page, which is '
-          'how a printed book reads. Print-on-demand charges for them, so if '
-          'that matters, let chapters start on any new page instead.',
-      where: 'Layout',
-    );
-  }
-}
-
-/// Printers bind in gatherings, so the page count matters.
-class SignatureRule extends LayoutProofRule {
-  const SignatureRule();
-
-  @override
-  String get id => 'signature';
-  @override
-  String get label => 'Page count';
-  @override
-  String get description =>
-      'Printers fold paper in fours, so a page count that is not a multiple of '
-      'four leaves blank leaves at the back.';
-
-  @override
-  Iterable<ProofFinding> run(PaginatedBook book) sync* {
-    if (book.format.reflowable) return;
-    final remainder = book.pageCount % 4;
-    if (remainder == 0) return;
-    yield ProofFinding(
-      ruleId: id,
-      stage: ProofStage.layout,
-      severity: ProofSeverity.notice,
-      title: '${book.pageCount} pages is not a multiple of four',
-      message: 'A printer folds paper in fours, so ${4 - remainder} blank '
-          'leaf${4 - remainder == 1 ? '' : 'ves'} will be added at the back. '
-          'Back matter is a good way to use them.',
-      where: 'Layout',
-    );
-  }
-}

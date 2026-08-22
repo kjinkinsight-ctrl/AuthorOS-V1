@@ -174,4 +174,53 @@ void main() {
       );
     });
   });
+  group('reproducibility', () {
+    // EPUB and DOCX have asserted this since they were built. The PDF did not,
+    // and could not: `PdfInfo` stamps `/CreationDate` from `DateTime.now()`,
+    // so two exports of an unchanged book differed by a timestamp alone.
+    test('the same book exports byte for byte the same PDF', () async {
+      final book = paginate();
+      final first = await const BookPdfRenderer()
+          .render(book, assets, modified: DateTime.utc(2026, 3, 4, 5, 6, 7));
+      final second = await const BookPdfRenderer()
+          .render(book, assets, modified: DateTime.utc(2026, 3, 4, 5, 6, 7));
+
+      expect(second, orderedEquals(first),
+          reason: 'an unchanged book must not produce a different file');
+    });
+
+    test('two exports with no date given still match', () async {
+      final book = paginate();
+      expect(
+        await const BookPdfRenderer().render(book, assets),
+        orderedEquals(await const BookPdfRenderer().render(book, assets)),
+        reason: 'the default must be a pinned instant, not the wall clock',
+      );
+    });
+
+    test('a changed setting changes the output', () async {
+      final a = await const BookPdfRenderer()
+          .render(paginate(), assets, modified: DateTime.utc(2026));
+      final b = await const BookPdfRenderer().render(
+          paginate(format: BookFormatPresets.largePrint), assets,
+          modified: DateTime.utc(2026));
+
+      expect(a, isNot(orderedEquals(b)));
+    });
+
+    test('the date reaches the file, in the metadata that survives', () async {
+      final bytes = await const BookPdfRenderer().render(paginate(), assets,
+          modified: DateTime.utc(2026, 3, 4, 5, 6, 7));
+      final text = String.fromCharCodes(bytes);
+
+      // Written as XMP rather than /CreationDate: PdfString is not exported
+      // from package:pdf, so the dictionary entry cannot be set without
+      // reaching into the package's internals.
+      expect(text, contains('2026-03-04T05:06:07Z'));
+      expect(text, contains('xmp:CreateDate'));
+      expect(text, isNot(contains('/CreationDate')),
+          reason: 'the clock-based entry must be gone, not merely overwritten');
+    });
+  });
+
 }

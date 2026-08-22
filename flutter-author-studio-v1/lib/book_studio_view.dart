@@ -24,9 +24,12 @@ import 'book/book_format.dart';
 import 'book/book_layout.dart';
 import 'book/book_pdf_renderer.dart';
 import 'book/book_preview_painter.dart';
+import 'book/book_snapshot.dart';
 import 'book/book_store.dart';
+import 'book/book_template.dart';
 import 'book/book_text_exporter.dart';
 import 'book/epub_settings.dart';
+import 'book/preflight.dart';
 import 'book/proof_rules.dart';
 import 'book/proofing.dart';
 import 'manuscript_continuity.dart';
@@ -109,6 +112,9 @@ class BookStudioView extends StatefulWidget {
     this.docxExporter = const BookDocxExporter(),
     this.textExporter = const BookTextExporter(),
     this.coverStore = const BookCoverStore(),
+    this.snapshotStore = const BookSnapshotStore(),
+    this.templateStore = const BookTemplateStore(),
+    this.preflightEngine = const PreflightEngine(),
     this.coverPicker = pickCoverFile,
     this.proofingEngine = const ProofingEngine(),
     this.database,
@@ -123,6 +129,9 @@ class BookStudioView extends StatefulWidget {
   final BookDocxExporter docxExporter;
   final BookTextExporter textExporter;
   final BookCoverStore coverStore;
+  final BookSnapshotStore snapshotStore;
+  final BookTemplateStore templateStore;
+  final PreflightEngine preflightEngine;
 
   /// Injected so a test can supply an image without a file dialog.
   final Future<Uint8List?> Function() coverPicker;
@@ -174,6 +183,16 @@ class _BookStudioViewState extends State<BookStudioView> {
   /// How much of the book's structure the text file carries.
   TextExportStyle _textStyle = TextExportStyle.readable;
 
+  /// What preflight found for the currently chosen target.
+  ///
+  /// Recomputed when the target or the book changes, never on a repaint: the
+  /// checks walk every page and the Export stage is rebuilt on every keystroke
+  /// elsewhere in the studio.
+  PreflightReport _preflight = PreflightReport.empty;
+  String _preflightCacheKey = '';
+
+  List<BookTemplate> _templates = const [];
+
   @override
   void initState() {
     super.initState();
@@ -195,6 +214,7 @@ class _BookStudioViewState extends State<BookStudioView> {
               _emptyManuscript();
       final book = await widget.bookStore.load(widget.project.id);
       final cover = await _loadCover();
+      final templates = await widget.templateStore.load();
 
       if (!mounted) return;
       setState(() {
@@ -202,6 +222,7 @@ class _BookStudioViewState extends State<BookStudioView> {
         _manuscript = manuscript;
         _book = book;
         _cover = cover;
+        _templates = templates;
         _loading = false;
       });
       _repaginate();
@@ -457,6 +478,38 @@ class _BookStudioViewState extends State<BookStudioView> {
         .showSnackBar(SnackBar(content: Text(text)));
   }
 
+  /// Re-runs preflight when the target or the book actually changed.
+  void _repreflight() {
+    final document = _document;
+    final book = _book;
+    if (document == null || book == null) return;
+
+    final key = [
+      _exportFormat.name,
+      _layoutCacheKey,
+      _cover == null ? 'nocover' : 'cover',
+      book.epub.embedFonts,
+    ].join('|');
+    if (key == _preflightCacheKey) return;
+
+    final report = widget.preflightEngine.run(PreflightContext(
+      document: document,
+      target: _exportFormat,
+      format: book.format,
+      // A reflowable target has no pages, and handing it a paginated book is
+      // how a print assumption leaks into a format that has none.
+      paginated: _exportFormat.isReflowable ? null : _paginated,
+      epub: book.epub,
+      assets: _assets,
+      cover: _cover,
+    ));
+
+    setState(() {
+      _preflight = report;
+      _preflightCacheKey = key;
+    });
+  }
+
   Future<void> _export() async {
     final paginated = _paginated;
     final document = _document;
@@ -495,7 +548,11 @@ class _BookStudioViewState extends State<BookStudioView> {
             ),
           )),
         BookExportFormat.printPdf || BookExportFormat.digitalPdf =>
-          await widget.renderer.render(paginated, assets),
+          await widget.renderer.render(
+            paginated,
+            assets,
+            modified: _manuscript?.updatedAt ?? BookPdfRenderer.epoch,
+          ),
       };
       final path = await widget.fileSaver.save(
         suggestedName: suggestedBookFilename(
@@ -506,8 +563,15 @@ class _BookStudioViewState extends State<BookStudioView> {
         format: _exportFormat,
       );
       if (!mounted) return;
+      if (path == null) {
+        setState(() => _exporting = false);
+        return;
+      }
+
+      await _recordExport(paginated);
+
+      if (!mounted) return;
       setState(() => _exporting = false);
-      if (path == null) return;
       _message(path.isEmpty
           ? 'Your book has been downloaded.'
           : 'Book exported to $path');
@@ -515,6 +579,54 @@ class _BookStudioViewState extends State<BookStudioView> {
       if (!mounted) return;
       setState(() => _exporting = false);
       _message('Export failed. $error');
+    }
+  }
+
+  /// Freezes the manuscript this export was built from, and remembers it.
+  ///
+  /// The master plan asks that exports be reproducible from a frozen snapshot.
+  /// Without this the studio reads whatever the manuscript says at that
+  /// instant, and a file exported last month cannot be produced again once
+  /// another paragraph has been written.
+  ///
+  /// A failure here must never look like a failed export: the file has already
+  /// been written and the author already has it. It is recorded and swallowed.
+  Future<void> _recordExport(PaginatedBook paginated) async {
+    final manuscript = _manuscript;
+    final book = _book;
+    if (manuscript == null || book == null) return;
+
+    try {
+      final hash = await widget.snapshotStore
+          .capture(widget.project.id, manuscript);
+
+      final record = ExportRecord(
+        exportedAt: DateTime.now().toUtc(),
+        format: _exportFormat.name,
+        variant: switch (_exportFormat) {
+          BookExportFormat.docx => _docxFlavour.name,
+          BookExportFormat.txt => _textStyle.name,
+          _ => '',
+        },
+        snapshotHash: hash,
+        manuscriptVersion: manuscript.version,
+        pageCount: _exportFormat.isReflowable ? 0 : paginated.pageCount,
+        wordCount: paginated.stats.wordCount,
+      );
+
+      final history = [record, ...book.exportHistory]
+          .take(BookProject.historyLimit)
+          .toList();
+      await _update((current) => current.copyWith(exportHistory: history));
+
+      // Anything no remaining history entry names can never be asked for
+      // again, so it goes now rather than sitting in the database forever.
+      await widget.snapshotStore.prune(
+        widget.project.id,
+        {for (final entry in history) entry.snapshotHash},
+      );
+    } catch (error) {
+      debugPrint('Book Studio could not record the export snapshot: $error');
     }
   }
 
@@ -1107,6 +1219,8 @@ class _BookStudioViewState extends State<BookStudioView> {
           ),
         ),
         const SizedBox(height: 12),
+        _templatePanel(theme),
+        const SizedBox(height: 12),
         _Panel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1637,6 +1751,8 @@ class _BookStudioViewState extends State<BookStudioView> {
 
   Widget _exportStage(ThemeData theme) {
     final paginated = _paginated;
+    // Cheap when nothing changed; the key guards the walk over every page.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _repreflight());
     return ListView(
       padding: EdgeInsets.zero,
       children: [
@@ -1682,6 +1798,7 @@ class _BookStudioViewState extends State<BookStudioView> {
               const SizedBox(height: 12),
               Text(_exportSummary(paginated), style: theme.textTheme.bodyMedium),
               const SizedBox(height: 12),
+              _preflightPanel(theme),
               FilledButton.icon(
                 key: const Key('book-export-button'),
                 onPressed:
@@ -1705,6 +1822,180 @@ class _BookStudioViewState extends State<BookStudioView> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Save this book's look, or put a saved one on.
+  ///
+  /// Sits beside the presets because that is what a template is: a preset the
+  /// author made. It never touches the book's title, ISBN or copyright — a
+  /// series shares a design, not an identity.
+  Widget _templatePanel(ThemeData theme) => _Panel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SectionHeading('Your templates', theme),
+            const SizedBox(height: 6),
+            Text(
+              'A template saves the trim, typography, chapter design, ebook '
+              'settings and which sections a book has — never its title, ISBN '
+              'or copyright.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            if (_templates.isEmpty)
+              Text('You have not saved one yet.',
+                  style: theme.textTheme.bodySmall)
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final template in _templates)
+                    InputChip(
+                      key: Key('book-template-${template.id}'),
+                      label: Text(template.name),
+                      onPressed: () => _applyTemplate(template),
+                      onDeleted: () => _deleteTemplate(template),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                    ),
+                ],
+              ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              key: const Key('book-save-template-button'),
+              onPressed: _saveTemplate,
+              icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+              label: const Text('Save this look as a template'),
+            ),
+          ],
+        ),
+      );
+
+  Future<void> _saveTemplate() async {
+    final book = _book;
+    if (book == null) return;
+
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => const _TemplateNameDialog(),
+    );
+    if (name == null || name.trim().isEmpty) return;
+
+    final template = BookTemplate.from(
+      book,
+      name: name.trim(),
+      createdAt: DateTime.now().toUtc(),
+    );
+    final templates = await widget.templateStore.save(template);
+    if (!mounted) return;
+    setState(() => _templates = templates);
+    _message('Saved "${template.name}".');
+  }
+
+  Future<void> _applyTemplate(BookTemplate template) async {
+    await _update(template.applyTo);
+    if (!mounted) return;
+    _message('Applied "${template.name}". Your title and copyright are '
+        'unchanged.');
+  }
+
+  Future<void> _deleteTemplate(BookTemplate template) async {
+    final templates = await widget.templateStore.delete(template.id);
+    if (!mounted) return;
+    setState(() => _templates = templates);
+  }
+
+  /// What preflight found, above the button rather than in the way of it.
+  ///
+  /// It never disables the export. An author has context this engine does not
+  /// — a proof copy, a printer with its own rules, a deliberate choice — and a
+  /// tool that refuses to produce a file is one that gets worked around instead
+  /// of read.
+  Widget _preflightPanel(ThemeData theme) {
+    final report = _preflight;
+    final colors = theme.colorScheme;
+
+    if (report.isClean) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          key: const Key('book-preflight-clean'),
+          children: [
+            Icon(Icons.check_circle_outline, size: 18, color: colors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('Preflight found nothing to flag.',
+                  style: theme.textTheme.bodySmall),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        key: const Key('book-preflight-panel'),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: report.hasCritical ? colors.error : colors.outlineVariant,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  report.hasCritical
+                      ? Icons.error_outline
+                      : Icons.info_outlined,
+                  size: 18,
+                  color: report.hasCritical
+                      ? colors.error
+                      : colors.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(report.summary,
+                      style: theme.textTheme.bodyMedium),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            for (final finding in report.findings)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${finding.severity.label} · ${finding.title}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: finding.severity == ProofSeverity.critical
+                              ? colors.error
+                              : colors.onSurface,
+                        )),
+                    Text(finding.message, style: theme.textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            Text(
+              report.hasCritical
+                  ? 'You can still export. Nothing here stops you — but the '
+                      'items marked as needing attention will be visible in '
+                      'the finished book.'
+                  : 'You can still export. These are worth knowing about, not '
+                      'worth stopping for.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: colors.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2312,4 +2603,54 @@ class _Stat extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Asks for a template's name.
+///
+/// Deliberately plain: saving a look is a small action and should not feel like
+/// a decision. The name is the only thing the author has to supply, because
+/// everything else is already on screen.
+class _TemplateNameDialog extends StatefulWidget {
+  const _TemplateNameDialog();
+
+  @override
+  State<_TemplateNameDialog> createState() => _TemplateNameDialogState();
+}
+
+class _TemplateNameDialogState extends State<_TemplateNameDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text);
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Name this template'),
+        content: TextField(
+          key: const Key('book-template-name-field'),
+          controller: _controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Ash Cycle paperback',
+            helperText: 'Saving over a name replaces that template.',
+          ),
+          onSubmitted: (_) => _submit(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('book-template-name-confirm'),
+            onPressed: _submit,
+            child: const Text('Save'),
+          ),
+        ],
+      );
 }

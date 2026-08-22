@@ -1,0 +1,51 @@
+# bookDigestVersion: 1
+# format: paperback
+# trim: 396.00x612.00pt
+# pages: 2
+# words: 360
+# blanks: 0
+# front: 0  body: 2  back: 0
+T 1 1 Chapter 1: The Only Chapter
+P0 chapterOpener recto folio=1 head= block=72.00,81.00 288.00x468.00
+  L 0.00 128.81 Chapter 1
+  L 0.00 163.80 The Only Chapter
+  L 0.00 207.53 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 222.38 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 237.23 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 252.08 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 266.93 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 281.78 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 16.00 296.63 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 311.48 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 326.33 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 341.18 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 356.03 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 370.88 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 16.00 385.73 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 400.58 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 415.43 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 430.28 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 445.13 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 459.98 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  M 213.96 567.00 1
+P1 body verso folio=2 head=The Long Road block=36.00,81.00 288.00x468.00
+  L 16.00 10.82 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 25.67 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 40.52 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 55.37 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 70.22 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 85.07 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 16.00 99.92 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 114.77 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 129.62 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 144.47 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 159.32 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 174.17 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 16.00 189.02 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 203.87 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 218.72 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 233.57 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 248.42 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 263.27 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  M 36.00 63.00 The Long Road
+  M 177.32 567.00 2

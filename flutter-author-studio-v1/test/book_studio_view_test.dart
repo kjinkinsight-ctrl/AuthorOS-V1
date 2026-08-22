@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import 'package:archive/archive.dart';
 import 'package:author_studio_v1/book/book_export_targets.dart';
+import 'package:author_studio_v1/book/book_format.dart';
 import 'package:author_studio_v1/book_studio_view.dart';
 import 'package:author_studio_v1/book/book_preview_painter.dart';
 import 'package:author_studio_v1/book/book_cover.dart';
+import 'package:author_studio_v1/book/book_snapshot.dart';
 import 'package:author_studio_v1/book/book_store.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/native.dart';
@@ -90,6 +92,7 @@ void main() {
               project: _project(),
               fileSaver: saver ?? _MemoryBookFileSaver(),
               coverStore: BookCoverStore(database: database),
+              snapshotStore: BookSnapshotStore(database: database),
               coverPicker: coverPicker ?? () async => null,
               database: database,
             ),
@@ -192,8 +195,12 @@ void main() {
 
     await tester.tap(find.byKey(const Key('book-stage-export')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('book-export-button')));
-    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      // Exporting now freezes the manuscript into the database, which is
+      // real asynchronous work the fake clock does not advance.
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
 
     expect(saver.calls, 1);
     expect(saver.name, 'the-widow-knife-print.pdf');
@@ -232,8 +239,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('book-export-epub')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('book-export-button')));
-    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      // Exporting now freezes the manuscript into the database, which is
+      // real asynchronous work the fake clock does not advance.
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
 
     expect(saver.calls, 1);
     expect(saver.name, 'the-widow-knife.epub');
@@ -259,8 +270,12 @@ void main() {
 
     await tester.tap(find.byKey(const Key('book-docx-typeset')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('book-export-button')));
-    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      // Exporting now freezes the manuscript into the database, which is
+      // real asynchronous work the fake clock does not advance.
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
 
     expect(saver.calls, 1);
     expect(saver.name, 'the-widow-knife.docx');
@@ -285,8 +300,12 @@ void main() {
     expect(find.byKey(const Key('book-txt-readable')), findsOneWidget);
     await tester.tap(find.byKey(const Key('book-txt-manuscriptOnly')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('book-export-button')));
-    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      // Exporting now freezes the manuscript into the database, which is
+      // real asynchronous work the fake clock does not advance.
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
 
     expect(saver.calls, 1);
     expect(saver.name, 'the-widow-knife.txt');
@@ -330,6 +349,133 @@ void main() {
     expect(stored.epub.embedFonts, isTrue);
     // The print format must be untouched by an ebook setting.
     expect(stored.format.id, 'paperback');
+  });
+
+  testWidgets('preflight reports before the export, and never blocks it',
+      (tester) async {
+    final saver = _MemoryBookFileSaver();
+    await pumpStudio(tester, saver: saver);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+
+    // The paperback fixture starts chapters on a recto, so it has blank pages
+    // to report — the panel should be showing rather than the clean line.
+    expect(find.byKey(const Key('book-preflight-panel')), findsOneWidget);
+    expect(find.textContaining('You can still export'), findsOneWidget);
+
+    // And the button is live regardless of what preflight said.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
+    expect(saver.calls, 1);
+  });
+
+  testWidgets('preflight changes its mind when the target does',
+      (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+
+    // Matched on the finding's own wording, not on "blank pages" — the
+    // print-PDF option's description says that too.
+    expect(find.textContaining('Print-on-demand charges'), findsOneWidget);
+
+    // Blank pages and signatures are print questions. A text file has neither,
+    // and preflight should stop asking.
+    await tester.tap(find.byKey(const Key('book-export-txt')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Print-on-demand charges'), findsNothing);
+    expect(find.textContaining('not a multiple of four'), findsNothing,
+        reason: 'a text file has no signatures either');
+  });
+
+  testWidgets('an export is remembered, with the manuscript it came from',
+      (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
+
+    final stored = await const BookStore().load('project-book');
+    expect(stored.exportHistory, hasLength(1));
+    final record = stored.exportHistory.single;
+    expect(record.format, 'printPdf');
+    expect(record.snapshotHash, hasLength(16));
+    expect(record.pageCount, greaterThan(0));
+
+    // And the manuscript behind it is actually recoverable, which is the whole
+    // point of recording the hash.
+    final snapshot = await BookSnapshotStore(database: database)
+        .load('project-book', record.snapshotHash);
+    expect(snapshot, isNotNull);
+    expect(snapshot!.manuscript.chapters, isNotEmpty);
+  });
+
+  testWidgets('exporting twice from one manuscript keeps one snapshot',
+      (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    for (final format in const ['printPdf', 'epub']) {
+      await tester.tap(find.byKey(Key('book-export-$format')));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('book-export-button')));
+        await tester.pumpAndSettle();
+      });
+    }
+
+    final stored = await const BookStore().load('project-book');
+    expect(stored.exportHistory, hasLength(2), reason: 'two exports happened');
+    expect(
+        await BookSnapshotStore(database: database).hashes('project-book'),
+        hasLength(1),
+        reason: 'but from one manuscript, so one snapshot');
+  });
+
+  testWidgets('a look can be saved as a template and put on again',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-formatting')));
+    await tester.pumpAndSettle();
+
+    // Change the look away from the default first, so applying it later is
+    // provably doing something.
+    await tester.tap(find.byKey(const Key('book-preset-large-print')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('book-save-template-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('book-template-name-field')), 'House Style');
+    await tester.tap(find.byKey(const Key('book-template-name-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('book-template-house-style')), findsOneWidget);
+
+    // Move away from it, then put the template back on.
+    await tester.tap(find.byKey(const Key('book-preset-paperback')));
+    await tester.pumpAndSettle();
+    expect((await const BookStore().load('project-book')).format.id,
+        BookFormatPresets.paperback.id);
+
+    await tester.tap(find.byKey(const Key('book-template-house-style')));
+    await tester.pumpAndSettle();
+
+    final restored = await const BookStore().load('project-book');
+    expect(restored.format.id, BookFormatPresets.largePrint.id);
+    // The book is still this book.
+    expect(restored.projectId, 'project-book');
   });
 
   testWidgets('a chosen cover is validated, stored and shown', (tester) async {

@@ -160,6 +160,11 @@ class PdfBookFontMetrics implements BookFontMetrics {
         return candidate;
       }
     }
+
+    // Nothing in the degradation chain is bundled — not even the fallback.
+    // This was recording nothing, so the substitution was invisible and the
+    // book exported in the wrong face with no report anywhere.
+    _substitutions[requested] = BookFontAssets.fallbackFace;
     return BookFontAssets.fallbackFace;
   }
 

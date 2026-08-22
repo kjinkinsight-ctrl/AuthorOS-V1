@@ -1,0 +1,80 @@
+# bookDigestVersion: 1
+# format: paperback
+# trim: 396.00x612.00pt
+# pages: 15
+# words: 150
+# blanks: 7
+# front: 6  body: 9  back: 0
+T 0 1 Part One
+T 1 3 Chapter 1: The Arrival
+T 1 5 Chapter 2: The Blood Price
+T 0 7 Part II
+T 1 9 Chapter 3: Endovier
+P0 frontMatter recto folio= head= block=72.00,81.00 288.00x468.00
+  L 13.32 161.15 The Widow Knife
+  L 115.43 225.87 Kali Vale
+  L 105.21 253.91 Ink & Insight
+P1 frontMatter verso blank folio= head= block=36.00,81.00 288.00x468.00
+P2 frontMatter recto folio= head= block=72.00,81.00 288.00x468.00
+  L 0.00 219.48 The Widow Knife
+  L 0.00 239.68 Copyright © 2026 Kali Vale
+  L 0.00 259.89 All rights reserved. No part of this book may be reproduced in any
+  L 0.00 272.51 form without written permission from the publisher, except brief
+  L 0.00 285.14 quotations in a review.
+  L 0.00 305.35 This is a work of fiction. Names, characters, places and incidents
+  L 0.00 317.97 are the product of the author’s imagination or are used
+  L 0.00 330.60 fictitiously.
+  L 0.00 350.81 ISBN 978-1-0000-0000-0
+  L 0.00 371.01 Ink & Insight
+P3 frontMatter verso blank folio= head= block=36.00,81.00 288.00x468.00
+P4 frontMatter recto folio=v head= block=72.00,81.00 288.00x468.00
+  L 0.00 17.71 Contents
+  L 0.00 58.65 Part One
+  L 283.02 58.65 1
+  L 8.80 75.73 Chapter 1: The Arrival
+  L 281.70 75.73 3
+  L 8.80 92.80 Chapter 2: The Blood Price
+  L 281.57 92.80 5
+  L 0.00 109.88 Part II
+  L 281.73 109.88 7
+  L 8.80 126.96 Chapter 3: Endovier
+  L 281.34 126.96 9
+  M 213.44 567.00 v
+P5 frontMatter verso blank folio= head= block=36.00,81.00 288.00x468.00
+P6 partTitle recto folio=1 head= block=72.00,81.00 288.00x468.00
+  L 94.01 186.83 Part One
+  M 213.96 567.00 1
+P7 blank verso blank folio= head= block=36.00,81.00 288.00x468.00
+P8 chapterOpener recto folio=3 head= block=72.00,81.00 288.00x468.00
+  L 0.00 128.81 Chapter 1
+  L 0.00 163.80 The Arrival
+  L 0.00 207.53 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 222.38 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 237.23 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 252.08 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  M 213.42 567.00 3
+P9 blank verso blank folio= head= block=36.00,81.00 288.00x468.00
+P10 chapterOpener recto folio=5 head= block=72.00,81.00 288.00x468.00
+  L 0.00 128.81 Chapter 2
+  L 0.00 163.80 The Blood Price
+  L 0.00 207.53 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 222.38 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 237.23 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 266.93 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 281.78 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 296.63 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  M 213.37 567.00 5
+P11 blank verso blank folio= head= block=36.00,81.00 288.00x468.00
+P12 partTitle recto folio=7 head= block=72.00,81.00 288.00x468.00
+  L 107.46 186.83 Part II
+  M 213.44 567.00 7
+P13 blank verso blank folio= head= block=36.00,81.00 288.00x468.00
+P14 chapterOpener recto folio=9 head= block=72.00,81.00 288.00x468.00
+  L 0.00 128.81 Chapter 3
+  L 0.00 163.80 Endovier
+  L 0.00 207.53 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 222.38 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 237.23 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 252.08 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 266.93 abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+  M 213.28 567.00 9

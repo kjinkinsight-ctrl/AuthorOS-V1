@@ -467,34 +467,14 @@ void main() {
     ProofReport layoutReport({BookFormat? format}) =>
         const ProofingEngine().analyseLayout(layout(format: format));
 
-    test('reports the blank pages a recto rule produced', () {
+    // `blankPages` and `signature` moved to preflight in Phase 5, where the
+    // questions they ask about a printer actually belong. Their assertions
+    // moved with them, to `test/book_preflight_test.dart`.
+    test('printer economics are no longer this stage\'s business', () {
       final report = layoutReport();
-      final blanks =
-          report.findings.where((f) => f.ruleId == 'blankPages').toList();
-
-      expect(blanks, hasLength(1));
-      expect(blanks.single.message, contains('right-hand page'),
-          reason: 'the author should be told why they exist before being '
-              'told they cost money');
-    });
-
-    test('a screen format has no blank pages to report', () {
-      final report = layoutReport(format: BookFormatPresets.ebook);
-      expect(report.findings.where((f) => f.ruleId == 'blankPages'), isEmpty);
-    });
-
-    test('a page count that is not a multiple of four is flagged', () {
-      final report = layoutReport();
-      final signature =
-          report.findings.where((f) => f.ruleId == 'signature').toList();
-      final pages = layout().pageCount;
-
-      if (pages % 4 == 0) {
-        expect(signature, isEmpty);
-      } else {
-        expect(signature, hasLength(1));
-        expect(signature.single.message, contains('folds paper in fours'));
-      }
+      expect(report.findings.map((f) => f.ruleId),
+          isNot(anyElement(isIn(const ['blankPages', 'signature']))),
+          reason: 'these are preflight checks now');
     });
 
     test('the engine leaves no widows or orphans behind', () {

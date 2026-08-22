@@ -247,6 +247,7 @@ class BookProject {
     this.parts = const [],
     this.format = BookFormatPresets.paperback,
     this.epub = EpubSettings.defaults,
+    this.exportHistory = const [],
     this.version = 1,
     this.migration = const {},
   });
@@ -274,6 +275,22 @@ class BookProject {
   /// format — trim, margins, binding allowance, running heads, folios — has no
   /// meaning once a reader reflows the text.
   final EpubSettings epub;
+
+  /// What has been exported from this book, newest first.
+  ///
+  /// Small enough to sit in the settings blob with everything else — the
+  /// snapshot *bytes* live in the database, and this only names them. Capped
+  /// when written, so a book exported every day for a year does not grow an
+  /// unbounded list inside a `localStorage` value.
+  final List<ExportRecord> exportHistory;
+
+  /// How many exports are remembered.
+  ///
+  /// More than the store keeps snapshots for, on purpose: an author is helped by
+  /// seeing that they exported an EPUB last Tuesday even once the manuscript
+  /// behind it has been evicted, and a row whose snapshot is gone still says
+  /// something true.
+  static const historyLimit = 25;
 
   final int version;
   final Map<String, String> migration;
@@ -343,6 +360,7 @@ class BookProject {
     BookFormat? format,
     EpubSettings? epub,
     int? version,
+    List<ExportRecord>? exportHistory,
     Map<String, String>? migration,
   }) =>
       BookProject(
@@ -364,6 +382,7 @@ class BookProject {
         format: format ?? this.format,
         epub: epub ?? this.epub,
         version: version ?? this.version,
+        exportHistory: exportHistory ?? this.exportHistory,
         migration: migration ?? this.migration,
       );
 
@@ -409,6 +428,9 @@ class BookProject {
         'format': format.toJson(),
         'epub': epub.toJson(),
         'version': version,
+        'exportHistory': [
+          for (final record in exportHistory) record.toJson(),
+        ],
         'migration': migration,
       };
 
@@ -435,6 +457,11 @@ class BookProject {
             (json['format'] as Map?)?.cast<String, dynamic>() ?? const {}),
         epub: EpubSettings.fromJson(
             (json['epub'] as Map?)?.cast<String, dynamic>() ?? const {}),
+        exportHistory: [
+          for (final item in (json['exportHistory'] as List? ?? const []))
+            ExportRecord.fromJson(
+                Map<String, dynamic>.from(item as Map)),
+        ],
         version: (json['version'] as num?)?.toInt() ?? currentVersion,
         migration: ((json['migration'] as Map?) ?? const {})
             .map((key, value) => MapEntry('$key', '$value')),
@@ -474,6 +501,61 @@ class BookMetadata {
   final String copyrightHolder;
   final String edition;
   final String rightsStatement;
+}
+
+/// One export that happened.
+///
+/// Small enough to live in the book's own settings blob beside everything else,
+/// which is the point: this is the list the studio shows, and it should load
+/// with the rest of the book rather than needing a database round trip.
+class ExportRecord {
+  const ExportRecord({
+    required this.exportedAt,
+    required this.format,
+    required this.snapshotHash,
+    this.variant = '',
+    this.manuscriptVersion = 0,
+    this.pageCount = 0,
+    this.wordCount = 0,
+  });
+
+  final DateTime exportedAt;
+
+  /// `BookExportFormat.name`, stored as a string so an added format cannot make
+  /// an old history entry undecodable.
+  final String format;
+
+  /// The DOCX flavour or text style, where the format has one.
+  final String variant;
+
+  final String snapshotHash;
+  final int manuscriptVersion;
+
+  /// Zero for a reflowable format, which has no pages.
+  final int pageCount;
+  final int wordCount;
+
+  Map<String, Object?> toJson() => {
+        'exportedAt': exportedAt.toIso8601String(),
+        'format': format,
+        'variant': variant,
+        'snapshotHash': snapshotHash,
+        'manuscriptVersion': manuscriptVersion,
+        'pageCount': pageCount,
+        'wordCount': wordCount,
+      };
+
+  factory ExportRecord.fromJson(Map<String, dynamic> json) => ExportRecord(
+        exportedAt:
+            DateTime.tryParse((json['exportedAt'] as String?) ?? '')?.toUtc() ??
+                DateTime.utc(2000),
+        format: (json['format'] as String?) ?? '',
+        variant: (json['variant'] as String?) ?? '',
+        snapshotHash: (json['snapshotHash'] as String?) ?? '',
+        manuscriptVersion: (json['manuscriptVersion'] as num?)?.toInt() ?? 0,
+        pageCount: (json['pageCount'] as num?)?.toInt() ?? 0,
+        wordCount: (json['wordCount'] as num?)?.toInt() ?? 0,
+      );
 }
 
 /// A front- or back-matter page, with its text already resolved.

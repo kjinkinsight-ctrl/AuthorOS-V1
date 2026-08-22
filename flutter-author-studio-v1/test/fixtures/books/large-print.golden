@@ -1,0 +1,71 @@
+# bookDigestVersion: 1
+# format: large-print
+# trim: 432.00x648.00pt
+# pages: 6
+# words: 150
+# blanks: 0
+# front: 3  body: 3  back: 0
+T 1 4 Chapter 1: The Arrival
+T 1 5 Chapter 2: The Blood Price
+T 1 6 Chapter 3: Endovier
+P0 frontMatter recto folio= head= block=81.00,54.00 315.00x528.00
+  L 1.02 184.07 The Widow Knife
+  L 116.74 264.83 Kali Vale
+  L 106.67 304.70 Ink & Insight
+P1 frontMatter verso folio= head= block=36.00,54.00 315.00x528.00
+  L 0.00 250.31 The Widow Knife
+  L 0.00 279.70 Copyright © 2026 Kali Vale
+  L 0.00 309.09 All rights reserved. No part of this book may be
+  L 0.00 327.46 reproduced in any form without written permission
+  L 0.00 345.82 from the publisher, except brief quotations in a
+  L 0.00 364.19 review.
+  L 0.00 393.58 This is a work of fiction. Names, characters,
+  L 0.00 411.95 places and incidents are the product of the
+  L 0.00 430.32 author’s imagination or are used fictitiously.
+  L 0.00 459.71 ISBN 978-1-0000-0000-0
+  L 0.00 489.09 Ink & Insight
+P2 frontMatter recto folio=6 head= block=81.00,54.00 315.00x528.00
+  L 0.00 21.31 Contents
+  L 12.80 72.92 Chapter 1: The Arrival
+  L 308.49 72.92 1
+  L 12.80 102.36 Chapter 2: The Blood Price
+  L 305.24 102.36 2
+  L 12.80 131.80 Chapter 3: Endovier
+  L 305.12 131.80 3
+  M 234.78 600.00 6
+P3 chapterOpener verso folio=7 head= block=36.00,54.00 315.00x528.00
+  L 0.00 121.10 Chapter 1
+  L 0.00 160.27 The Arrival
+  L 0.00 209.08 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 234.68 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 260.28 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 285.88 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 311.48 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 337.08 abcd abcd abcd abcd abcd
+  M 190.10 600.00 7
+P4 chapterOpener recto folio=8 head= block=81.00,54.00 315.00x528.00
+  L 0.00 121.10 Chapter 2
+  L 0.00 160.27 The Blood Price
+  L 0.00 209.08 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 234.68 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 260.28 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 285.88 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 311.48 abcd abcd
+  L 0.00 370.68 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 396.28 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 421.88 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 447.48 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 473.08 abcd abcd
+  M 234.79 600.00 8
+P5 chapterOpener verso folio=9 head= block=36.00,54.00 315.00x528.00
+  L 0.00 121.10 Chapter 3
+  L 0.00 160.27 Endovier
+  L 0.00 209.08 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 234.68 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 260.28 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 285.88 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 311.48 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 337.08 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 362.68 abcd abcd abcd abcd abcd abcd abcd
+  L 0.00 388.28 abcd
+  M 189.78 600.00 9

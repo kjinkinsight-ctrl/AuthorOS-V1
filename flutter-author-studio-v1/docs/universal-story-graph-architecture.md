@@ -2,7 +2,8 @@
 
 Architecture Audit & Master Design
 
-Status: Design and audit only — no Story Graph implementation exists or is authorised by this document
+Status: **Phases 0–3 implemented.** This document remains the master design; the built
+system is mapped in `docs/knowledge-graph-implementation-map.md` (§0)
 Audited: August 21, 2026
 Decision in force: **D-3** — scenes and chapters remain manuscript-domain nodes (§0)
 Audit basis: `flutter-author-studio-v1` at merge commit `864f99d`, **re-verified against `main` at `4f83201`** — see §0
@@ -50,6 +51,22 @@ Two milestones were checked specifically for a second graph system:
   states that "every map, place, region and marker is an ordinary Universal Record".
   **Invariant I-13 holds** — no second persistence, no second edge model.
 - **Writing Session History** adds a table but no node — see the findings below.
+
+### Amendment — Phase 0 integrity milestone (`c9ae671`)
+
+Re-verified from the working tree, not carried forward. Phase 0 changed two things and
+recorded the rest as findings; see `docs/universal-story-graph-phase-0-integrity.md`.
+
+| Finding | Status after Phase 0 |
+|---|---|
+| **R-1** — manuscript nodes are never deleted | **CLOSED.** Two halves. Manuscript Studio Phase 2 had already added `ManuscriptService.deleteScene`/`deleteChapter` and a `removeManuscriptNodes` primitive this document does not mention — so the *service* path was already correct. The hole was the *projection*: `ManuscriptStore.saveStudio` was upsert-only and is now reconciling. A second, unrecorded half is also fixed: `removeManuscriptNodes` threw `SqliteException(787)` on any node that still had an edge, because `record_link_rows` references `connected_entities`. It now deletes the node's edges inside its own transaction |
+| **R-8** — raw validated-write bypasses | **Understated here.** `story_codex_service.dart` has seven raw writes, not one. Still open |
+| **R-21** — a read path writes graph nodes | **Holds, now pinned by a test.** `WorldBoardService` no longer calls `loadStudio` directly; `release_destinations.dart` does, in two places this document does not list |
+| **R-5**, **R-2**, **R-22**, **I-1** | Hold as written. R-5 is now pinned by a test |
+
+`ManuscriptNodeReference` still has **no `status` field**, deliberately: the manuscript
+summary is already the source of truth for which scenes exist, and history already records
+what was deleted. Active graph state and historical state stay distinct.
 
 ### Findings corrected
 
@@ -127,15 +144,38 @@ historical or operational subsystem should take, and invariant I-16 holds it the
 §20's Phase 0 was written for D-1 and no longer applies. The live plan is:
 
 ```
-Phase 0  Manuscript graph integrity and node lifecycle   <- directive issued
-Phase 1  Universal Story Graph read API
-Phase 2  Graph traversal and relationship queries
-Phase 3  Story Graph Studio / visualisation
+Phase 0  Manuscript graph integrity and node lifecycle   <- SHIPPED
+Phase 1  Universal Story Graph read API                  <- SHIPPED
+Phase 2  Graph traversal and relationship queries        <- SHIPPED
+Phase 3  Story Graph Studio / visualisation              <- SHIPPED
 Phase 4  Cross-Studio intelligence and advanced features
 ```
 
 The Phase 0 directive supersedes `docs/story-graph-phase-0-directive.md`, which was written
 for D-1. Read §20 below as historical rationale, not as the plan.
+
+### Phases 1–3 have shipped
+
+Built as designed, with one thing worth recording because it contradicts nothing here but
+was not anticipated: **no schema change was needed, and none was made.** The twelve-table
+set is untouched, and the `exactly one persistence system` guardrail passes unmodified.
+That is the strongest available evidence for §1's central claim.
+
+Three things the build settled that this document left open:
+
+- **§15's `getNode` is the load-bearing method.** Nothing in the tree resolved both node
+  kinds through one call, and three separate paths silently dropped manuscript nodes
+  (`RecordService.getRecord` returns null, `ConnectionEngine.linkedRecords` drops them,
+  `RecordGraph.related` hydrates through `recordById`). `StoryGraphNode` carries capability
+  flags rather than pretending the kinds are alike.
+- **The wildcard defaults need an override, or the Plot mode draws nothing.** §4.3 records
+  that scene-to-plot is entirely wildcard. Hiding wildcards by default (R-3) therefore had
+  to yield to an explicit request for a named type, otherwise the Plot view is empty by
+  construction. `relatedTo` is itself a wildcard, so its own switch decides it outright.
+- **Buckets come from `categoryId`, not from type lists.** All 21 built-in categories map
+  onto the product's nine buckets, and a test asserts none falls through.
+
+Full detail, including the risks carried rather than fixed: `docs/knowledge-graph-implementation-map.md`.
 
 ---
 

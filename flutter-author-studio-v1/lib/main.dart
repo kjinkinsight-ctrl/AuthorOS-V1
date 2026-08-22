@@ -9,7 +9,8 @@ import 'analytics_studio_view.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
 import 'core/connected_domain.dart' show AuthorRecord;
-import 'core/search_models.dart' show SearchDestination;
+import 'core/search_models.dart'
+    show SearchDestination, SearchNavigationTarget;
 import 'create_profile_page.dart';
 import 'knowledge_graph/knowledge_graph_view.dart';
 import 'local_image.dart';
@@ -1676,6 +1677,10 @@ class _SectionView extends StatelessWidget {
                 CharacterWorkspaceDestination.plot => StudioSection.plot,
               },
             ),
+            onOpenInGraph: (target) => onNavigate(
+              StudioSection.knowledgeGraph,
+              focusRecordId: target.recordId,
+            ),
           ),
         StudioSection.codex => StoryCodexWorkspace(
             projectId: project.id,
@@ -1720,6 +1725,10 @@ class _SectionView extends StatelessWidget {
           service: PlotService(
             projectId: project.id,
             repository: authorOsRepository,
+          ),
+          onOpenInGraph: (target) => onNavigate(
+            StudioSection.knowledgeGraph,
+            focusRecordId: target.recordId,
           ),
         ),
         StudioSection.timeline => TimelineStudioView(

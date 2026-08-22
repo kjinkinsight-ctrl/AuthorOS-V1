@@ -1,10 +1,11 @@
 # Series Identity — architecture delta (Q-S1)
 
-Status: **PROPOSED — awaiting approval. No production code written.**
-Decision requested: lock the Projects/Series system as the canonical owner of
-series identity; the Codex consumes it.
+Status: **ACCEPTED and IMPLEMENTED.** Approved 2026-08-22; built the same day.
+Decision: the Projects/Series system is the canonical owner of series identity.
+The Codex consumes it and mints none.
 Audited: 2026-08-22, working tree at `5d1c794` (PR #53), `main` merged at `9b629e4`
-Blocks: Codex Phase 3 and every further scope expansion
+Implemented against `main` at `df6bcad`
+Unblocks: Codex Phase 3 and further scope expansion
 Related: `docs/codex-universal-knowledge-implementation-map.md` §6a (Q-S1)
 
 ---
@@ -320,4 +321,65 @@ demotes its scoped records first.
 
 ---
 
-**STOP.** No production code until this identity model is explicitly approved.
+## Implementation record
+
+Built as designed, with three departures worth recording:
+
+1. **The `series` `AuthorRecord` is gone entirely.** The design said scope keeps
+   `scopeType`/`scope_id` and loses only the right to mint an id. In building it,
+   keeping a series *record* as well as a `series_rows` row turned out to be the
+   same duplication the decision exists to remove — two representations of one
+   series, one of them unreachable by the Projects Studio. A series now exists in
+   `series_rows` and nowhere else; scope is `(scopeType: series, scopeId:
+   <roster id>)`, validated against `series_rows` rather than against a record.
+   `rehomeSeries` went with it: there is no record whose provenance could move.
+
+2. **`ScopeResolver` reads the repository, not `ProjectRosterStore`.** The design
+   named the store. The store lives above `lib/core/`, so depending on it would
+   have inverted the layering the whole architecture rests on. `repository
+   .projectRosterEntry(projectId)` is the same canonical row without the
+   inversion; the store's extra work (positions, sync recording) is for writes,
+   which the resolver does not do.
+
+3. **§5(b2) is answered, not deferred.** `ScopeResolver.ensureRosterEntry` adds
+   an absent book to the roster as **standalone** — the truthful default for a
+   book nothing has placed in a series — and `membershipUnknown()` lets a caller
+   tell "standalone" from "the roster has not caught up". Repair never guesses at
+   membership and never overwrites an existing row.
+
+§5(c) shipped as designed: `ProjectRosterStore.deleteSeries` now calls
+`SeriesScopeService.releaseSeries` before the delete, demoting shared canon back
+to the books that authored it. A record whose provenance book is gone is
+reported rather than guessed at.
+
+The two name collisions from §3 are resolved: `repository.projectsInSeries`
+became `recordsInSeriesScope` ("what canon does this series hold?", as against
+the roster's `booksInSeries`, "which books are in it?"), and
+`SeriesScopeService.allSeries` is gone with the rest of the authoring surface.
+
+### What the Codex looks like now
+
+The series control is a read-only chip naming the book's series. There is no
+"start a series", no join, no leave — a guardrail asserts those keys are absent.
+Sharing and returning an entry remain, because those are scope operations, not
+identity ones.
+
+### Verification
+
+| Step | `main` at `df6bcad` | This branch |
+|---|---|---|
+| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 59 issues, 0 errors | **59 issues, 0 errors** |
+| `flutter test` | 1922 passed, 0 failed | **1928 passed, 0 failed** |
+| `flutter build web --release --no-web-resources-cdn` | green | green |
+
+Net **-267 lines in `lib/`**: removing a duplicate identity system is most of
+what this change is.
+
+Guardrails now pinning this decision, in `test/scope_architecture_test.dart`:
+
+- *the roster owns series identity and the Codex mints none* — only
+  `writing_series.dart` defines the generator and only the Projects Studio calls
+  it; `series_scope.dart` contains no `createSeries`, `enrol` or `withdraw`
+- *membership has exactly one source of truth* — a `project` record carrying a
+  stale `series_id` cannot contradict the roster row
+- *deleting a series never strands its canon*

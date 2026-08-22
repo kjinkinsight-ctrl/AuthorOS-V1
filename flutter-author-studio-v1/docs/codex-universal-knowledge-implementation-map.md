@@ -1,7 +1,7 @@
 # AuthorOS — Codex / Universal Knowledge
 
-Status: **Phases 1 and 2 implemented — cross-book scope and deterministic
-intelligence are live. Phases 3-4 designed, not built.**
+Status: **Phases 1 and 2 implemented and live. Q-S1 resolved: the project roster
+owns series identity. Phases 3-4 designed, not built.**
 Audited: 2026-08-22, from the working tree at `d1b74c8` (PR #35, Knowledge Graph);
 re-verified after merging `main` at `9b629e4` (PR #55)
 Scope: series-wide and cross-book knowledge in the Story Codex, and the phase
@@ -225,12 +225,15 @@ infrastructure records on every Codex open.
 
 ## 6a. Open question — two series, one word
 
-> **Status update, 2026-08-22:** answered in principle. The direction is locked
-> to option (1) below — the Projects/Series system owns identity, the Codex
-> consumes it. The full design is in
-> [`series-identity-delta.md`](series-identity-delta.md), which is **proposed and
-> awaiting approval**. No production code until it is approved; Codex Phase 3 is
-> gated behind it.
+> **RESOLVED, 2026-08-22.** Option (1): the Projects/Series system owns series
+> identity and the Codex consumes it. Designed, approved and implemented — see
+> [`series-identity-delta.md`](series-identity-delta.md) for the decision and the
+> implementation record. The Codex no longer creates, joins or leaves a series;
+> `ScopeResolver` reads the roster's `series_id`; deleting a series releases its
+> shared canon first. Three guardrails pin it. **Codex Phase 3 is unblocked.**
+>
+> The section below is kept as written, because the reasoning is the record of
+> why the decision went the way it did.
 
 **Q-S1. `WritingSeries` and series scope are two identities for the same noun,
 and nothing reconciles them.** Raised here rather than resolved, because it is

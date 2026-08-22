@@ -1752,16 +1752,22 @@ class DriftConnectedDomainRepository {
     return rows.map(_recordFromRow).toList();
   }
 
-  /// The projects enrolled in [seriesId].
+  /// The records owned by [seriesId]'s shared scope.
+  ///
+  /// Named for records rather than projects, and deliberately unlike the
+  /// roster's `booksInSeries`: that one answers "which books are in this
+  /// series?" from `project_rows`, this one answers "what canon does this
+  /// series hold?" from `author_record_rows`. They take the same id and mean
+  /// different things, so they must not share a name.
   ///
   /// Served by the existing `author_records_series_book` index, whose leading
   /// column is `series_id`.
-  Future<List<AuthorRecord>> projectsInSeries(String seriesId) async {
+  Future<List<AuthorRecord>> recordsInSeriesScope(String seriesId) async {
     final rows = await (database.select(database.authorRecordRows)
           ..where(
             (table) =>
-                table.typeId.equals('project') &
-                table.seriesId.equals(seriesId),
+                table.scopeId.equals(seriesId) &
+                table.scopeType.isIn(_sharedScopeNames),
           )
           ..orderBy([(table) => OrderingTerm.asc(table.title)]))
         .get();

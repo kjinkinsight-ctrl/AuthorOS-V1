@@ -273,7 +273,13 @@ class CodexInfrastructureTypes {
   static const tag = 'codexTag';
   static const collection = 'codexCollection';
 
-  /// Which recommendations the author has dismissed.
+  /// Holds the entity suggestions the author has dismissed.
+  ///
+  /// Organisational metadata over record ids, the same class of thing as a
+  /// saved view or a pin, so it lives here rather than becoming a table. It
+  /// takes no links and no connection type accepts it as an endpoint, so it is
+  /// never graph truth — and unlike a table, it travels in the archive, so a
+  /// dismissal survives an export and import.
   static const suggestionState = 'codexSuggestionState';
 
   static const all = {category, tag, collection, suggestionState};

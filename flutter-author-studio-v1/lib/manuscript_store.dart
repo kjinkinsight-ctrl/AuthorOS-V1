@@ -292,6 +292,7 @@ class ManuscriptChapter {
     this.summary = '',
     this.prompt = '',
     this.pov = '',
+    this.bookId,
     this.linkedChapterIds = const [],
     this.scenes = const [],
   });
@@ -303,6 +304,16 @@ class ManuscriptChapter {
   final String summary;
   final String prompt;
   final String pov;
+
+  /// The `book` record this chapter belongs to, or null when the project has
+  /// no books yet.
+  ///
+  /// Book membership is manuscript structure, so it lives here beside chapter
+  /// order rather than becoming an edge — the same choice already made for a
+  /// scene's `chapterId`. Nullable so every manuscript written before books
+  /// existed keeps loading unchanged.
+  final String? bookId;
+
   final List<String> linkedChapterIds;
   final List<ManuscriptScene> scenes;
   final DateTime createdAt;
@@ -316,6 +327,8 @@ class ManuscriptChapter {
     String? summary,
     String? prompt,
     String? pov,
+    String? bookId,
+    bool clearBookId = false,
     List<String>? linkedChapterIds,
     List<ManuscriptScene>? scenes,
     DateTime? createdAt,
@@ -329,6 +342,7 @@ class ManuscriptChapter {
         summary: summary ?? this.summary,
         prompt: prompt ?? this.prompt,
         pov: pov ?? this.pov,
+        bookId: clearBookId ? null : (bookId ?? this.bookId),
         linkedChapterIds: linkedChapterIds ?? this.linkedChapterIds,
         scenes: scenes ?? this.scenes,
         createdAt: createdAt ?? this.createdAt,
@@ -346,6 +360,7 @@ class ManuscriptChapter {
         'summary': summary,
         'prompt': prompt,
         'pov': pov,
+        if (bookId != null) 'bookId': bookId!,
         'linkedChapterIds': linkedChapterIds,
         'scenes': scenes
             .map((scene) => scene.toJson(includeProse: includeProse))
@@ -370,6 +385,7 @@ class ManuscriptChapter {
       summary: (json['summary'] as String?) ?? '',
       prompt: (json['prompt'] as String?) ?? '',
       pov: (json['pov'] as String?) ?? '',
+      bookId: _optionalId(json['bookId']),
       linkedChapterIds: (json['linkedChapterIds'] as List? ?? const [])
           .map((value) => value.toString())
           .toList(),
@@ -1146,6 +1162,7 @@ class ManuscriptStore {
           'sceneCount': chapter.scenes.length,
           'wordCount': chapter.wordCount,
           'linkedChapterIds': chapter.linkedChapterIds,
+          if (chapter.bookId != null) 'bookId': chapter.bookId,
         },
       );
 
@@ -1269,4 +1286,13 @@ class ManuscriptStore {
     }
     return ManuscriptNodeStatusX.fromId(normalized);
   }
+}
+
+/// Reads an optional id, treating an absent key and a blank string alike.
+///
+/// A manuscript saved before books existed simply has no `bookId` key, and a
+/// chapter released back to "no book" writes none, so both must read as null.
+String? _optionalId(Object? value) {
+  final normalized = value is String ? value.trim() : '';
+  return normalized.isEmpty ? null : normalized;
 }

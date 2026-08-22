@@ -652,21 +652,30 @@ void main() {
       );
     }
 
-    // The series/book record-type placeholders stay placeholders. Promoting
-    // them into real typed records is M4's call, not this milestone's.
+    // `series` and `book` are now typed records: the Codex milestone made the
+    // deliberate decision this test was written to catch being made by
+    // accident, and Series Studio edits those fields. What did not change is
+    // the thing this test is really about — a `book` record is Codex
+    // knowledge, and the roster is still where a book's membership of a
+    // series lives. The next test proves that directly.
+    //
+    // `project` stays a placeholder. Nothing edits a project as a record, so
+    // fields on it would be the accidental promotion.
     //
     // Read from the declarations rather than through `registry.resolve`:
     // these types derive from `general-lore`, so a resolved definition
     // inherits that type's fields and would never look empty.
+    final project = BuiltInRecordTypes.definitions
+        .firstWhere((definition) => definition.id == 'project');
+    expect(
+      project.fields,
+      isEmpty,
+      reason: 'project declared fields of its own. A project is a roster row, '
+          'not a record the author fills in.',
+    );
     for (final typeId in const ['series', 'book', 'project']) {
       final declared = BuiltInRecordTypes.definitions
           .firstWhere((definition) => definition.id == typeId);
-      expect(
-        declared.fields,
-        isEmpty,
-        reason: '$typeId declared fields of its own. The roster stores books; '
-            'promoting the record type is a separate, deliberate decision.',
-      );
       expect(declared.baseTypeId, 'general-lore', reason: typeId);
     }
 

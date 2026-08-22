@@ -24,6 +24,9 @@ class BuiltInRecordTypes {
     _magicSystem,
     _historicalEvent,
     _item,
+    _series,
+    _book,
+    _entityState,
     ..._derivedChildren(const {
       'organisation': ('Organisation', 'factions', 'faction'),
       'house': ('House', 'factions', 'faction'),
@@ -37,6 +40,10 @@ class BuiltInRecordTypes {
       'clothing': ('Clothing', 'items', 'item'),
       'historical-period': ('Historical Period', 'history', 'historical-event'),
       'era': ('Era', 'history', 'historical-period'),
+      'guild': ('Guild', 'factions', 'faction'),
+      'company': ('Company', 'factions', 'faction'),
+      'military-unit': ('Military Unit', 'factions', 'faction'),
+      'vehicle': ('Vehicle', 'items', 'item'),
     }),
     ..._children(const {
       'technology': ('Technology', 'technology'),
@@ -56,6 +63,9 @@ class BuiltInRecordTypes {
       'custom-tradition': ('Custom / Tradition', 'culture'),
       'institution': ('Institution', 'factions'),
       'profession': ('Profession', 'characters'),
+      'person': ('Person', 'characters'),
+      'historical-figure': ('Historical Figure', 'characters'),
+      'public-figure': ('Public Figure', 'characters'),
       'law': ('Law', 'world'),
       'rule': ('Rule', 'world'),
       'concept': ('Concept', 'lore'),
@@ -89,8 +99,6 @@ class BuiltInRecordTypes {
       'author-note': ('Author Note', 'reference'),
       'custom-entry': ('Custom Entry', 'custom'),
       'project': ('Project', 'manuscript'),
-      'series': ('Series', 'manuscript'),
-      'book': ('Book', 'manuscript'),
       'document': ('Document', 'reference'),
       'chapter': ('Chapter', 'manuscript'),
       'scene': ('Scene', 'manuscript'),
@@ -477,6 +485,193 @@ Iterable<RecordTypeDefinition> _children(
         permissions: const {'editableDefinition': false},
       ),
     );
+
+/// The series a project's books belong to.
+///
+/// A project holds at most one of these. It is the anchor books hang off, and
+/// the handle a future multi-project library would migrate against; it owns no
+/// entity data of its own.
+const _series = RecordTypeDefinition(
+  id: 'series',
+  name: 'Series',
+  description: 'The series a project\'s books belong to.',
+  icon: 'auto_stories',
+  categoryId: 'manuscript',
+  baseTypeId: 'general-lore',
+  fields: [
+    RecordFieldDefinition(
+      id: 'status',
+      label: 'Status',
+      type: RecordFieldType.singleChoice,
+      order: 100,
+      defaultValue: 'Planning',
+      options: ['Planning', 'Drafting', 'Publishing', 'Complete', 'Abandoned'],
+    ),
+    RecordFieldDefinition(
+      id: 'plannedBooks',
+      label: 'Planned books',
+      type: RecordFieldType.number,
+      order: 101,
+    ),
+    RecordFieldDefinition(
+      id: 'blurb',
+      label: 'Blurb',
+      type: RecordFieldType.longText,
+      order: 102,
+    ),
+  ],
+  sections: [
+    RecordTemplateSection(
+      id: 'series',
+      title: 'Series',
+      order: 10,
+      fieldIds: ['status', 'plannedBooks', 'blurb'],
+    ),
+  ],
+  suggestedLinkTypeIds: ['contains'],
+  builtIn: true,
+  sourcePackId: 'authoros-series-core',
+  permissions: {'editableDefinition': false},
+  exportBehavior: {'includeStructuredFields': true},
+);
+
+/// One book inside a project.
+///
+/// A book record's own `bookId` is its own id (invariant B-2), so
+/// [UniversalSearchService.searchByBook] returns the book alongside everything
+/// scoped to it.
+const _book = RecordTypeDefinition(
+  id: 'book',
+  name: 'Book',
+  description: 'One book inside a project.',
+  icon: 'menu_book',
+  categoryId: 'manuscript',
+  baseTypeId: 'general-lore',
+  fields: [
+    RecordFieldDefinition(
+      id: 'order',
+      label: 'Order',
+      type: RecordFieldType.number,
+      order: 100,
+      defaultValue: 0,
+    ),
+    RecordFieldDefinition(
+      id: 'subtitle',
+      label: 'Subtitle',
+      type: RecordFieldType.shortText,
+      order: 101,
+    ),
+    RecordFieldDefinition(
+      id: 'status',
+      label: 'Status',
+      type: RecordFieldType.singleChoice,
+      order: 102,
+      defaultValue: 'Planned',
+      options: [
+        'Planned',
+        'Outlining',
+        'Drafting',
+        'Revising',
+        'Complete',
+        'Published',
+      ],
+    ),
+    RecordFieldDefinition(
+      id: 'wordGoal',
+      label: 'Word goal',
+      type: RecordFieldType.number,
+      order: 103,
+    ),
+    RecordFieldDefinition(
+      id: 'blurb',
+      label: 'Blurb',
+      type: RecordFieldType.longText,
+      order: 104,
+    ),
+    RecordFieldDefinition(
+      id: 'publicationDate',
+      label: 'Publication date',
+      type: RecordFieldType.date,
+      order: 105,
+    ),
+  ],
+  sections: [
+    RecordTemplateSection(
+      id: 'book',
+      title: 'Book',
+      order: 10,
+      fieldIds: [
+        'order',
+        'subtitle',
+        'status',
+        'wordGoal',
+        'blurb',
+        'publicationDate',
+      ],
+    ),
+  ],
+  suggestedLinkTypeIds: ['partOf'],
+  builtIn: true,
+  sourcePackId: 'authoros-series-core',
+  permissions: {'editableDefinition': false},
+  exportBehavior: {'includeStructuredFields': true},
+);
+
+/// What one entity looks like in one book, expressed as the difference from
+/// series canon.
+///
+/// The record carries `bookId`, a `documents` link to the canonical entity, and
+/// **only the fields whose values differ from canon** — plus `removedFieldIds`
+/// for values the book drops. Unknown field ids are preserved verbatim by
+/// [RecordValidator], which validates only the ids a definition declares, so a
+/// state record can carry any field belonging to the entity's own type.
+///
+/// This is the sparse shape of `BranchRecordOverlayRows` without the table. A
+/// branch overlay is a what-if kept out of canon; a book state *is* canon at a
+/// point in the series, so it has to be searchable, linkable, versioned and
+/// exported like any other record.
+const _entityState = RecordTypeDefinition(
+  id: 'entity-state',
+  name: 'Entity State',
+  description: 'How one entity differs from series canon inside one book.',
+  icon: 'difference',
+  categoryId: 'manuscript',
+  baseTypeId: 'general-lore',
+  fields: [
+    RecordFieldDefinition(
+      id: 'canonicalRecordId',
+      label: 'Entity',
+      type: RecordFieldType.recordReference,
+      order: 100,
+      required: true,
+    ),
+    RecordFieldDefinition(
+      id: 'removedFieldIds',
+      label: 'Fields this book drops',
+      type: RecordFieldType.list,
+      order: 101,
+    ),
+    RecordFieldDefinition(
+      id: 'changeReason',
+      label: 'Why it changes',
+      type: RecordFieldType.longText,
+      order: 102,
+    ),
+  ],
+  sections: [
+    RecordTemplateSection(
+      id: 'state',
+      title: 'Book state',
+      order: 10,
+      fieldIds: ['canonicalRecordId', 'removedFieldIds', 'changeReason'],
+    ),
+  ],
+  suggestedLinkTypeIds: ['documents', 'partOf'],
+  builtIn: true,
+  sourcePackId: 'authoros-series-core',
+  permissions: {'editableDefinition': false},
+  exportBehavior: {'includeStructuredFields': true},
+);
 
 Iterable<RecordTypeDefinition> _derivedChildren(
   Map<String, (String, String, String)> definitions,

@@ -169,10 +169,10 @@ justified line, which is most of a book and none of it worth reviewing.
 
 | Path | Contents |
 |---|---|
-| `lib/book/inline_markup.dart` | `ProseSpan`, `parseProse`, `stripProse`, `hasUnclosedEmphasis`, `toggleEmphasis`, `countEmphasis` |
+| `lib/book/inline_markup.dart` | `parseProse`, `stripProse`, `hasUnclosedEmphasis` |
 | `assets/fonts/*-Italic.ttf` | four unmodified upstream faces |
 | `assets/fonts/LICENSE.md` | provenance and the OFL |
-| `test/book_inline_markup_test.dart` | 33 tests, most of them underscores that are *not* emphasis |
+| `test/book_inline_markup_test.dart` | the parser, most of it underscores that are *not* emphasis |
 | `test/book_italics_test.dart` | end to end across all four formats |
 | `test/fixtures/books/emphasis.golden` | the sixth pinned book |
 
@@ -188,7 +188,6 @@ justified line, which is most of a book and none of it worth reviewing.
 | `lib/book/book_digest.dart` | runs listed on multi-face lines |
 | `lib/book/proof_rules.dart` | `UnclosedEmphasisRule` |
 | `lib/book_studio_view.dart` | the Design toggle and its count |
-| `lib/manuscript_studio.dart` | the Italic button |
 | `pubspec.yaml` | four assets |
 
 **No new dependency.** The fonts are assets.
@@ -206,3 +205,112 @@ justified line, which is most of a book and none of it worth reviewing.
   scene prose and writing sessions, and its format treats new entries as
   additive and optional, which makes adding book data a smaller change than it
   was when Phase 1 first recorded the gap.
+
+---
+
+# Reading the marks
+
+Phase 6 shipped alongside a change on `main` that answered the same question a
+different way. Manuscript Studio grew a real formatting toolbar — a
+`ProseDocument` of `ProseBlock`s of `ProseSpan`s, each carrying a set of
+`ProseMark`s, persisted in its own table. Two answers to *what does emphasis
+mean* is the drift this codebase keeps finding and keeps deleting, and here it
+had a visible cost: **an italic applied with the toolbar disappeared on export**,
+because `BookDocumentBuilder` read `scene.content` and a string has no marks in
+it.
+
+The marks win. They are what the author pressed a button to say.
+
+## The seam
+
+`BookSceneContent.paragraphs` was `List<String>`. It is now
+`List<BookParagraph>`, which carries both halves of the answer and refuses to
+conflate them:
+
+```dart
+class BookParagraph {
+  final String text;              // the source, markers and all
+  final List<ProseSpan>? marked;  // what the editor recorded, where it did
+
+  List<ProseSpan> resolve(BookInlineMarkup markup) =>
+      marked ?? parseProse(text, markup);
+}
+```
+
+`text` stays the author's own characters because it is what a proof finding's
+offsets point into, what an auto-fix rewrites and what the word count counts.
+`marked` is null wherever the author never used the toolbar — which is every
+paragraph of every manuscript written before it existed, and most paragraphs of
+every manuscript written since.
+
+**The fallback is per paragraph, not per scene.** Marking one paragraph must not
+stop the rest of the manuscript honouring the underscores it was typed with,
+or adopting the toolbar would silently un-italicise the book above it.
+
+**Where the author marked, an underscore is an underscore.** They said what they
+meant in the editor; re-reading their prose for a second opinion is exactly how
+a file name becomes an italic by accident.
+
+**A stale document is ignored.** If `document.plainText` has drifted from
+`scene.content`, something wrote the string without the document and the span
+boundaries now point at the wrong words. `ManuscriptStore` refuses to save such
+a pair; `BookDocumentBuilder` refuses to read one. Marks on the wrong prose are
+worse than no marks.
+
+## One `ProseSpan`, not two
+
+`lib/book/inline_markup.dart` declared its own `ProseSpan(text, {italic})`.
+`lib/core/prose_document.dart` already had `ProseSpan(text, {marks})` — plain
+Dart, no Flutter, the same constructor shape. The duplicate is deleted and the
+book layer imports the manuscript's own type, so a mark reaches the PDF as the
+object the editor created rather than round-tripped through a text convention.
+
+The book's vocabulary survives as one extension:
+
+```dart
+extension BookProseSpan on ProseSpan {
+  bool get italic => marks.contains(ProseMark.italic);
+  Set<ProseMark> get unsettableMarks => marks.where((m) => m != ProseMark.italic).toSet();
+}
+```
+
+`toggleEmphasis` is deleted. It was kept through the merge on the grounds that
+"whatever reconciles the convention with `ProseDocument`'s marks will start from
+it". The reconciliation happened and started somewhere else, which makes the
+rationale false and the function dead.
+
+`countEmphasis` moved from `inline_markup.dart` to `book_document.dart`:
+resolving a paragraph now needs the document model, and the parser must not
+depend on it. Its `markup == none → 0` shortcut is gone, because with real marks
+a book has italics whether the convention is on or not — and that is now the
+number the Design panel reports separately.
+
+## The marks a book cannot set
+
+The toolbar applies four. A book sets one. Italic has a real face in every
+bundled family; bold, underline and strikethrough have nowhere to go — the
+breaker measures a face per segment and there is no face, and no drawing
+operation, for a rule under or through a word.
+
+Dropping them is right. Dropping them **silently** is not, so
+`UnsettableMarkCheck` reports them, as a `warning` rather than a `critical`:
+the file is not wrong, it is only less than the manuscript. That is the same
+"warn, never block" rule the rest of preflight follows.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| The six golden fixtures | **unchanged**, which is the proof the ordinary path did not move |
+| `test/book_marks_test.dart` | 17 tests: the seam from both sides, all four formats, and the drift guard |
+| A book with no documents | exports identically whether its prose is a string or a plain `ProseDocument` |
+
+## Known gaps
+
+- **Bold, underline and strikethrough are reported, not set.** Bold is the one
+  worth closing: the faces are already bundled and the breaker is already
+  face-based, so it is `<strong>`, `w:b`, and one more branch in `_tokeniseSpans`.
+- **Matter pages take no marks.** Front and back matter is generated or typed
+  into a plain field, so it still resolves emphasis from the convention alone.
+- **Block kinds are ignored.** `ProseBlockKind.heading1` and `blockQuote` exist
+  in the manuscript and a book sets every block as body text.

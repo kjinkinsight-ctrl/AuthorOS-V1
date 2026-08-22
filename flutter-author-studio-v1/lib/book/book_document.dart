@@ -16,9 +16,11 @@
 /// layout's fixed pagination.
 library;
 
+import '../core/prose_document.dart';
 import '../manuscript_store.dart';
 import 'book_format.dart';
 import 'epub_settings.dart';
+import 'inline_markup.dart';
 
 /// A front- or back-matter section.
 ///
@@ -596,6 +598,42 @@ class BookMatterPage {
   final bool startsOnRecto;
 }
 
+/// One paragraph of a scene, as the author wrote it.
+///
+/// Carries two things that must not be conflated.
+///
+/// [text] is the source: the characters the author typed, markers and all. It
+/// is what a proof finding's offsets point into, what an auto-fix rewrites and
+/// what the word count counts, so it stays a plain string.
+///
+/// [marked] is the same paragraph as the editor recorded it — real
+/// [ProseMark]s, applied with Manuscript Studio's toolbar and stored in the
+/// scene's [ProseDocument]. It is null for a paragraph the author never marked,
+/// which is every paragraph of every manuscript written before that toolbar
+/// existed. That is why [resolve] falls back to reading the typed convention:
+/// the two coexist, paragraph by paragraph, and neither has to be migrated into
+/// the other.
+class BookParagraph {
+  const BookParagraph(this.text, {this.marked});
+
+  final String text;
+  final List<ProseSpan>? marked;
+
+  bool get isEmpty => text.isEmpty;
+
+  /// The spans to set, preferring what the editor actually recorded.
+  ///
+  /// Where the author used the toolbar, an underscore is a literal underscore:
+  /// they said what they meant in the editor, and re-reading their prose for a
+  /// second opinion is how a file name becomes an italic by accident. Where
+  /// they did not, the convention applies exactly as it did before.
+  List<ProseSpan> resolve(BookInlineMarkup markup) =>
+      marked ?? parseProse(text, markup);
+
+  @override
+  String toString() => marked == null ? text : '$text (marked)';
+}
+
 /// One scene's prose, already split into paragraphs.
 class BookSceneContent {
   const BookSceneContent({
@@ -606,14 +644,18 @@ class BookSceneContent {
 
   final String id;
   final String title;
-  final List<String> paragraphs;
+  final List<BookParagraph> paragraphs;
 
   bool get isEmpty => paragraphs.isEmpty;
 
   int get wordCount => paragraphs.fold<int>(
         0,
         (sum, paragraph) => sum +
-            paragraph.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
+            paragraph.text
+                .trim()
+                .split(RegExp(r'\s+'))
+                .where((w) => w.isNotEmpty)
+                .length,
       );
 }
 
@@ -878,9 +920,84 @@ class BookDocumentBuilder {
         .map((scene) => BookSceneContent(
               id: scene.id,
               title: scene.title,
-              paragraphs: splitParagraphs(scene.content),
+              paragraphs: _sceneParagraphs(scene),
             ))
         .toList(growable: false);
+  }
+
+  /// The scene's paragraphs, carrying the editor's marks where it recorded any.
+  ///
+  /// Walks the scene's text and its stored blocks in lockstep. That alignment
+  /// is exact by construction: [ProseDocument.fromPlainText] is one block per
+  /// line and [ProseDocument.plainText] joins them with newlines, so block `i`
+  /// is line `i` for as long as the two still describe the same prose.
+  static List<BookParagraph> _sceneParagraphs(ManuscriptScene scene) {
+    final blocks = _markedBlocks(scene);
+    final lines = scene.content.split('\n');
+    final paragraphs = <BookParagraph>[];
+
+    for (var i = 0; i < lines.length; i++) {
+      final trimmed = lines[i].trim();
+      if (trimmed.isEmpty) continue;
+      if (isSceneBreakMarker(trimmed)) continue;
+
+      final spans = blocks == null || i >= blocks.length
+          ? null
+          : _trimSpans(blocks[i].spans);
+
+      // Only a paragraph the author actually marked overrides the convention.
+      // An unmarked one in a scene that happens to hold marks elsewhere still
+      // honours the underscores it was typed with, so switching to the toolbar
+      // mid-manuscript does not silently un-italicise everything above it.
+      paragraphs.add(BookParagraph(
+        trimmed,
+        marked: spans != null && spans.any((span) => span.marks.isNotEmpty)
+            ? spans
+            : null,
+      ));
+    }
+    return paragraphs;
+  }
+
+  /// The scene's stored blocks, when they still describe its text.
+  ///
+  /// A document whose plain text has drifted from the scene's content is stale
+  /// — something wrote the string without the document — and reading marks out
+  /// of it would put them on the wrong words. `ManuscriptStore` refuses to save
+  /// such a pair for the same reason; this refuses to read one.
+  static List<ProseBlock>? _markedBlocks(ManuscriptScene scene) {
+    final document = scene.document;
+    if (document == null) return null;
+    if (document.plainText != scene.content) return null;
+    return document.blocks;
+  }
+
+  /// [spans] with leading and trailing whitespace removed.
+  ///
+  /// The line they came from is trimmed before it becomes a paragraph, and a
+  /// span list that still carried the indentation would set the marks one
+  /// character out from the text beside it.
+  static List<ProseSpan> _trimSpans(List<ProseSpan> spans) {
+    final trimmed = [...spans];
+    while (trimmed.isNotEmpty) {
+      final text = trimmed.first.text.trimLeft();
+      if (text.isEmpty) {
+        trimmed.removeAt(0);
+        continue;
+      }
+      trimmed[0] = trimmed.first.copyWith(text: text);
+      break;
+    }
+    while (trimmed.isNotEmpty) {
+      final text = trimmed.last.text.trimRight();
+      if (text.isEmpty) {
+        trimmed.removeLast();
+        continue;
+      }
+      trimmed[trimmed.length - 1] = trimmed.last.copyWith(text: text);
+      break;
+    }
+    return trimmed;
   }
 
   /// Splits plain scene prose into paragraphs.
@@ -1026,4 +1143,39 @@ T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
     if (value.name == raw) return value;
   }
   return fallback;
+}
+
+/// How many emphasised spans a whole book contains.
+///
+/// Counted from the real prose through the same [BookParagraph.resolve] every
+/// exporter uses, so the number an author is shown before switching the
+/// convention on is the number they will get — including the marks they applied
+/// with the toolbar, which are emphasis whether the convention is on or not.
+///
+/// Lives here rather than in `inline_markup.dart` because resolving a paragraph
+/// now needs the document model, and the parser must not depend on it.
+int countEmphasis(BookDocument document, BookInlineMarkup markup) {
+  var total = 0;
+
+  void countText(Iterable<String> paragraphs) {
+    for (final paragraph in paragraphs) {
+      total += parseProse(paragraph, markup).where((span) => span.italic).length;
+    }
+  }
+
+  for (final page in document.frontMatter) {
+    countText(page.paragraphs);
+  }
+  for (final element in document.body) {
+    if (element is! BookChapterElement) continue;
+    for (final scene in element.chapter.scenes) {
+      for (final paragraph in scene.paragraphs) {
+        total += paragraph.resolve(markup).where((span) => span.italic).length;
+      }
+    }
+  }
+  for (final page in document.backMatter) {
+    countText(page.paragraphs);
+  }
+  return total;
 }

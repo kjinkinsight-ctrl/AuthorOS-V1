@@ -8,10 +8,12 @@
 /// in this file for a judgement call to hide.
 library;
 
+import '../core/prose_document.dart';
 import 'book_export_targets.dart';
 import 'book_fonts.dart';
 import 'book_format.dart';
 import 'book_layout.dart';
+import 'inline_markup.dart';
 import 'preflight.dart';
 import 'proofing.dart';
 
@@ -28,6 +30,7 @@ class BuiltInPreflightChecks {
     CoverPresentCheck(),
     EmptyContentCheck(),
     LayoutIssueCheck(),
+    UnsettableMarkCheck(),
   ];
 }
 
@@ -479,4 +482,77 @@ class LayoutIssueCheck extends PreflightCheck {
       );
     }
   }
+}
+
+/// Did the author mark prose in a way no format here can set?
+///
+/// Manuscript Studio's toolbar applies four marks. A book can set one of them.
+/// Italic has a real face in every bundled family; bold, underline and
+/// strikethrough have nowhere to go — the line breaker measures a face per
+/// segment and there is no face, and no drawing operation, for a rule under or
+/// through a word.
+///
+/// Dropping them is the right behaviour: setting bold text in roman is closer
+/// to what the author wrote than refusing to export. Dropping them **silently**
+/// is not, and that is what this exists to prevent. It is a `warning` rather
+/// than `critical` for the same reason: the file is not wrong, it is only less
+/// than the manuscript.
+class UnsettableMarkCheck extends PreflightCheck {
+  const UnsettableMarkCheck();
+
+  @override
+  String get id => 'unsettableMark';
+
+  @override
+  String get label => 'Every mark can be set';
+
+  @override
+  String get description =>
+      'A book sets italic. A mark the manuscript carries that no format here '
+      'can render is dropped, and it should not be dropped quietly.';
+
+  @override
+  Iterable<ProofFinding> run(PreflightContext context) sync* {
+    final counts = <ProseMark, int>{};
+
+    for (final chapter in context.document.chapters) {
+      for (final scene in chapter.scenes) {
+        for (final paragraph in scene.paragraphs) {
+          for (final span in paragraph.marked ?? const <ProseSpan>[]) {
+            for (final mark in span.unsettableMarks) {
+              counts[mark] = (counts[mark] ?? 0) + 1;
+            }
+          }
+        }
+      }
+    }
+    if (counts.isEmpty) return;
+
+    // Ordered by the enum rather than by count, so the same manuscript reports
+    // the same findings in the same order on every run.
+    for (final mark in ProseMark.values) {
+      final count = counts[mark];
+      if (count == null) continue;
+      yield ProofFinding(
+        ruleId: id,
+        stage: ProofStage.layout,
+        severity: ProofSeverity.warning,
+        title: '$count ${_name(mark)} ${count == 1 ? 'span' : 'spans'} '
+            'will not be set',
+        message:
+            'The manuscript marks $count ${count == 1 ? 'span' : 'spans'} as '
+            '${_name(mark).toLowerCase()}. A book sets italic only, so this '
+            'prose will read as ordinary body text in every format. The mark '
+            'stays in the manuscript.',
+        where: 'Emphasis',
+      );
+    }
+  }
+
+  static String _name(ProseMark mark) => switch (mark) {
+        ProseMark.bold => 'Bold',
+        ProseMark.italic => 'Italic',
+        ProseMark.underline => 'Underlined',
+        ProseMark.strikethrough => 'Struck-through',
+      };
 }

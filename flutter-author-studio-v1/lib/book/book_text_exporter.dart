@@ -120,7 +120,7 @@ class BookTextExporter {
         if (sceneBreak.isNotEmpty) yield sceneBreak;
       }
       for (final paragraph in chapter.scenes[s].paragraphs) {
-        final text = paragraph.trim();
+        final text = paragraph.text.trim();
         if (text.isNotEmpty) yield text;
       }
     }

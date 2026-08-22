@@ -1,15 +1,20 @@
 /// Book Studio Phase 6 — inline emphasis.
 ///
-/// Scene prose is a plain string. That is a deliberate storage decision made
-/// long before Book Studio: it is what makes a scene diffable, searchable,
-/// versionable and recoverable, and it is why every proof finding can point at
-/// a character offset. The cost is that a novel cannot italicise a thought, a
-/// ship's name, a book title or a foreign word, because there is nowhere for
-/// "this part is emphasised" to live.
+/// Emphasis reaches a book two ways, and this library is the second of them.
 ///
-/// A typed convention is the way out that does not give up the plain string.
-/// The author writes `_like this_`, the marker travels with the prose, and
-/// every format resolves it into whatever emphasis means there.
+/// The first is a real mark: Manuscript Studio's toolbar writes
+/// [ProseMark.italic] into the scene's [ProseDocument], and
+/// `BookParagraph.marked` carries it through to every exporter untouched. Where
+/// the author used it, it decides, and nothing here runs.
+///
+/// The second is what this parses. A scene's `content` is a plain string —
+/// a deliberate storage decision made long before Book Studio, and what makes a
+/// scene diffable, searchable and recoverable, and lets every proof finding
+/// point at a character offset. Prose typed into that string before the toolbar
+/// existed, or into any field that has no toolbar, still needs a way to say
+/// "this part is emphasised". The author writes `_like this_`, the marker
+/// travels with the prose, and every format resolves it into whatever emphasis
+/// means there.
 ///
 /// **One parser, four consumers.** The layout engine, the EPUB, the DOCX and
 /// the text exporter all call this. That is the same reasoning
@@ -24,31 +29,33 @@
 /// unlikely, because a false positive silently rewrites somebody's page.
 library;
 
-import 'book_document.dart';
+import '../core/prose_document.dart';
 import 'book_format.dart';
 
-/// A stretch of prose that is all one style.
+export '../core/prose_document.dart' show ProseMark, ProseSpan;
+
+/// The one set of marks a book can set today.
 ///
-/// Named [ProseSpan] rather than the obvious `InlineSpan` because Flutter owns
-/// that name, and this library must stay plain Dart — the layout engine imports
-/// it, and the engine must remain testable without a Flutter binding.
-class ProseSpan {
-  const ProseSpan(this.text, {this.italic = false});
+/// Only italic. The bundled faces are roman and italic per family, and neither
+/// the PDF renderer nor the line breaker has anywhere to put an underline or a
+/// strikethrough. A mark this build cannot set is reported by preflight rather
+/// than dropped in silence — see `UnsettableMarkCheck`.
+const Set<ProseMark> italicOnly = {ProseMark.italic};
 
-  final String text;
-  final bool italic;
+/// Emphasis, in the one sense a book can set.
+///
+/// The book layer speaks of italic where the manuscript speaks of marks, and
+/// this is the whole of the translation. [ProseSpan] itself comes from
+/// `core/prose_document.dart` — the manuscript's own type, which is plain Dart
+/// and so is safe for the layout engine to import. Sharing it is what lets a
+/// mark the author applied in the editor reach the PDF unchanged, rather than
+/// being round-tripped through a text convention on the way.
+extension BookProseSpan on ProseSpan {
+  bool get italic => marks.contains(ProseMark.italic);
 
-  bool get isEmpty => text.isEmpty;
-
-  @override
-  bool operator ==(Object other) =>
-      other is ProseSpan && other.text == text && other.italic == italic;
-
-  @override
-  int get hashCode => Object.hash(text, italic);
-
-  @override
-  String toString() => italic ? 'ProseSpan.italic($text)' : 'ProseSpan($text)';
+  /// The marks this build cannot set, which is every mark but italic.
+  Set<ProseMark> get unsettableMarks =>
+      marks.where((mark) => mark != ProseMark.italic).toSet();
 }
 
 /// Splits [paragraph] on the author's convention.
@@ -77,72 +84,6 @@ String stripProse(String paragraph, BookInlineMarkup markup) {
 /// Whether [paragraph] carries any emphasis at all.
 bool hasEmphasis(String paragraph, BookInlineMarkup markup) =>
     parseProse(paragraph, markup).any((span) => span.italic);
-
-/// Adds or removes the emphasis markers around `text[start..end]`.
-///
-/// Toggles, because pressing an italic button twice undoes it everywhere else
-/// and this should be no different. Returns where the selection belongs
-/// afterwards, so the same prose stays selected and the author can see what
-/// changed.
-///
-/// **Nothing calls this today.** Manuscript Studio grew a real formatting
-/// toolbar with real `ProseMark.italic` while this branch was open, and a
-/// second button writing underscores beside it would have been actively
-/// misleading. It is kept because it is the convention's own vocabulary and it
-/// is tested: whatever reconciles the convention with `ProseDocument`'s marks
-/// will want a way to produce one from a selection.
-({String text, int start, int end}) toggleEmphasis(
-  String text,
-  int start,
-  int end,
-) {
-  if (start < 0 || end > text.length || start >= end) {
-    return (text: text, start: start, end: end);
-  }
-  final selected = text.substring(start, end);
-
-  final wrapped = selected.length > 2 &&
-      selected.startsWith('_') &&
-      selected.endsWith('_') &&
-      !selected.startsWith('__');
-  final replacement =
-      wrapped ? selected.substring(1, selected.length - 1) : '_${selected}_';
-
-  return (
-    text: text.replaceRange(start, end, replacement),
-    start: start,
-    end: start + replacement.length,
-  );
-}
-
-/// How many emphasised spans a whole book contains.
-///
-/// Counted from the real parser over the real prose, so the number an author is
-/// shown before switching the convention on is the number they will get.
-int countEmphasis(BookDocument document, BookInlineMarkup markup) {
-  if (markup == BookInlineMarkup.none) return 0;
-  var total = 0;
-
-  void count(Iterable<String> paragraphs) {
-    for (final paragraph in paragraphs) {
-      total += parseProse(paragraph, markup).where((s) => s.italic).length;
-    }
-  }
-
-  for (final page in document.frontMatter) {
-    count(page.paragraphs);
-  }
-  for (final element in document.body) {
-    if (element is! BookChapterElement) continue;
-    for (final scene in element.chapter.scenes) {
-      count(scene.paragraphs);
-    }
-  }
-  for (final page in document.backMatter) {
-    count(page.paragraphs);
-  }
-  return total;
-}
 
 /// Whether [paragraph] opens emphasis it never closes.
 ///
@@ -261,7 +202,7 @@ List<ProseSpan> _parseUnderscore(String paragraph) {
     flushPlain();
     spans.add(ProseSpan(
       _unescape(paragraph.substring(open + 1, close)),
-      italic: true,
+      marks: italicOnly,
     ));
     index = close + 1;
   }

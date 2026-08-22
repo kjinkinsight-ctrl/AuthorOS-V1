@@ -686,8 +686,8 @@ class BookDocxExporter {
         _paragraph(
           builder,
           afterBreak ? 'BodyTextFirst' : 'BodyText',
-          scene.paragraphs[p],
-          markup: markup,
+          scene.paragraphs[p].text,
+          spans: scene.paragraphs[p].resolve(markup),
         );
         isFirstParagraph = false;
       }
@@ -795,6 +795,13 @@ class BookDocxExporter {
     int? spaceBefore,
     int? spaceAfter,
     BookInlineMarkup markup = BookInlineMarkup.none,
+
+    /// Emphasis already resolved by the caller.
+    ///
+    /// Scene prose passes this because its marks may come from the editor
+    /// rather than from the typed convention; generated matter, which has no
+    /// marks to carry, still resolves from [text] and [markup].
+    List<ProseSpan>? spans,
   }) {
     builder.element('w:p', nest: () {
       builder.element('w:pPr', nest: () {
@@ -813,7 +820,7 @@ class BookDocxExporter {
       });
       // One `w:r` per stretch of a single style. With no emphasis in the
       // paragraph that is a single run, exactly as it was before.
-      for (final span in parseProse(text, markup)) {
+      for (final span in spans ?? parseProse(text, markup)) {
         if (span.text.isEmpty) continue;
         builder.element('w:r', nest: () {
           if (span.italic) {

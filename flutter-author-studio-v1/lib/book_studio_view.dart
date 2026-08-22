@@ -21,7 +21,6 @@ import 'book/book_epub_exporter.dart';
 import 'book/book_export_targets.dart';
 import 'book/book_fonts.dart';
 import 'book/book_format.dart';
-import 'book/inline_markup.dart';
 import 'book/book_layout.dart';
 import 'book/book_pdf_renderer.dart';
 import 'book/book_preview_painter.dart';
@@ -2137,18 +2136,25 @@ class _BookStudioViewState extends State<BookStudioView> {
 
   /// The inline emphasis convention, and what switching it on would do.
   ///
-  /// Off by default, because turning it on reinterprets prose the author has
-  /// already written — an underscore that was just an underscore becomes
-  /// emphasis. So it says how many spans it found first, from the real parser
-  /// over the real book, rather than asking them to switch it on and go
+  /// Two different things become italic in a book and the difference matters
+  /// here. A mark the author applied with Manuscript Studio's toolbar is
+  /// already italic and this switch does not touch it. The convention is for
+  /// prose typed `_like this_`, and switching it on reinterprets writing that
+  /// already exists — an underscore that was just an underscore becomes
+  /// emphasis. So the panel counts both, separately, from the real parser over
+  /// the real book, rather than asking the author to switch it on and go
   /// looking.
   Widget _emphasisPanel(ThemeData theme, BookFormat format) {
     final on =
         format.typography.inlineMarkup == BookInlineMarkup.underscoreItalic;
     final document = _document;
+    // Marks are emphasis whether the convention is on or not, so counting with
+    // it off is exactly the number the toolbar is responsible for.
+    final marked =
+        document == null ? 0 : countEmphasis(document, BookInlineMarkup.none);
     final found = document == null
         ? 0
-        : countEmphasis(document, BookInlineMarkup.underscoreItalic);
+        : countEmphasis(document, BookInlineMarkup.underscoreItalic) - marked;
 
     return _Panel(
       child: Column(
@@ -2157,9 +2163,10 @@ class _BookStudioViewState extends State<BookStudioView> {
           _SectionHeading('Italics', theme),
           const SizedBox(height: 6),
           Text(
-            'Scene prose is plain text, so italics need a convention. Write '
-            '_like this_ and it is set in italic — in the PDF, the ebook and '
-            'the Word file alike.',
+            'Italics you apply in Manuscript Studio are set here already. '
+            'This is for prose typed the other way: write _like this_ and it '
+            'is set in italic too — in the PDF, the ebook and the Word file '
+            'alike.',
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: 10),
@@ -2177,19 +2184,26 @@ class _BookStudioViewState extends State<BookStudioView> {
           ),
           const SizedBox(height: 6),
           Text(
-            switch ((on, found)) {
-              (true, 0) =>
-                'Nothing in this book uses the convention yet. Wrap a phrase '
-                    'in underscores and it will appear in italic here.',
-              (true, final n) =>
-                'Set in italic in $n place${n == 1 ? '' : 's'}.',
-              (false, 0) =>
-                'Nothing in this book would change if you switched this on.',
-              (false, final n) =>
-                'Switching this on would set $n phrase${n == 1 ? '' : 's'} in '
-                    'italic. Your writing is not altered either way — the '
-                    'underscores stay in the manuscript.',
-            },
+            [
+              switch ((on, found)) {
+                (true, 0) =>
+                  'Nothing in this book uses the convention yet. Wrap a phrase '
+                      'in underscores and it will appear in italic here.',
+                (true, final n) =>
+                  'Set in italic from underscores in $n '
+                      'place${n == 1 ? '' : 's'}.',
+                (false, 0) =>
+                  'Nothing in this book would change if you switched this on.',
+                (false, final n) =>
+                  'Switching this on would set $n more '
+                      'phrase${n == 1 ? '' : 's'} in italic. Your writing is '
+                      'not altered either way — the underscores stay in the '
+                      'manuscript.',
+              },
+              if (marked > 0)
+                '$marked ${marked == 1 ? 'phrase is' : 'phrases are'} already '
+                    'italic from the editor, either way.',
+            ].join(' '),
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

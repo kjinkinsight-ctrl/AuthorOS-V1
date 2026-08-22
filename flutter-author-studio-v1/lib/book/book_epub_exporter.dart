@@ -741,9 +741,7 @@ class BookEpubExporter {
             final indent = afterBreak && !settings.indentAfterBreak
                 ? 'no-indent'
                 : 'body';
-            final text = scene.paragraphs[p];
-
-            final spans = parseProse(text, markup);
+            final spans = scene.paragraphs[p].resolve(markup);
             final plain = spans.map((span) => span.text).join();
 
             if (isFirstParagraph && settings.dropCap && plain.isNotEmpty) {
@@ -788,7 +786,7 @@ class BookEpubExporter {
     for (var i = 0; i < spans.length; i++) {
       if (spans[i].text.isEmpty) continue;
       return [
-        ProseSpan(spans[i].text.substring(1), italic: spans[i].italic),
+        ProseSpan(spans[i].text.substring(1), marks: spans[i].marks),
         ...spans.skip(i + 1),
       ];
     }

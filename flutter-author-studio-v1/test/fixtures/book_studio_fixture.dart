@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import 'package:author_studio_v1/book/book_document.dart';
 import 'package:author_studio_v1/book/book_format.dart';
+import 'package:author_studio_v1/core/prose_document.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 
 final DateTime fixtureTimestamp = DateTime.utc(2026, 1, 1);
@@ -20,6 +21,7 @@ ManuscriptScene scene({
   required String title,
   required int order,
   required String content,
+  ProseDocument? document,
 }) =>
     ManuscriptScene(
       id: id,
@@ -27,6 +29,7 @@ ManuscriptScene scene({
       title: title,
       order: order,
       content: content,
+      document: document,
       status: ManuscriptNodeStatus.complete,
       createdAt: fixtureTimestamp,
       updatedAt: fixtureTimestamp,
@@ -382,5 +385,41 @@ ManuscriptProjectSummary cleanManuscriptFixture() => ManuscriptProjectSummary(
                 'She turned it against the light of the window.',
           ),
         ]),
+      ],
+    );
+
+/// A one-scene manuscript whose prose is [document].
+///
+/// The scene's `content` is the document's own plain text, which is the pairing
+/// `ManuscriptStore` enforces on the way in: a document that has drifted from
+/// the string beside it is stale, and the book layer refuses to read one.
+ManuscriptProjectSummary manuscriptFixtureWithDocument(
+  ProseDocument document, {
+  String? content,
+}) =>
+    ManuscriptProjectSummary(
+      projectId: 'project-book',
+      manuscriptTitle: 'The Widow Knife',
+      currentChapterId: 'ch-1',
+      currentSceneId: 'sc-1',
+      createdAt: fixtureTimestamp,
+      updatedAt: fixtureTimestamp,
+      version: 1,
+      chapters: [
+        chapter(
+          id: 'ch-1',
+          title: 'The Arrival',
+          order: 1,
+          scenes: [
+            scene(
+              id: 'sc-1',
+              chapterId: 'ch-1',
+              title: 'Opening',
+              order: 1,
+              content: content ?? document.plainText,
+              document: document,
+            ),
+          ],
+        ),
       ],
     );

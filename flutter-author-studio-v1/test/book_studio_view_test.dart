@@ -608,13 +608,14 @@ void main() {
 
     // Off by default, and it counts what switching it on would change rather
     // than asking the author to switch it on and go looking.
-    expect(find.textContaining('would set 2 phrases in italic'),
+    expect(find.textContaining('would set 2 more phrases in italic'),
         findsOneWidget);
 
     await tester.tap(find.byKey(const Key('book-emphasis-switch')));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Set in italic in 2 places'), findsOneWidget);
+    expect(find.textContaining('from underscores in 2 places'),
+        findsOneWidget);
     expect((await const BookStore().load('project-book'))
         .format.typography.inlineMarkup, BookInlineMarkup.underscoreItalic);
   });

@@ -577,7 +577,7 @@ class BookLayoutEngine {
               final dropCap = isFirst && format.chapter.dropCap;
 
               rivers += _flowParagraph(
-                text: scene.paragraphs[p],
+                paragraph: scene.paragraphs[p],
                 paragraphId: '${scene.id}:$p',
                 format: format,
                 geometry: geometry,
@@ -1090,7 +1090,7 @@ class BookLayoutEngine {
   ///
   /// Returns the number of rivers found.
   int _flowParagraph({
-    required String text,
+    required BookParagraph paragraph,
     required String paragraphId,
     required BookFormat format,
     required _Geometry geometry,
@@ -1105,10 +1105,12 @@ class BookLayoutEngine {
     final leading = format.typography.leadingPt;
     var rivers = 0;
 
-    // The author's emphasis convention is resolved once, here, before anything
-    // is measured. A word can span faces from this point on, so everything
+    // Emphasis is resolved once, here, before anything is measured: the marks
+    // the editor recorded where it recorded any, the author's typed convention
+    // everywhere else. A word can span faces from this point on, so everything
     // downstream works in segments rather than in one face per paragraph.
-    var words = _tokenise(text, format);
+    var words = _tokeniseSpans(
+        paragraph.resolve(format.typography.inlineMarkup), format);
 
     final dropCapLines = dropCap ? format.chapter.dropCapLines : 0;
     // Taken off the tokenised prose rather than off the raw string, or a
@@ -1223,7 +1225,16 @@ class BookLayoutEngine {
   ///
   /// With the emphasis convention off this is a plain whitespace split with one
   /// segment per word, which is what it always was.
-  List<_ProseWord> _tokenise(String text, BookFormat format) {
+  List<_ProseWord> _tokenise(String text, BookFormat format) =>
+      _tokeniseSpans(parseProse(text, format.typography.inlineMarkup), format);
+
+  /// Segments already-resolved [spans] into measurable words.
+  ///
+  /// Split from [_tokenise] so that scene prose, whose emphasis may come from
+  /// real marks rather than from the typed convention, reaches exactly the same
+  /// segmentation. Matter pages are generated text with no marks to carry, so
+  /// they still resolve their spans from the string.
+  List<_ProseWord> _tokeniseSpans(List<ProseSpan> spans, BookFormat format) {
     final roman = BookFontFace(
         format.typography.bodyFamily, BookFontStyleId.regular);
     final italic = BookFontFace(
@@ -1247,7 +1258,7 @@ class BookLayoutEngine {
       segments = <_Segment>[];
     }
 
-    for (final span in parseProse(text, format.typography.inlineMarkup)) {
+    for (final span in spans) {
       endSegment();
       face = span.italic ? italic : roman;
       // Iterated by code unit rather than by rune: every character that ends a

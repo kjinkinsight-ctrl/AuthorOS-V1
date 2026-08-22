@@ -193,6 +193,13 @@ class _BookStudioViewState extends State<BookStudioView> {
 
   List<BookTemplate> _templates = const [];
 
+  /// Which snapshots the database still holds.
+  ///
+  /// A history row whose draft has been evicted is still worth showing — "you
+  /// exported an EPUB last Tuesday" stays true — but its button has to say so
+  /// rather than failing when pressed.
+  Set<String> _availableSnapshots = const {};
+
   @override
   void initState() {
     super.initState();
@@ -215,6 +222,7 @@ class _BookStudioViewState extends State<BookStudioView> {
       final book = await widget.bookStore.load(widget.project.id);
       final cover = await _loadCover();
       final templates = await widget.templateStore.load();
+      final snapshots = await _loadSnapshotHashes();
 
       if (!mounted) return;
       setState(() {
@@ -223,6 +231,7 @@ class _BookStudioViewState extends State<BookStudioView> {
         _book = book;
         _cover = cover;
         _templates = templates;
+        _availableSnapshots = snapshots;
         _loading = false;
       });
       _repaginate();
@@ -240,6 +249,16 @@ class _BookStudioViewState extends State<BookStudioView> {
   ///
   /// A cover that cannot be read is not a reason the studio should fail to
   /// open: the book is still perfectly exportable without one.
+  Future<Set<String>> _loadSnapshotHashes() async {
+    try {
+      return (await widget.snapshotStore.hashes(widget.project.id)).toSet();
+    } catch (_) {
+      // A history row with no reachable draft is shown as unavailable, which is
+      // also the right answer if the database cannot be read at all.
+      return const {};
+    }
+  }
+
   Future<BookCover?> _loadCover() async {
     try {
       return await widget.coverStore.load(widget.project.id);
@@ -510,50 +529,105 @@ class _BookStudioViewState extends State<BookStudioView> {
     });
   }
 
+  /// Produces the bytes for one export.
+  ///
+  /// Shared by the live export and by re-exporting an earlier snapshot, so the
+  /// two cannot drift: a file rebuilt from a frozen book has to come out of the
+  /// same code the original did, or "reproducible" means nothing.
+  Future<Uint8List> _renderExport({
+    required BookDocument document,
+    required PaginatedBook paginated,
+    required BookProject book,
+    required ManuscriptProjectSummary manuscript,
+    required BookExportFormat format,
+    required String variant,
+    required BookFontAssets assets,
+    required BookCover? cover,
+  }) async {
+    // Reflowable targets are built from the book's structure; paginated ones
+    // from the laid-out pages. A reflowable format must never inherit print
+    // pagination — the reader decides where its pages fall, not this app.
+    return switch (format) {
+      BookExportFormat.epub => widget.epubExporter.export(
+          document: document,
+          settings: book.epub,
+          projectId: widget.project.id,
+          modified: manuscript.updatedAt,
+          cover: cover,
+          fonts: assets,
+        ),
+      BookExportFormat.docx => widget.docxExporter.export(
+          document: document,
+          flavour: _docxFlavourNamed(variant),
+          modified: manuscript.updatedAt,
+          format: book.format,
+        ),
+      BookExportFormat.txt => Uint8List.fromList(utf8.encode(
+          widget.textExporter.export(
+            document: document,
+            style: _textStyleNamed(variant),
+            format: book.format,
+          ),
+        )),
+      BookExportFormat.printPdf || BookExportFormat.digitalPdf =>
+        await widget.renderer
+            .render(paginated, assets, modified: manuscript.updatedAt),
+    };
+  }
+
+  /// Lays a frozen book out again, off the studio's own cached state.
+  ({BookDocument document, PaginatedBook paginated}) _derive(
+    ManuscriptProjectSummary manuscript,
+    BookProject book,
+    BookFontAssets assets,
+  ) {
+    final document = const BookDocumentBuilder().build(
+      manuscript: manuscript,
+      book: book,
+      profileAuthorName: widget.project.title,
+    );
+    return (
+      document: document,
+      paginated: BookLayoutEngine(PdfBookFontMetrics(assets))
+          .layout(document, book.format),
+    );
+  }
+
+  static DocxFlavour _docxFlavourNamed(String name) =>
+      DocxFlavour.values.firstWhere((f) => f.name == name,
+          orElse: () => DocxFlavour.submission);
+
+  static TextExportStyle _textStyleNamed(String name) =>
+      TextExportStyle.values.firstWhere((s) => s.name == name,
+          orElse: () => TextExportStyle.readable);
+
   Future<void> _export() async {
     final paginated = _paginated;
     final document = _document;
     final assets = _assets;
     final book = _book;
+    final manuscript = _manuscript;
     if (paginated == null || document == null || assets == null ||
-        book == null) {
+        book == null || manuscript == null) {
       return;
     }
 
     setState(() => _exporting = true);
     try {
-      // Reflowable targets are built from the book's structure; paginated ones
-      // from the laid-out pages. A reflowable format must never inherit print
-      // pagination — the reader decides where its pages fall, not this app.
-      final bytes = switch (_exportFormat) {
-        BookExportFormat.epub => widget.epubExporter.export(
-            document: document,
-            settings: book.epub,
-            projectId: widget.project.id,
-            modified: _manuscript?.updatedAt ?? DateTime.utc(2000),
-            cover: _cover,
-            fonts: assets,
-          ),
-        BookExportFormat.docx => widget.docxExporter.export(
-            document: document,
-            flavour: _docxFlavour,
-            modified: _manuscript?.updatedAt ?? DateTime.utc(2000),
-            format: book.format,
-          ),
-        BookExportFormat.txt => Uint8List.fromList(utf8.encode(
-            widget.textExporter.export(
-              document: document,
-              style: _textStyle,
-              format: book.format,
-            ),
-          )),
-        BookExportFormat.printPdf || BookExportFormat.digitalPdf =>
-          await widget.renderer.render(
-            paginated,
-            assets,
-            modified: _manuscript?.updatedAt ?? BookPdfRenderer.epoch,
-          ),
-      };
+      final bytes = await _renderExport(
+        document: document,
+        paginated: paginated,
+        book: book,
+        manuscript: manuscript,
+        format: _exportFormat,
+        variant: switch (_exportFormat) {
+          BookExportFormat.docx => _docxFlavour.name,
+          BookExportFormat.txt => _textStyle.name,
+          _ => '',
+        },
+        assets: assets,
+        cover: _cover,
+      );
       final path = await widget.fileSaver.save(
         suggestedName: suggestedBookFilename(
           title: paginated.metadata.title,
@@ -582,6 +656,87 @@ class _BookStudioViewState extends State<BookStudioView> {
     }
   }
 
+  /// Produces an earlier export again, from the book that was frozen with it.
+  ///
+  /// This is what the snapshot was for. The words, the trim, the typography and
+  /// the copyright page all come from what was stored at the time, so the file
+  /// is the file — not the old manuscript re-set in whatever the book looks
+  /// like today.
+  Future<void> _reExport(ExportRecord record) async {
+    final assets = _assets;
+    if (assets == null || _exporting) return;
+
+    setState(() => _exporting = true);
+    try {
+      final snapshot = await widget.snapshotStore
+          .load(widget.project.id, record.snapshotHash);
+
+      if (snapshot == null) {
+        if (!mounted) return;
+        setState(() => _exporting = false);
+        _message('That draft is no longer stored. Only the '
+            '${BookSnapshotStore.retained} most recent are kept.');
+        return;
+      }
+
+      final format = BookExportFormat.values.firstWhere(
+          (f) => f.name == record.format,
+          orElse: () => BookExportFormat.printPdf);
+
+      final derived = _derive(snapshot.manuscript, snapshot.book, assets);
+      final bytes = await _renderExport(
+        document: derived.document,
+        paginated: derived.paginated,
+        book: snapshot.book,
+        manuscript: snapshot.manuscript,
+        format: format,
+        variant: record.variant,
+        assets: assets,
+        // The cover is the only input not frozen — it is binary and large. If
+        // it has changed since, the file will differ, and the author is told
+        // rather than left to find out.
+        cover: _cover,
+      );
+
+      final path = await widget.fileSaver.save(
+        suggestedName: suggestedBookFilename(
+          title: derived.paginated.metadata.title,
+          format: format,
+        ),
+        bytes: bytes,
+        format: format,
+      );
+      if (!mounted) return;
+      if (path == null) {
+        setState(() => _exporting = false);
+        return;
+      }
+
+      await _recordExport(derived.paginated,
+          format: format,
+          variant: record.variant,
+          manuscript: snapshot.manuscript,
+          book: snapshot.book);
+
+      if (!mounted) return;
+      setState(() => _exporting = false);
+      _message(_coverChangedSince(record)
+          ? 'Exported again from that draft. The cover has changed since, so '
+              'this file carries the current one.'
+          : 'Exported again from that draft.');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _exporting = false);
+      _message('Export failed. $error');
+    }
+  }
+
+  /// Whether the cover in use now is not the one that export was made with.
+  bool _coverChangedSince(ExportRecord record) {
+    final now = _cover == null ? '' : contentHash(_cover!.bytes);
+    return now != record.coverHash;
+  }
+
   /// Freezes the manuscript this export was built from, and remembers it.
   ///
   /// The master plan asks that exports be reproducible from a frozen snapshot.
@@ -591,30 +746,43 @@ class _BookStudioViewState extends State<BookStudioView> {
   ///
   /// A failure here must never look like a failed export: the file has already
   /// been written and the author already has it. It is recorded and swallowed.
-  Future<void> _recordExport(PaginatedBook paginated) async {
-    final manuscript = _manuscript;
-    final book = _book;
-    if (manuscript == null || book == null) return;
+  Future<void> _recordExport(
+    PaginatedBook paginated, {
+    BookExportFormat? format,
+    String? variant,
+    ManuscriptProjectSummary? manuscript,
+    BookProject? book,
+  }) async {
+    // A re-export passes the frozen book it was built from; a live export
+    // passes nothing and gets the current one.
+    final source = manuscript ?? _manuscript;
+    final settings = book ?? _book;
+    final current = _book;
+    if (source == null || settings == null || current == null) return;
+
+    final target = format ?? _exportFormat;
 
     try {
       final hash = await widget.snapshotStore
-          .capture(widget.project.id, manuscript);
+          .capture(widget.project.id, source, settings);
 
       final record = ExportRecord(
         exportedAt: DateTime.now().toUtc(),
-        format: _exportFormat.name,
-        variant: switch (_exportFormat) {
-          BookExportFormat.docx => _docxFlavour.name,
-          BookExportFormat.txt => _textStyle.name,
-          _ => '',
-        },
+        format: target.name,
+        variant: variant ??
+            switch (target) {
+              BookExportFormat.docx => _docxFlavour.name,
+              BookExportFormat.txt => _textStyle.name,
+              _ => '',
+            },
         snapshotHash: hash,
-        manuscriptVersion: manuscript.version,
-        pageCount: _exportFormat.isReflowable ? 0 : paginated.pageCount,
+        manuscriptVersion: source.version,
+        pageCount: target.isReflowable ? 0 : paginated.pageCount,
         wordCount: paginated.stats.wordCount,
+        coverHash: _cover == null ? '' : contentHash(_cover!.bytes),
       );
 
-      final history = [record, ...book.exportHistory]
+      final history = [record, ...current.exportHistory]
           .take(BookProject.historyLimit)
           .toList();
       await _update((current) => current.copyWith(exportHistory: history));
@@ -625,6 +793,10 @@ class _BookStudioViewState extends State<BookStudioView> {
         widget.project.id,
         {for (final entry in history) entry.snapshotHash},
       );
+
+      final remaining = await _loadSnapshotHashes();
+      if (!mounted) return;
+      setState(() => _availableSnapshots = remaining);
     } catch (error) {
       debugPrint('Book Studio could not record the export snapshot: $error');
     }
@@ -1821,7 +1993,52 @@ class _BookStudioViewState extends State<BookStudioView> {
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _historyPanel(theme),
       ],
+    );
+  }
+
+  /// What has been exported, and the way back to any of it.
+  ///
+  /// Every row names the manuscript it came from, so an author can produce a
+  /// file again exactly as it was — the same words, the same trim, the same
+  /// copyright page — after months of further writing. That is the whole
+  /// reason the snapshot exists; without this it was data nobody could reach.
+  Widget _historyPanel(ThemeData theme) {
+    final history = _book?.exportHistory ?? const <ExportRecord>[];
+
+    return _Panel(
+      key: const Key('book-export-history'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeading('Earlier exports', theme),
+          const SizedBox(height: 6),
+          if (history.isEmpty)
+            Text(
+              'Once you export, each file is listed here with the draft it was '
+              'made from, so you can produce it again later.',
+              style: theme.textTheme.bodySmall,
+            )
+          else ...[
+            Text(
+              'Each of these can be made again exactly as it was. The '
+              '${BookSnapshotStore.retained} most recent drafts are kept.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            for (var i = 0; i < history.length; i++)
+              _ExportHistoryRow(
+                key: Key('book-history-$i'),
+                record: history[i],
+                available: _availableSnapshots.contains(history[i].snapshotHash),
+                busy: _exporting,
+                onExport: () => _reExport(history[i]),
+              ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -2390,6 +2607,7 @@ class _SwitchRow extends StatelessWidget {
 /// The studio's standard surface: the same shape every other studio uses.
 class _Panel extends StatelessWidget {
   const _Panel({
+    super.key,
     required this.child,
     this.padding = const EdgeInsets.all(18),
   });
@@ -2602,6 +2820,96 @@ class _Stat extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// One earlier export, and the way back to it.
+class _ExportHistoryRow extends StatelessWidget {
+  const _ExportHistoryRow({
+    super.key,
+    required this.record,
+    required this.available,
+    required this.busy,
+    required this.onExport,
+  });
+
+  final ExportRecord record;
+
+  /// Whether the draft this was made from is still stored.
+  final bool available;
+
+  final bool busy;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final format = BookExportFormat.values.firstWhere(
+        (f) => f.name == record.format,
+        orElse: () => BookExportFormat.printPdf);
+
+    final detail = [
+      _when(record.exportedAt),
+      if (record.pageCount > 0) '${record.pageCount} pages',
+      '${_thousands(record.wordCount)} words',
+      'draft ${record.snapshotHash.substring(0, 6)}',
+    ].join(' · ');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  record.variant.isEmpty
+                      ? format.label
+                      : '${format.label} · ${record.variant}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                Text(detail, style: theme.textTheme.bodySmall),
+                if (!available)
+                  Text(
+                    'This draft is no longer stored, so it cannot be made '
+                    'again.',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          TextButton.icon(
+            onPressed: available && !busy ? onExport : null,
+            icon: const Icon(Icons.replay, size: 16),
+            label: const Text('Export again'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A date an author reads, not a timestamp.
+  static String _when(DateTime value) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July',
+      'August', 'September', 'October', 'November', 'December',
+    ];
+    final local = value.toLocal();
+    return '${local.day} ${months[local.month - 1]} ${local.year}';
+  }
+
+  static String _thousands(int value) {
+    final digits = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+      buffer.write(digits[i]);
+    }
+    return buffer.toString();
   }
 }
 

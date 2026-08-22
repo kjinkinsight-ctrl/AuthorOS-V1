@@ -1,6 +1,7 @@
 import 'package:author_studio_v1/book/book_cover.dart';
 import 'package:author_studio_v1/book/book_document.dart';
 import 'package:author_studio_v1/book/book_fonts.dart';
+import 'package:author_studio_v1/book/book_format.dart';
 import 'package:author_studio_v1/book/book_layout.dart';
 import 'package:author_studio_v1/book/book_pdf_renderer.dart';
 import 'package:author_studio_v1/book/book_snapshot.dart';
@@ -24,6 +25,8 @@ void main() {
   });
 
   tearDown(() => database.close());
+
+  final project = bookFixture();
 
   ManuscriptProjectSummary edited(String extra) {
     final base = manuscriptFixture();
@@ -59,20 +62,50 @@ void main() {
   group('capturing', () {
     test('a manuscript round-trips through the store intact', () async {
       final manuscript = manuscriptFixture();
-      final hash = await store.capture('p1', manuscript);
+      final hash = await store.capture('p1', manuscript, project);
       final loaded = await store.load('p1', hash);
 
       expect(loaded, isNotNull);
       expect(loaded!.manuscript.toJson(), manuscript.toJson(),
           reason: 'a snapshot that comes back different cannot reproduce an '
               'export');
+      expect(loaded.book.toJson(), project.toJson(),
+          reason: 'the settings decide the bytes as much as the words do');
+    });
+
+    test('the settings are frozen too, not just the words', () async {
+      // The manuscript alone does not determine the file. Re-exporting an old
+      // draft set in whatever the book looks like today is not reproducing it.
+      final hardcover = await store.capture('p1', manuscriptFixture(),
+          bookFixture(format: BookFormatPresets.hardcover));
+      final paperback = await store.capture('p1', manuscriptFixture(),
+          bookFixture(format: BookFormatPresets.paperback));
+
+      expect(hardcover, isNot(paperback));
+      expect((await store.load('p1', hardcover))!.book.format.id,
+          BookFormatPresets.hardcover.id);
+    });
+
+    test('the export history is left out of the hash', () async {
+      // Otherwise every export would change the history that the next export
+      // hashes, and no two exports of one draft could ever share a snapshot.
+      final withHistory = project.copyWith(exportHistory: [
+        ExportRecord(
+          exportedAt: DateTime.utc(2026),
+          format: 'printPdf',
+          snapshotHash: 'aaaaaaaaaaaaaaaa',
+        ),
+      ]);
+
+      expect(BookSnapshot.hashOf(manuscriptFixture(), withHistory),
+          BookSnapshot.hashOf(manuscriptFixture(), project));
     });
 
     test('the same manuscript is stored once, not once per export', () async {
       final manuscript = manuscriptFixture();
-      final a = await store.capture('p1', manuscript);
-      final b = await store.capture('p1', manuscript);
-      final c = await store.capture('p1', manuscript);
+      final a = await store.capture('p1', manuscript, project);
+      final b = await store.capture('p1', manuscript, project);
+      final c = await store.capture('p1', manuscript, project);
 
       expect({a, b, c}, hasLength(1));
       expect(await store.hashes('p1'), hasLength(1),
@@ -80,21 +113,21 @@ void main() {
     });
 
     test('a changed manuscript gets its own snapshot', () async {
-      final first = await store.capture('p1', manuscriptFixture());
-      final second = await store.capture('p1', edited('and then more'));
+      final first = await store.capture('p1', manuscriptFixture(), project);
+      final second = await store.capture('p1', edited('and then more'), project);
 
       expect(first, isNot(second));
       expect(await store.hashes('p1'), hasLength(2));
     });
 
     test('the hash is stable across runs, not a fresh id each time', () {
-      expect(BookSnapshot.hashOf(manuscriptFixture()),
-          BookSnapshot.hashOf(manuscriptFixture()));
-      expect(BookSnapshot.hashOf(manuscriptFixture()), hasLength(16));
+      expect(BookSnapshot.hashOf(manuscriptFixture(), project),
+          BookSnapshot.hashOf(manuscriptFixture(), project));
+      expect(BookSnapshot.hashOf(manuscriptFixture(), project), hasLength(16));
     });
 
     test('projects do not see each other’s snapshots', () async {
-      await store.capture('p1', manuscriptFixture());
+      await store.capture('p1', manuscriptFixture(), project);
       expect(await store.hashes('p2'), isEmpty);
     });
 
@@ -105,9 +138,9 @@ void main() {
 
   group('pruning', () {
     test('drops a snapshot no export refers to any more', () async {
-      final kept = await store.capture('p1', manuscriptFixture());
-      await store.capture('p1', edited('one'));
-      await store.capture('p1', edited('two'));
+      final kept = await store.capture('p1', manuscriptFixture(), project);
+      await store.capture('p1', edited('one'), project);
+      await store.capture('p1', edited('two'), project);
 
       final removed = await store.prune('p1', {kept});
 
@@ -119,7 +152,7 @@ void main() {
     test('keeps at most the retained count, newest first', () async {
       final hashes = <String>[];
       for (var i = 0; i < BookSnapshotStore.retained + 3; i++) {
-        hashes.add(await store.capture('p1', edited('draft $i'),
+        hashes.add(await store.capture('p1', edited('draft $i'), project,
             timestamp: DateTime.utc(2026, 1, 1 + i)));
       }
 
@@ -133,16 +166,16 @@ void main() {
     });
 
     test('re-capturing an old manuscript saves it from eviction', () async {
-      final oldest = await store.capture('p1', manuscriptFixture(),
+      final oldest = await store.capture('p1', manuscriptFixture(), project,
           timestamp: DateTime.utc(2026, 1, 1));
       for (var i = 0; i < BookSnapshotStore.retained; i++) {
-        await store.capture('p1', edited('draft $i'),
+        await store.capture('p1', edited('draft $i'), project,
             timestamp: DateTime.utc(2026, 2, 1 + i));
       }
 
       // Exporting that older draft again makes it recent, which is what the
       // timestamp refresh on a duplicate capture is for.
-      await store.capture('p1', manuscriptFixture(),
+      await store.capture('p1', manuscriptFixture(), project,
           timestamp: DateTime.utc(2026, 3, 1));
       await store.prune('p1', (await store.hashes('p1')).toSet());
 
@@ -162,7 +195,7 @@ void main() {
         ),
       );
 
-      await store.capture('p1', manuscriptFixture());
+      await store.capture('p1', manuscriptFixture(), project);
       expect(await covers.load('p1'), isNotNull);
 
       await store.clear('p1');
@@ -227,7 +260,7 @@ void main() {
       // Monday: export the book, freezing what it said at the time.
       final monday = manuscriptFixture();
       final original = await renderFrom(monday);
-      final hash = await store.capture('p1', monday);
+      final hash = await store.capture('p1', monday, project);
 
       // Tuesday: the author keeps writing, so the live manuscript has moved on.
       expect(await renderFrom(longManuscriptFixture(paragraphs: 40)),
@@ -241,6 +274,39 @@ void main() {
 
       expect(await renderFrom(snapshot!.manuscript), orderedEquals(original),
           reason: 'byte for byte, or the snapshot cannot reproduce anything');
+    });
+
+    test('and reproduces it even after the book has been re-designed',
+        () async {
+      final assets = await BookFontAssets.load();
+
+      Future<List<int>> renderWith(
+          ManuscriptProjectSummary m, BookProject b) async {
+        final document = const BookDocumentBuilder()
+            .build(manuscript: m, book: b, profileAuthorName: 'Kali Vale');
+        return const BookPdfRenderer().render(
+          BookLayoutEngine(PdfBookFontMetrics(assets)).layout(document, b.format),
+          assets,
+          modified: m.updatedAt,
+        );
+      }
+
+      final monday = manuscriptFixture();
+      final asPaperback = bookFixture(format: BookFormatPresets.paperback);
+      final original = await renderWith(monday, asPaperback);
+      final hash = await store.capture('p1', monday, asPaperback);
+
+      // The author later moves the whole book to hardcover. Re-exporting the
+      // old words in the new design would not be the old file.
+      expect(
+          await renderWith(monday, bookFixture(format: BookFormatPresets.hardcover)),
+          isNot(orderedEquals(original)));
+
+      final snapshot = await store.load('p1', hash);
+      expect(await renderWith(snapshot!.manuscript, snapshot.book),
+          orderedEquals(original),
+          reason: 'the design has to be frozen with the words, or the button '
+              'produces a different book than the one it names');
     });
   });
 

@@ -517,6 +517,7 @@ class ExportRecord {
     this.manuscriptVersion = 0,
     this.pageCount = 0,
     this.wordCount = 0,
+    this.coverHash = '',
   });
 
   final DateTime exportedAt;
@@ -535,6 +536,18 @@ class ExportRecord {
   final int pageCount;
   final int wordCount;
 
+  /// The cover in use at the time, by content.
+  ///
+  /// The cover is the one thing an export depends on that the snapshot does
+  /// not hold: it is hundreds of kilobytes of binary, and freezing a copy into
+  /// every snapshot would cost more than it is worth. Its hash is sixteen
+  /// characters, and it is enough to notice that the cover has changed and say
+  /// so, rather than quietly producing a different file than the one this row
+  /// claims to reproduce.
+  ///
+  /// Empty means there was no cover.
+  final String coverHash;
+
   Map<String, Object?> toJson() => {
         'exportedAt': exportedAt.toIso8601String(),
         'format': format,
@@ -543,6 +556,7 @@ class ExportRecord {
         'manuscriptVersion': manuscriptVersion,
         'pageCount': pageCount,
         'wordCount': wordCount,
+        'coverHash': coverHash,
       };
 
   factory ExportRecord.fromJson(Map<String, dynamic> json) => ExportRecord(
@@ -555,6 +569,7 @@ class ExportRecord {
         manuscriptVersion: (json['manuscriptVersion'] as num?)?.toInt() ?? 0,
         pageCount: (json['pageCount'] as num?)?.toInt() ?? 0,
         wordCount: (json['wordCount'] as num?)?.toInt() ?? 0,
+        coverHash: (json['coverHash'] as String?) ?? '',
       );
 }
 

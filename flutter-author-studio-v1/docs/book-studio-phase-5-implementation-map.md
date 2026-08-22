@@ -137,10 +137,21 @@ participating in nothing. A second table saying the same thing would be a second
 persistence system for no gain.
 
 ```
-role:      'snapshot:<first 16 hex of sha256 of the manuscript JSON>'
+role:      'snapshot:<first 16 hex of sha256 of the payload>'
 mediaType: 'application/json'
-bytes:     gzip(utf8(jsonEncode(manuscript.toJson())))
+bytes:     gzip(utf8(jsonEncode({manuscript: {...}, book: {...}})))
 ```
+
+**The settings are frozen with the words**, because the manuscript alone does not
+determine the file. Trim, margins, typography, chapter design and the ISBN on the
+copyright page all change the bytes. A snapshot holding only prose could tell an
+author *what* an old export said and never reproduce it, which is most of the
+value gone — and it costs almost nothing, since a `BookProject` is a few
+kilobytes beside a manuscript's hundreds.
+
+`exportHistory` is excluded from the hashed payload. Including it would give
+every export a new hash, each one changing the history the next one then hashes,
+and no two exports of one draft could ever share a snapshot.
 
 **Content-addressing is what makes this affordable.** Exporting one book to PDF,
 EPUB, DOCX and TXT stores *one* snapshot, not four. Re-capturing an existing
@@ -237,11 +248,11 @@ the same reason `test/startup_screens_capture.dart` is named the way it is.
 |---|---|
 | `lib/book/preflight.dart` | `PreflightCheck`, `PreflightContext`, `PreflightReport`, `PreflightEngine`, `requestedFaces` |
 | `lib/book/preflight_checks.dart` | the nine built-in checks |
-| `lib/book/book_snapshot.dart` | `BookSnapshot`, `BookSnapshotStore` |
+| `lib/book/book_snapshot.dart` | `BookSnapshot`, `BookSnapshotStore`, `contentHash` |
 | `lib/book/book_template.dart` | `BookTemplate`, `BookTemplateStore` |
 | `lib/book/book_digest.dart` | `bookDigest`, the golden format |
 | `test/book_preflight_test.dart` | 25 tests |
-| `test/book_snapshot_test.dart` | 12 tests |
+| `test/book_snapshot_test.dart` | 16 tests |
 | `test/book_template_test.dart` | 12 tests |
 | `test/book_golden_test.dart` | 9 tests |
 | `test/update_book_goldens.dart`, `tool/update-book-goldens.sh` | regeneration |
@@ -254,20 +265,43 @@ the same reason `test/startup_screens_capture.dart` is named the way it is.
 | `lib/book/book_pdf_renderer.dart` | reproducible: derived `/ID`, XMP instead of a clock-based `/CreationDate` |
 | `lib/book/book_fonts.dart` | `resolve`'s final fallback records its substitution |
 | `lib/book/proof_rules.dart` | `blankPages` and `signature` moved to preflight |
-| `lib/book/book_document.dart` | `ExportRecord`; `BookProject.exportHistory` |
-| `lib/book_studio_view.dart` | preflight panel, template panel and dialog, snapshot on export |
+| `lib/book/book_document.dart` | `ExportRecord` (with `coverHash`); `BookProject.exportHistory` |
+| `lib/book_studio_view.dart` | preflight panel, template panel and dialog, snapshot on export, export history with re-export |
 | `test/book_export_test.dart` | a reproducibility group it never had |
 | `test/book_proofing_test.dart`, `test/book_studio_view_test.dart` | follow the moves |
 
 **No new dependency.** `crypto`, `archive`, `xml` and `drift` were all already
 direct.
 
+## Exporting an earlier draft again
+
+The Export stage lists what has been exported, each row naming its format, its
+variant, when it happened, its extent and the draft it came from. **Export
+again** rebuilds that file from the frozen book.
+
+The live export and the re-export share one `_renderExport`, so the two cannot
+drift: a file rebuilt from a snapshot has to come out of the same code the
+original did, or "reproducible" means nothing. A test proves it end to end —
+export, move the whole book from paperback to hardcover, then reach back and get
+the first file byte for byte.
+
+Two honest edges:
+
+- **A row whose draft has been evicted stays visible** and says so, with its
+  button disabled. "You exported an EPUB last Tuesday" is still true after the
+  manuscript behind it is gone, and a button that cannot work must not look like
+  it can.
+- **The cover is the one input not frozen.** It is hundreds of kilobytes of
+  binary, and copying it into every snapshot would cost more than it is worth.
+  `ExportRecord.coverHash` is sixteen characters, which is enough to notice the
+  cover has changed and say so in the result, rather than quietly producing a
+  different file than the row claims to reproduce.
+
+A re-export is itself an export, so it records a new history row — against the
+same snapshot, since the content is identical, so no second copy is stored.
+
 ## Known gaps
 
-- **Re-exporting an older snapshot is not yet a button.** The history is
-  recorded and the manuscript is recoverable — the studio lists what was
-  exported and when — but choosing a past row and rebuilding from it is UI that
-  has not been written. The data is all there.
 - **Italics** remain unbundled and unmarkupable, unchanged since Phase 1.
   `requestedFaces` will report an italic the moment anything asks for one, which
   is the piece that was missing.

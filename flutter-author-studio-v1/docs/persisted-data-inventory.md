@@ -97,9 +97,12 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
   the manuscript. The embedded database is IndexedDB-backed in the browser.
 - Note: bytes are stored exactly as the author supplied them. Re-encoding would
   mean PNG only, which makes a photographic cover larger, not smaller.
-- Note: a `snapshot:{hash}` row is the gzipped JSON of the manuscript an export
-  was built from, so an export can be reproduced after more writing — the M7 gate
-  asks for exactly this. It shares this table rather than adding one because it
+- Note: a `snapshot:{hash}` row is the gzipped JSON of the manuscript **and the
+  book settings** an export was built from, so an export can be reproduced after
+  more writing or a redesign — the M7 gate asks for exactly this. The settings
+  are included because trim, typography and the ISBN change the bytes as much as
+  the words do; `exportHistory` is excluded from the hashed payload, or every
+  export would change the history the next one hashes. It shares this table rather than adding one because it
   is an authored asset by the same argument a cover is: never a `RecordLink`
   endpoint, participating in nothing. The `role` column was already a
   discriminator in the primary key.

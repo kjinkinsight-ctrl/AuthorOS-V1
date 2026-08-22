@@ -37,31 +37,63 @@ import 'package:drift/drift.dart' as drift;
 
 import '../manuscript_store.dart';
 import '../persistence/authoros_database.dart';
+import 'book_document.dart';
 
 /// A manuscript, frozen.
 class BookSnapshot {
   const BookSnapshot({
     required this.hash,
     required this.manuscript,
+    required this.book,
     required this.capturedAt,
   });
 
-  /// Content address: the same manuscript always produces the same hash.
+  /// Content address: the same book always produces the same hash.
   ///
-  /// This is what makes exporting one book to five formats store one snapshot
-  /// rather than five.
+  /// This is what makes exporting one book to four formats store one snapshot
+  /// rather than four.
   final String hash;
 
   final ManuscriptProjectSummary manuscript;
+
+  /// The settings the book was set in, frozen alongside the words.
+  ///
+  /// The manuscript alone does not determine the file. Trim, margins,
+  /// typography, chapter design, the ISBN on the copyright page — every one of
+  /// them changes the bytes. A snapshot that froze only the prose could tell an
+  /// author *what* an old export said and never reproduce it, which is most of
+  /// the value gone.
+  ///
+  /// It costs almost nothing: a `BookProject` is a few kilobytes beside a
+  /// manuscript's hundreds.
+  final BookProject book;
+
   final DateTime capturedAt;
 
-  /// The hash a given manuscript will be stored under.
+  /// What the snapshot stores, and what its hash is taken over.
+  static Map<String, Object?> payloadOf(
+    ManuscriptProjectSummary manuscript,
+    BookProject book,
+  ) =>
+      {
+        'manuscript': manuscript.toJson(),
+        // The export history is not part of what an export was built from, and
+        // including it would give every export a new hash — each one changing
+        // the history that the next one then hashes.
+        'book': book.copyWith(exportHistory: const []).toJson(),
+      };
+
+  /// The hash a given book will be stored under.
   ///
   /// Sixteen hex characters of SHA-256. Long enough that a collision between
   /// two drafts of one novel is not a thing that happens, short enough to read
   /// in a row of export history.
-  static String hashOf(ManuscriptProjectSummary manuscript) =>
-      sha256.convert(utf8.encode(jsonEncode(manuscript.toJson())))
+  static String hashOf(
+    ManuscriptProjectSummary manuscript,
+    BookProject book,
+  ) =>
+      sha256
+          .convert(utf8.encode(jsonEncode(payloadOf(manuscript, book))))
           .toString()
           .substring(0, 16);
 
@@ -69,6 +101,11 @@ class BookSnapshot {
 
   static const rolePrefix = 'snapshot:';
 }
+
+/// The same sixteen-character content address, for anything else worth
+/// identifying by its bytes rather than copying.
+String contentHash(List<int> bytes) =>
+    sha256.convert(bytes).toString().substring(0, 16);
 
 /// Reads and writes snapshots.
 class BookSnapshotStore {
@@ -93,14 +130,14 @@ class BookSnapshotStore {
   /// later export is not the oldest any more.
   Future<String> capture(
     String projectId,
-    ManuscriptProjectSummary manuscript, {
+    ManuscriptProjectSummary manuscript,
+    BookProject book, {
     DateTime? timestamp,
   }) async {
-    final hash = BookSnapshot.hashOf(manuscript);
+    final payload = BookSnapshot.payloadOf(manuscript, book);
+    final hash = BookSnapshot.hashOf(manuscript, book);
     final bytes = Uint8List.fromList(
-      const GZipEncoder().encodeBytes(
-        utf8.encode(jsonEncode(manuscript.toJson())),
-      ),
+      const GZipEncoder().encodeBytes(utf8.encode(jsonEncode(payload))),
     );
 
     await _database.into(_database.bookAssetRows).insertOnConflictUpdate(
@@ -130,7 +167,10 @@ class BookSnapshotStore {
       final decoded = jsonDecode(utf8.decode(inflated)) as Map<String, dynamic>;
       return BookSnapshot(
         hash: hash,
-        manuscript: ManuscriptProjectSummary.fromJson(decoded),
+        manuscript: ManuscriptProjectSummary.fromJson(
+            Map<String, dynamic>.from(decoded['manuscript'] as Map)),
+        book: BookProject.fromJson(
+            Map<String, dynamic>.from(decoded['book'] as Map)),
         capturedAt: row.updatedAt,
       );
     } catch (_) {

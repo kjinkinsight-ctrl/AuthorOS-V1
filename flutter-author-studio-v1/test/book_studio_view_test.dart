@@ -441,6 +441,116 @@ void main() {
         reason: 'but from one manuscript, so one snapshot');
   });
 
+  testWidgets('an earlier export can be made again, byte for byte',
+      (tester) async {
+    final saver = _MemoryBookFileSaver();
+    await pumpStudio(tester, saver: saver);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
+    final original = Uint8List.fromList(saver.bytes!);
+
+    // The author changes the whole design afterwards.
+    await tester.tap(find.byKey(const Key('book-stage-formatting')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-preset-hardcover')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
+    expect(saver.bytes, isNot(orderedEquals(original)),
+        reason: 'the fixture must actually differ for this to prove anything');
+
+    // Now reach back to the first one. The oldest row is the last.
+    final rows = find.byKey(const Key('book-history-1'));
+    expect(rows, findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.descendant(
+          of: rows, matching: find.text('Export again')));
+      await tester.pumpAndSettle();
+    });
+
+    expect(saver.bytes, orderedEquals(original),
+        reason: 'exporting an earlier draft again must produce that file, not '
+            'the old words in the new design');
+  });
+
+  testWidgets('the history says what each file was and where it came from',
+      (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Once you export'), findsOneWidget,
+        reason: 'an empty history should explain what will appear here');
+
+    await tester.tap(find.byKey(const Key('book-export-docx')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('book-docx-typeset')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
+
+    final row = find.byKey(const Key('book-history-0'));
+    expect(row, findsOneWidget);
+    expect(
+        find.descendant(of: row, matching: find.textContaining('Word (DOCX)')),
+        findsOneWidget);
+    expect(find.descendant(of: row, matching: find.textContaining('typeset')),
+        findsOneWidget,
+        reason: 'the flavour is part of what that file was');
+    expect(find.descendant(of: row, matching: find.textContaining('words')),
+        findsOneWidget);
+  });
+
+  testWidgets('a row whose draft has been evicted says so instead of failing',
+      (tester) async {
+    await pumpStudio(tester);
+
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('book-export-button')));
+      await tester.pumpAndSettle();
+    });
+
+    // Evict it behind the studio's back, as retention eventually would.
+    await tester.runAsync(() async {
+      await BookSnapshotStore(database: database).clear('project-book');
+    });
+
+    // Re-open so the studio reads what is actually there. Pumping a different
+    // tree first forces a real remount — Flutter reuses the State of a
+    // same-type widget in the same position, so `_load` would not run again.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    await pumpStudio(tester);
+    await tester.tap(find.byKey(const Key('book-stage-export')));
+    await tester.pumpAndSettle();
+
+    final row = find.byKey(const Key('book-history-0'));
+    expect(row, findsOneWidget, reason: 'the row is still true history');
+    expect(
+        find.descendant(
+            of: row, matching: find.textContaining('no longer stored')),
+        findsOneWidget);
+
+    final button = tester.widget<TextButton>(find.descendant(
+        of: row, matching: find.byType(TextButton)));
+    expect(button.onPressed, isNull,
+        reason: 'a button that cannot work must not look like it can');
+  });
+
   testWidgets('a look can be saved as a template and put on again',
       (tester) async {
     SharedPreferences.setMockInitialValues({});

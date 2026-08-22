@@ -6,6 +6,7 @@ import 'core/safe_delete.dart';
 import 'core/search_models.dart';
 import 'core/timeline_record_types.dart';
 import 'core/universal_search.dart';
+import 'knowledge_graph/open_in_graph.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
 import 'theme/flutter/authoros_theme.dart';
@@ -1153,6 +1154,22 @@ class _TimelineDetailPane extends StatelessWidget {
                   record.title,
                   style: palette.heading.copyWith(fontWeight: FontWeight.w700),
                 ),
+              ),
+              // The pane already holds both the record and the callback, so
+              // it can ask for the graph itself without new plumbing.
+              OpenInGraphButton(
+                recordId: record.id,
+                compact: true,
+                onOpen: onNavigate == null
+                    ? null
+                    : () => onNavigate!(
+                          TimelineNavigationRequest(
+                            destination: SearchDestination.knowledgeGraph,
+                            recordId: record.id,
+                            recordType: record.typeId,
+                            title: record.title,
+                          ),
+                        ),
               ),
               IconButton(
                 key: const Key('timeline-detail-close'),

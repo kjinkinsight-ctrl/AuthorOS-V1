@@ -8,6 +8,8 @@ library;
 
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/record_service.dart';
+import 'package:author_studio_v1/core/search_models.dart';
+import 'package:author_studio_v1/core/universal_search.dart';
 import 'package:author_studio_v1/knowledge_graph/knowledge_graph_view.dart';
 import 'package:author_studio_v1/knowledge_graph/open_in_graph.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
@@ -126,6 +128,38 @@ void main() {
         tester.widget<Text>(find.byKey(const Key('graph-explorer-title'))).data,
         'Vincenzo',
       );
+    });
+  });
+
+  group('the destination itself', () {
+    test('every Studio that can name a record can ask for the graph', () {
+      // Each Studio has its own request type, so the shared thing is the
+      // destination. If this enum value were dropped, "open in graph" would
+      // silently route somewhere else rather than failing to compile.
+      expect(
+        SearchDestination.values,
+        contains(SearchDestination.knowledgeGraph),
+      );
+    });
+
+    test('a record type never routes to the graph on its own', () {
+      // `searchDestinationForType` answers "which Studio owns this record".
+      // The graph owns nothing, so it must never be the answer — opening the
+      // graph is an explicit act, not a side effect of a record's type.
+      for (final typeId in const [
+        'character',
+        'location',
+        'timeline-event',
+        'plot-thread',
+        'research-entry',
+        'scene',
+      ]) {
+        expect(
+          searchDestinationForType(typeId),
+          isNot(SearchDestination.knowledgeGraph),
+          reason: '$typeId routes to the graph by default',
+        );
+      }
     });
   });
 

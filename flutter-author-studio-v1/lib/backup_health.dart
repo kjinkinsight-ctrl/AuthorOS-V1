@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'theme/flutter/authoros_theme.dart';
+
 enum RestoreTestStatus { passed, failed }
 
 class RecoverySimulationReport {
@@ -265,6 +267,7 @@ class _BackupHealthViewState extends State<BackupHealthView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final semantic = AuthorOsSemanticColors.of(context);
     final current = health;
     if (current == null) {
       return const Center(child: CircularProgressIndicator());
@@ -356,8 +359,8 @@ class _BackupHealthViewState extends State<BackupHealthView> {
               label: 'Last restore test',
               value: _restoreLabel(current),
               valueColor: switch (current.restoreTestStatus) {
-                RestoreTestStatus.passed => const Color(0xFF77B884),
-                RestoreTestStatus.failed => const Color(0xFFE07A6F),
+                RestoreTestStatus.passed => semantic.success,
+                RestoreTestStatus.failed => semantic.error,
                 null => null,
               },
             ),
@@ -450,8 +453,8 @@ class _BackupHealthViewState extends State<BackupHealthView> {
                 color: theme.colorScheme.surfaceContainerHighest,
                 border: Border.all(
                   color: simulationReport!.passed
-                      ? const Color(0xFF77B884)
-                      : const Color(0xFFE07A6F),
+                      ? semantic.success
+                      : semantic.error,
                 ),
                 borderRadius: BorderRadius.circular(18),
               ),
@@ -513,8 +516,8 @@ class _BackupHealthViewState extends State<BackupHealthView> {
               label: 'Last restore test',
               value: _restoreLabel(current),
               valueColor: switch (current.restoreTestStatus) {
-                RestoreTestStatus.passed => const Color(0xFF77B884),
-                RestoreTestStatus.failed => const Color(0xFFE07A6F),
+                RestoreTestStatus.passed => semantic.success,
+                RestoreTestStatus.failed => semantic.error,
                 null => null,
               },
             ),

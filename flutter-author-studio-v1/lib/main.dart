@@ -24,18 +24,18 @@ import 'release_destinations.dart';
 import 'research_service.dart';
 import 'research_studio_view.dart';
 import 'supabase_service.dart';
-import 'timeline_studio_view.dart';
-import 'plot_studio_view.dart';
-import 'welcome_page.dart';
-import 'world_board/world_board_models.dart';
-import 'world_board/world_board_view.dart';
-import 'world_workspace.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/resolved_theme.dart';
 import 'theme/theme_definition.dart';
 import 'theme/theme_engine.dart';
 import 'theme/theme_persistence.dart';
 import 'theme/theme_tokens.dart';
+import 'timeline_studio_view.dart';
+import 'plot_studio_view.dart';
+import 'welcome_page.dart';
+import 'world_board/world_board_models.dart';
+import 'world_board/world_board_view.dart';
+import 'world_workspace.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -207,6 +207,12 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
   ThemeSelection? _themeSelection;
   ResolvedTheme? _resolvedTheme;
 
+  /// Resolution is pure, so the pre-load splash frame resolves a real theme
+  /// from a throwaway in-memory engine instead of constructing a bare
+  /// ThemeData, which would be a second ThemeData boundary.
+  static final ThemeEngine _fallbackEngine =
+      ThemeEngine.standard(store: MemoryThemeSettingsStore());
+
   ThemeBrightness get _hostBrightness =>
       WidgetsBinding.instance.platformDispatcher.platformBrightness ==
               Brightness.dark
@@ -242,7 +248,7 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
       store: await SharedPreferencesThemeStore.load(),
     );
     final selection = await engine.load();
-    final resolved = await engine.resolve(hostBrightness: _hostBrightness);
+    final resolved = _resolve(engine, selection);
     if (!mounted) {
       return;
     }
@@ -259,13 +265,17 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
     if (engine == null) {
       return;
     }
-    final resolved = await engine.resolve(hostBrightness: _hostBrightness);
+    final selection = engine.selection ?? _themeSelection;
+    if (selection == null) {
+      return;
+    }
+    final resolved = _resolve(engine, selection);
     if (!mounted) {
       return;
     }
     setState(() {
       _resolvedTheme = resolved;
-      _themeSelection = engine.selection ?? _themeSelection;
+      _themeSelection = selection;
     });
   }
 
@@ -274,16 +284,17 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
     if (engine == null) {
       return;
     }
-    final resolved = await engine.select(
+    await engine.select(
       selection: selection,
       hostBrightness: _hostBrightness,
     );
+    final applied = engine.selection ?? selection;
     if (!mounted) {
       return;
     }
     setState(() {
-      _themeSelection = engine.selection ?? selection;
-      _resolvedTheme = resolved;
+      _themeSelection = applied;
+      _resolvedTheme = _resolve(engine, applied);
     });
   }
 
@@ -301,51 +312,77 @@ class _AuthorStudioAppState extends State<AuthorStudioApp>
     await _applySelection(selection);
   }
 
-  ThemeData _buildThemeData() {
-    final resolved = _resolvedTheme;
-    if (resolved == null) {
-      return ThemeData(useMaterial3: true);
-    }
-    return AuthorOsTheme.toThemeData(resolved);
+  /// Resolves [selection] against the current host brightness.
+  ///
+  /// In `system` mode the *theme* follows the host, not just the mode. Each
+  /// built-in theme renders exactly one brightness, so asking the dark theme
+  /// to render light would simply hit the engine's fallback and come back
+  /// dark — `system` would never do anything. Picking the registry's theme
+  /// for the host brightness is what makes the mode meaningful.
+  ResolvedTheme _resolve(ThemeEngine engine, ThemeSelection selection) {
+    final brightness = switch (selection.mode) {
+      AuthorOsThemeMode.system => _hostBrightness,
+      AuthorOsThemeMode.dark => ThemeBrightness.dark,
+      AuthorOsThemeMode.light => ThemeBrightness.light,
+    };
+    final selected = engine.registry.byId(selection.themeId);
+    final themeId = selected.supports(brightness)
+        ? selection.themeId
+        : (brightness == ThemeBrightness.dark ? 'dark' : 'light');
+    return engine.resolveSelection(
+      selection: selection.copyWith(themeId: themeId),
+      hostBrightness: _hostBrightness,
+    );
   }
+
+  /// The theme for the splash frame, before the persisted selection loads.
+  ///
+  /// Resolved through a throwaway in-memory engine so even the first frame
+  /// comes from the Theme Engine. The alternative — a bare
+  /// `ThemeData(useMaterial3: true)` — would be a second ThemeData boundary.
+  ResolvedTheme _resolveSplashTheme() => _fallbackEngine.resolveSelection(
+        selection: const ThemeSelection(
+          themeId: 'light',
+          mode: AuthorOsThemeMode.light,
+        ),
+        hostBrightness: _hostBrightness,
+      );
 
   @override
   Widget build(BuildContext context) {
-    final themeData = _buildThemeData();
-
-    if (_loadingTheme || _resolvedTheme == null || _themeSelection == null) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'AuthorOS',
-        theme: themeData,
-        home: const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
+    // AuthorOsTheme.toThemeData is the application's only ThemeData boundary.
+    final resolved = _resolvedTheme ?? _resolveSplashTheme();
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'AuthorOS',
-      theme: themeData,
-      home: StudioThemeScope(
-        theme: _resolvedTheme!,
+      theme: AuthorOsTheme.toThemeData(resolved),
+      // The shell scope sits above every route rather than only above `home`,
+      // so pushed routes and dialogs resolve tokens too. Studios nest their
+      // own scope inside it.
+      builder: (context, child) => StudioThemeScope(
+        theme: resolved,
         studio: StudioId.shell,
-        child: _OnboardingBootstrap(
-          store: widget.store,
-          manuscriptStore: widget.manuscriptStore,
-          themeSelection: _themeSelection!,
-          onThemeSelectionChanged: (selection) {
-            unawaited(_applySelection(selection));
-          },
-          themeId: _themeSelection!.themeId,
-          accentId: _themeSelection!.accentId,
-          onThemeChanged: (themeId, accentId) {
-            unawaited(_handleLegacyThemeChanged(themeId, accentId));
-          },
-          showWelcome: widget.showWelcome,
-        ),
+        child: child ?? const SizedBox.shrink(),
       ),
+      home: _loadingTheme || _themeSelection == null
+          ? const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            )
+          : _OnboardingBootstrap(
+              store: widget.store,
+              manuscriptStore: widget.manuscriptStore,
+              themeSelection: _themeSelection!,
+              onThemeSelectionChanged: (selection) {
+                unawaited(_applySelection(selection));
+              },
+              themeId: _themeSelection!.themeId,
+              accentId: _themeSelection!.accentId,
+              onThemeChanged: (themeId, accentId) {
+                unawaited(_handleLegacyThemeChanged(themeId, accentId));
+              },
+              showWelcome: widget.showWelcome,
+            ),
     );
   }
 }
@@ -684,7 +721,48 @@ extension StudioSectionData on StudioSection {
         StudioSection.notes => Icons.sticky_note_2_outlined,
         StudioSection.settings => Icons.settings_outlined,
       };
+
+  /// The Studio identity this section's subtree is themed as.
+  ///
+  /// Sections without a Studio of their own are shell chrome and resolve the
+  /// shell palette. `chapters` shares [StudioId.manuscript] because chapter
+  /// structure is part of the manuscript surface.
+  StudioId get studioId => switch (this) {
+        StudioSection.manuscript ||
+        StudioSection.chapters =>
+          StudioId.manuscript,
+        StudioSection.characters => StudioId.character,
+        StudioSection.codex => StudioId.storyCodex,
+        StudioSection.world => StudioId.world,
+        StudioSection.plot => StudioId.plot,
+        StudioSection.timeline => StudioId.timeline,
+        StudioSection.worldBoard => StudioId.worldBoard,
+        StudioSection.analytics => StudioId.analytics,
+        StudioSection.map => StudioId.map,
+        StudioSection.research => StudioId.research,
+        StudioSection.dashboard ||
+        StudioSection.search ||
+        StudioSection.statistics ||
+        StudioSection.backup ||
+        StudioSection.projects ||
+        StudioSection.ideas ||
+        StudioSection.notes ||
+        StudioSection.settings =>
+          StudioId.shell,
+      };
 }
+
+/// The muted foreground role, used for secondary text and captions.
+///
+/// Named rather than inlined so these surfaces de-emphasise automatically if
+/// `onSurfaceVariant` is ever given a value distinct from `onSurface`. See
+/// docs/theme-engine-phase-3-implementation-map.md §4.4.
+Color _mutedOn(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
+
+/// The status roles and categorical ramp, from the application's ThemeData.
+AuthorOsSemanticColors _semantic(BuildContext context) =>
+    AuthorOsSemanticColors.of(context);
 
 Future<void> _defaultLogout() async {}
 
@@ -1478,6 +1556,25 @@ class _SectionView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Every Studio subtree carries its own scope, so a Studio resolves its
+    // overrides while inheriting the shell palette for everything else.
+    //
+    // The scope is additive: the live shell always installs one above this
+    // widget, but a host that embeds AuthorStudioShell in a bare MaterialApp
+    // still renders — those subtrees simply read the shell ThemeData, which
+    // the engine produced anyway.
+    final shellScope = StudioThemeScope.maybeOf(context);
+    if (shellScope == null) {
+      return _buildSection(context);
+    }
+    return StudioThemeScope(
+      theme: shellScope.theme,
+      studio: section.studioId,
+      child: _buildSection(context),
+    );
+  }
+
+  Widget _buildSection(BuildContext context) {
     if (section == StudioSection.manuscript) {
       final studio = Padding(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
@@ -2104,7 +2201,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
-                          ?.copyWith(color: Colors.white60),
+                          ?.copyWith(color: _mutedOn(context)),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -2275,8 +2372,12 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                             ),
                             decoration: BoxDecoration(
                               color: publicProfile
-                                  ? Colors.green.withValues(alpha: 0.14)
-                                  : Colors.orange.withValues(alpha: 0.12),
+                                  ? _semantic(context)
+                                      .success
+                                      .withValues(alpha: 0.14)
+                                  : _semantic(context)
+                                      .warning
+                                      .withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
@@ -2285,8 +2386,8 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                                   : 'Private profile',
                               style: TextStyle(
                                 color: publicProfile
-                                    ? Colors.greenAccent
-                                    : Colors.orangeAccent,
+                                    ? _semantic(context).success
+                                    : _semantic(context).warning,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -2298,7 +2399,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                       Text(
                         authorFocus,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white70,
+                              color: _mutedOn(context),
                             ),
                       ),
                       const SizedBox(height: 8),
@@ -2307,7 +2408,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white60,
+                              color: _mutedOn(context),
                             ),
                       ),
                     ],
@@ -2334,7 +2435,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                   Text(
                     'Template-aware project creation and project hub workflows.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: _mutedOn(context),
                         ),
                   ),
                 ],
@@ -2418,7 +2519,9 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.05),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
@@ -2427,7 +2530,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                                     .textTheme
                                     .bodySmall
                                     ?.copyWith(
-                                      color: Colors.white70,
+                                      color: _mutedOn(context),
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
@@ -2483,7 +2586,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
-                              ?.copyWith(color: Colors.white70),
+                              ?.copyWith(color: _mutedOn(context)),
                         ),
                       ),
                     ),
@@ -2532,7 +2635,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(color: _mutedOn(context)),
                             ),
                             const SizedBox(height: 10),
                             Text(
@@ -2540,7 +2643,7 @@ class _ProjectsStudioViewState extends State<_ProjectsStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
-                                  ?.copyWith(color: Colors.white54),
+                                  ?.copyWith(color: _mutedOn(context)),
                             ),
                           ],
                         ),
@@ -2849,7 +2952,7 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                   Text(
                     'Capture, filter, and revise notes across your writing workspace.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: _mutedOn(context),
                         ),
                   ),
                 ],
@@ -2944,8 +3047,8 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                               ? Icons.push_pin
                               : Icons.sticky_note_2_outlined,
                           color: note.pinned
-                              ? const Color(0xFFC59B6D)
-                              : Colors.white70,
+                              ? Theme.of(context).colorScheme.primary
+                              : _mutedOn(context),
                         ),
                         title: Text(note.title),
                         subtitle: Text('${note.type} | ${note.status}'),
@@ -3017,7 +3120,7 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
-                              ?.copyWith(color: Colors.white70),
+                              ?.copyWith(color: _mutedOn(context)),
                         ),
                       ),
                     ),
@@ -3057,7 +3160,7 @@ class _NotesStudioViewState extends State<_NotesStudioView> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(color: _mutedOn(context)),
                             ),
                           ],
                         ),

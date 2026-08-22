@@ -514,7 +514,9 @@ void main() {
       expect(
         preferences.getString('author_studio.manuscript_studio.book-1'),
         isNotNull,
-        reason: 'A roster deletion from another device is still roster-only.',
+        reason: 'A roster deletion does not cascade to prose. Scenes sync as '
+            'their own records and are removed only by their own tombstones, '
+            'so removing a project from a list can never destroy its words.',
       );
       expect(
         await repository.writingSessionsForProject('book-1'),

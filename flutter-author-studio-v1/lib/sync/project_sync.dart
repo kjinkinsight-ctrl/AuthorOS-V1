@@ -29,6 +29,25 @@ class ProjectSyncEnvelope {
   final Map<String, dynamic> extensions;
   final Map<String, dynamic> extraFields;
 
+  /// The same envelope carrying a different payload.
+  ///
+  /// Used by the flush path when a record type queues a reference and resolves
+  /// its real payload immediately before upload.
+  ProjectSyncEnvelope copyWithPayload(Map<String, dynamic> payload) =>
+      ProjectSyncEnvelope(
+        recordId: recordId,
+        recordType: recordType,
+        schemaVersion: schemaVersion,
+        revision: revision,
+        baseRevision: baseRevision,
+        deviceId: deviceId,
+        updatedAt: updatedAt,
+        deletedAt: deletedAt,
+        payload: payload,
+        extensions: extensions,
+        extraFields: extraFields,
+      );
+
   Map<String, dynamic> toJson() => {
         ...extraFields,
         'recordId': recordId,

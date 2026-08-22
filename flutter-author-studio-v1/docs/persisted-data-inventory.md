@@ -243,9 +243,47 @@ nothing warns them. The only structural protection is granularity, so the
 blast radius of any one conflict is one project's three numbers, or one
 series' name and default.
 
-**Manuscript prose is not synchronized.** `author_studio.manuscript_studio.{projectId}`
-stays local. A second device receives the roster, the series and the targets —
-the shape of the work — and opens every project to an empty manuscript.
+**Manuscript prose is synchronized, under a stricter rule than everything
+else.** Scenes travel individually as `scene` records and the chapter outline
+as `manuscript-structure`, so typing does not re-send the outline and
+reordering does not re-send the book.
+
+Prose never resolves last-writer-wins. When two devices have both changed a
+scene, the arriving version is applied **and the local version is kept beside
+it** as a new scene titled `<title> (conflict copy)`, in the same chapter,
+directly below. Nothing is destroyed, and the author finds both versions in the
+manuscript rather than being told about a hidden store. This is what
+`docs/authoros-2-master-plan.md` requires: *"manuscript text conflicts preserve
+both versions and require user resolution."*
+
+Worth knowing: a conflict copy is an ordinary scene. It counts toward word
+totals and appears in exports until the author merges or deletes it. That is
+the deliberate price of never losing prose — the product has no other prose
+recovery, since `restoreVersion` does not roll back scene text.
+
+Prose is queued at the 700ms autosave but uploaded only at natural boundaries —
+leaving a scene, closing the manuscript, backgrounding the app — so the network
+is never in the middle of typing. Queue entries carry a scene *reference*; the
+text is read again at flush time, so the queue never holds a second copy of the
+manuscript and what uploads is current rather than a snapshot.
+
+### `author_studio.manuscript_sync_shadow.{projectId}`
+
+- Type: JSON object string
+- Shape: map of scene id to the `updatedAt` that scene carried when it last synced
+- Meaning: what this device believes the server already has, so a save that
+  rewrites the whole manuscript can still be reduced to the scenes that changed
+- Treatment: operational; safe to clear, at the cost of re-uploading every
+  scene once. Losing it is never wrong, only wasteful — the opposite mistake
+  would silently skip scenes that had never reached the server
+
+### `author_studio.manuscript_sync_structure.{projectId}`
+
+- Type: string fingerprint of the chapter outline
+- Meaning: the outline as this device last sent it, so prose edits do not
+  re-upload the chapter list
+- Treatment: operational; safe to clear, at the cost of one redundant outline
+  upload
 
 ## Data not currently represented as durable creative storage
 

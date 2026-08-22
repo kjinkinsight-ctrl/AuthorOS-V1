@@ -7,6 +7,7 @@ import 'core/version_audit.dart';
 import 'manuscript_export.dart';
 import 'manuscript_service.dart';
 import 'manuscript_store.dart';
+import 'sync/manuscript_appliers.dart';
 import 'manuscript_workspace.dart';
 import 'onboarding.dart';
 import 'persistence/authoros_database.dart';
@@ -24,6 +25,7 @@ class ManuscriptStudioView extends StatefulWidget {
     this.activeBranchId,
     this.onNavigate,
     this.sessionRecorder,
+    this.syncRecorder,
   });
 
   final StarterProject project;
@@ -48,6 +50,10 @@ class ManuscriptStudioView extends StatefulWidget {
   /// Injectable so tests can pin a clock; production leaves it null and the
   /// state creates one against the app's canonical repository.
   final WritingSessionRecorder? sessionRecorder;
+
+  /// Queues and uploads this device's prose. Injectable so tests can hand in
+  /// an offline transport; production leaves it null.
+  final ManuscriptSyncRecorder? syncRecorder;
 
   @override
   State<ManuscriptStudioView> createState() => _ManuscriptStudioViewState();
@@ -124,6 +130,17 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   ReadingRhythmPreset _readingRhythm = ReadingRhythmPreset.standard;
   late final WritingSessionRecorder _sessionRecorder;
 
+  /// Queues this device's prose for other devices, and uploads it.
+  ///
+  /// Deliberately driven from here rather than from `ManuscriptStore.saveStudio`:
+  /// `loadStudio` saves when it seeds a manuscript that has never been opened,
+  /// so a hook inside the save would queue during a read.
+  late final ManuscriptSyncRecorder _syncRecorder;
+
+  /// True while a sync is applying prose, so the resulting editor update is
+  /// not mistaken for the author typing.
+  bool _applyingRemote = false;
+
   @override
   void initState() {
     super.initState();
@@ -142,7 +159,67 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         setState(() => _sprintSeconds--);
       });
     }
-    _load();
+    _syncRecorder = widget.syncRecorder ??
+        ManuscriptSyncRecorder(store: widget.store);
+    // Opening the manuscript is the first natural boundary: whatever the
+    // author wrote elsewhere should be here before they start.
+    _load().then((_) => _pullRemoteProse());
+  }
+
+  /// Queues what has changed and sends it.
+  ///
+  /// Called at the boundaries where an author actually pauses — leaving a
+  /// scene, closing the manuscript, backgrounding the app — rather than on the
+  /// 700ms autosave, which would put the network in the middle of typing.
+  Future<void> _syncManuscript() async {
+    final manuscript = _manuscript;
+    // A branch makes the manuscript Canon and read-only, and nothing about it
+    // is this device's to publish.
+    if (manuscript == null || !_canEdit) return;
+    await _syncRecorder.recordChanges(manuscript);
+    await _syncRecorder.flush();
+    await _pullRemoteProse();
+  }
+
+  /// Applies prose other devices have written.
+  ///
+  /// Push before pull, so a scene this device just changed reaches the server
+  /// before the same scene comes back — otherwise its own work returns looking
+  /// like someone else's and manufactures a conflict copy against itself.
+  Future<void> _pullRemoteProse() async {
+    // Never under a branch: the manuscript is Canon and held read-only, and
+    // writing to it from a sync would go behind that guard's back.
+    if (!_canEdit) return;
+    try {
+      await buildManuscriptSyncEngine(
+        projectId: widget.project.id,
+        store: widget.store,
+        onManuscriptChanged: _adoptRemoteManuscript,
+      ).pull();
+    } catch (error) {
+      // A sync that cannot run costs an update, never the author's words.
+      debugPrint('Could not apply remote prose: $error');
+    }
+  }
+
+  /// Adopts a manuscript that arrived from another device.
+  ///
+  /// Two things have to happen together. The Studio takes the new manuscript,
+  /// or its stale in-memory copy would be written straight back over the
+  /// arriving prose on the next save. And the session recorder is told the
+  /// word count moved without the author doing it — otherwise the next
+  /// keystroke credits every arriving word to them.
+  Future<void> _adoptRemoteManuscript(
+    ManuscriptProjectSummary manuscript,
+  ) async {
+    if (!mounted) return;
+    _applyingRemote = true;
+    try {
+      await _sessionRecorder.noteRemoteChange(manuscript.wordCount);
+      await _adoptManuscript(manuscript);
+    } finally {
+      _applyingRemote = false;
+    }
   }
 
   @override
@@ -151,6 +228,9 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _flushSave();
+      // Backgrounding is a real boundary: the author has stopped, so this is
+      // the moment to send what they wrote.
+      unawaited(_syncManuscript());
       // Finalizing is idempotent, so a lifecycle event that fires repeatedly
       // — or fires again after disposal already finalized — records nothing
       // twice.
@@ -273,7 +353,10 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
   }
 
   void _onEditorChanged() {
-    if (_isApplyingSelection || _loading) {
+    // `_applyingRemote` covers the window where a sync is writing prose into
+    // the editor. Those words are not the author's, and crediting them would
+    // record a session they never wrote.
+    if (_isApplyingSelection || _loading || _applyingRemote) {
       return;
     }
     final manuscript = _manuscript;
@@ -485,6 +568,12 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     final manuscript = _manuscript;
     if (manuscript == null) {
       return;
+    }
+    // Leaving a scene is the boundary that matters most: the author has
+    // finished with it, so it is worth sending. Not awaited — navigating
+    // must not wait on the network.
+    if (manuscript.currentSceneId != sceneId) {
+      unawaited(_syncManuscript());
     }
     setState(() {
       _selection = _ManuscriptSelection.scene(chapterId, sceneId);

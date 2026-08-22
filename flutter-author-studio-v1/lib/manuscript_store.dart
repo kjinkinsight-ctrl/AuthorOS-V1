@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/connected_domain.dart';
 import 'persistence/authoros_database.dart';
+import 'sync/manuscript_sync.dart';
 
 class ManuscriptId {
   ManuscriptId._();
@@ -689,6 +690,81 @@ class ManuscriptStore {
     );
     await saveStudio(migrated, persistLegacyText: false);
     return migrated;
+  }
+
+  static String _syncShadowKey(String projectId) =>
+      'author_studio.manuscript_sync_shadow.$projectId';
+
+  /// What this device believes the server already has, scene by scene.
+  Future<ManuscriptSyncShadow> loadSyncShadow(String projectId) async {
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_syncShadowKey(projectId));
+    if (encoded == null || encoded.isEmpty) {
+      return const ManuscriptSyncShadow.empty();
+    }
+    try {
+      return ManuscriptSyncShadow.fromJson(
+        Map<String, dynamic>.from(jsonDecode(encoded) as Map),
+      );
+    } catch (_) {
+      // An unreadable shadow means every scene reads as dirty and re-uploads.
+      // Wasteful, never wrong — the opposite mistake would silently skip
+      // scenes that had never actually reached the server.
+      return const ManuscriptSyncShadow.empty();
+    }
+  }
+
+  Future<void> saveSyncShadow(
+    String projectId,
+    ManuscriptSyncShadow shadow,
+  ) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      _syncShadowKey(projectId),
+      jsonEncode(shadow.toJson()),
+    );
+  }
+
+  static String _structureFingerprintKey(String projectId) =>
+      'author_studio.manuscript_sync_structure.$projectId';
+
+  /// The outline as this device last sent it, so a save that changed only
+  /// prose does not re-upload the chapter list.
+  Future<String?> loadStructureFingerprint(String projectId) async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getString(_structureFingerprintKey(projectId));
+  }
+
+  Future<void> saveStructureFingerprint(
+    String projectId,
+    String fingerprint,
+  ) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      _structureFingerprintKey(projectId),
+      fingerprint,
+    );
+  }
+
+  /// Stores a manuscript that arrived from another device.
+  ///
+  /// Separate from [saveStudio] for one reason: applying must never look like
+  /// authoring. This writes the manuscript and updates the shadow to match, so
+  /// the scenes just received are not immediately queued straight back — which
+  /// is how two devices end up trading the same scene forever.
+  Future<void> applyRemote(ManuscriptProjectSummary manuscript) async {
+    await saveStudio(manuscript, persistLegacyText: false);
+    await saveSyncShadow(
+      manuscript.projectId,
+      ManuscriptSyncShadow.of(manuscript),
+    );
+    // The outline too, not only the scenes. Updating one and not the other
+    // would leave the structure looking freshly changed, so applying a remote
+    // manuscript would immediately queue its outline straight back.
+    await saveStructureFingerprint(
+      manuscript.projectId,
+      ManuscriptStructurePayload.of(manuscript).fingerprint,
+    );
   }
 
   Future<void> saveStudio(

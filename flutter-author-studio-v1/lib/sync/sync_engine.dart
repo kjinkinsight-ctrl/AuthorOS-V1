@@ -52,6 +52,27 @@ abstract class SyncApplier {
   Future<void> applyDelete(String recordId);
 }
 
+/// Fills in a record's payload immediately before it uploads.
+///
+/// The queue normally carries the payload it was given. For scenes that would
+/// mean a second copy of the whole novel sitting in SharedPreferences — a
+/// first sync of a six-hundred-scene manuscript would put every word of it in
+/// the queue as well as in the manuscript.
+///
+/// So a scene queues a reference and resolves its prose here. The size saving
+/// is the obvious benefit; the correctness one matters more: what uploads is
+/// the scene as it stands at flush time, not a snapshot taken at whichever
+/// moment the author last paused typing.
+///
+/// Returning `null` drops the operation — the record it referred to is gone.
+abstract class SyncPayloadResolver {
+  const SyncPayloadResolver();
+
+  String get recordType;
+
+  Future<Map<String, dynamic>?> resolve(String recordId);
+}
+
 /// What one run of the engine did. Returned rather than logged so a caller —
 /// or a test — can see whether anything moved.
 class SyncResult {
@@ -107,15 +128,20 @@ class SyncEngine {
     SyncStore store = const SyncStore(),
     SyncTransport transport = const SupabaseSyncTransport(),
     List<SyncApplier> appliers = const [],
+    List<SyncPayloadResolver> resolvers = const [],
   })  : _store = store,
         _transport = transport,
         _appliers = {
           for (final applier in appliers) applier.recordType: applier,
+        },
+        _resolvers = {
+          for (final resolver in resolvers) resolver.recordType: resolver,
         };
 
   final SyncStore _store;
   final SyncTransport _transport;
   final Map<String, SyncApplier> _appliers;
+  final Map<String, SyncPayloadResolver> _resolvers;
 
   /// How many records one pull will take at a time.
   static const pullPageSize = 500;
@@ -160,15 +186,31 @@ class SyncEngine {
         continue;
       }
 
+      // A record type that queues a reference fills in its real payload here,
+      // so what uploads is current rather than whatever was true when the
+      // author last paused.
+      var outbound = envelope;
+      final resolver = _resolvers[operation.recordType];
+      if (resolver != null && operation.action != 'delete') {
+        final resolved = await resolver.resolve(operation.recordId);
+        if (resolved == null) {
+          // Whatever this referred to no longer exists. Nothing to send, and
+          // nothing gained by keeping the operation queued forever.
+          await _store.acknowledge(operation.operationId);
+          continue;
+        }
+        outbound = envelope.copyWithPayload(resolved);
+      }
+
       try {
         await _transport.push(
           recordType: operation.recordType,
           recordId: operation.recordId,
           action: operation.action,
-          baseRevision: envelope.baseRevision,
-          revision: envelope.revision,
-          payload: envelope.toJson(),
-          deviceId: envelope.deviceId.isEmpty ? deviceId : envelope.deviceId,
+          baseRevision: outbound.baseRevision,
+          revision: outbound.revision,
+          payload: outbound.toJson(),
+          deviceId: outbound.deviceId.isEmpty ? deviceId : outbound.deviceId,
         );
       } catch (error) {
         // Stays queued for the next run. No backoff here on purpose: the
@@ -182,7 +224,7 @@ class SyncEngine {
       await _store.saveRevision(
         operation.recordType,
         operation.recordId,
-        envelope.revision,
+        outbound.revision,
       );
       pushed++;
     }

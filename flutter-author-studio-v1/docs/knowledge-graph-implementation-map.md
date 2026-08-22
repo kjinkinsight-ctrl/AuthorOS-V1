@@ -289,6 +289,49 @@ Also carried:
 
 ---
 
+## 12a. Phase 4 — cross-Studio integration
+
+Shipped after the milestone above. The graph already routed *outward* — click a node, land
+in its Studio. The reverse did not work, and the reason was structural rather than a missing
+button: section navigation carried only a destination, so "open Kali in the graph" arrived
+at the graph without Kali.
+
+`onNavigate` now takes an optional focus record id. Every existing caller passes a section
+alone and is unaffected; only the graph reads it, and the shell clears it on any other
+navigation so returning by hand shows the graph rather than silently re-opening whatever
+someone last jumped to.
+
+Two behaviours that would otherwise make the feature look broken:
+
+- **A focus id changing while the view is mounted is honoured.** Reacting only in
+  `initState` would have made the second "open in graph" of a session do nothing.
+- **The mode follows the record.** Character mode cannot anchor on a location, so opening
+  one from World Studio would have rendered an empty graph. `StoryGraphModes.forNode`
+  already existed for this and is now used.
+
+| Studio | How it routes |
+|---|---|
+| World | Sibling emitter beside `_navigate`, which routes a record to its *owning* Studio |
+| Story Codex | Same shape as World |
+| Timeline | None needed — the detail pane already held both the record and the callback |
+| Character | A new record-carrying callback, threaded through four widget layers |
+| Plot | Its whole routing contract; it had none |
+
+The affordance is one shared widget, `lib/knowledge_graph/open_in_graph.dart`, rather than
+five bespoke buttons — five would be five places to drift. It owns the look and the test
+key; each Studio owns saying where it wants to go, because their request types differ.
+
+**Character keeps `CharacterWorkspaceDestination`.** `onNavigate` there names a *Studio* and
+carries no record; opening the graph names a *record*. Folding them together would have
+forced all five existing destinations to invent an id they do not have.
+
+`SearchDestination.knowledgeGraph` is now a real destination — the deferral recorded in §13
+below is closed. A guardrail pins that no record type resolves to it on its own:
+`searchDestinationForType` answers "which Studio owns this record", the graph owns nothing,
+and opening it is an explicit act rather than a side effect of a record's type.
+
+---
+
 ## 13. Deliberately not in this milestone
 
 - **A global Ctrl-K command palette.** Ctrl-K is Studio-scoped. A global one means wrapping
@@ -296,10 +339,8 @@ Also carried:
   whole app; the spec itself calls the command something that *"should eventually become"* a
   genuine AuthorOS command. The `connectionSummary` read is the durable part; the palette is
   a second entry point to it.
-- **`SearchDestination.knowledgeGraph`.** Adding an enum value makes every exhaustive switch
-  over `SearchDestination` a compile error until updated, across several Studios. The graph
-  routes *outward* through `searchDestinationForType` today, which is the direction that
-  matters; routing *inward* from search results is follow-up.
+- ~~**`SearchDestination.knowledgeGraph`.**~~ **Closed by Phase 4 (§12a)** — the enum value
+  exists and all five Studios route inward through it.
 - **Branch-aware reads.** `StoryGraphService` carries `branchId` so callers can pass it and
   keep working, but it does not filter yet. Overlay support is open question Q-6.
 - **Derived-edge providers**, beyond the empty-returning stub that fixes the shape (Phase 5).

@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import '../core/connected_domain.dart';
 import '../core/connection_types.dart';
 import '../core/record_types.dart';
+import '../core/scene_prose.dart';
 import '../core/branch_domain.dart';
 import '../core/version_audit.dart';
 
@@ -75,6 +76,15 @@ class AuthorOsArchiveService {
       ),
       'data/audit-events.jsonl': _jsonLines(
         snapshot.auditEvents.map((event) => event.toJson()),
+      ),
+      // Under content/, not data/: this is the book, not the graph that
+      // describes it. An archive without it would back up every fact about
+      // the manuscript except what it says.
+      'content/scene-prose.jsonl': _jsonLines(
+        snapshot.sceneProse.map((prose) => {
+              'id': prose.sceneId,
+              ...prose.toJson(),
+            }),
       ),
     };
     final contentFingerprint = _contentFingerprint(entries);
@@ -265,6 +275,13 @@ class AuthorOsArchiveService {
               .map(AuditEvent.fromJson)
               .toList()
           : const [],
+      // Optional on read: archives written before prose moved into the
+      // database do not carry this entry, and must still restore.
+      sceneProse: files.containsKey('content/scene-prose.jsonl')
+          ? _decodeJsonLines(files['content/scene-prose.jsonl'])
+              .map(SceneProse.fromJson)
+              .toList()
+          : const [],
     );
     InMemoryConnectedDomainRepository(initial: snapshot);
     return snapshot;
@@ -352,6 +369,7 @@ String _roleFor(String path) => switch (path) {
       'data/branch-link-overlays.jsonl' => 'branch-link-overlays',
       'data/versions.jsonl' => 'record-versions',
       'data/audit-events.jsonl' => 'audit-events',
+      'content/scene-prose.jsonl' => 'scene-content',
       _ => throw ArgumentError.value(path, 'path', 'Unknown archive role'),
     };
 

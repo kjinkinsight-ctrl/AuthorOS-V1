@@ -5,7 +5,9 @@ import 'package:archive/archive.dart';
 import 'package:author_studio_v1/archive/authoros_archive.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_types.dart';
+import 'package:author_studio_v1/core/prose_document.dart';
 import 'package:author_studio_v1/core/record_types.dart';
+import 'package:author_studio_v1/core/scene_prose.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +41,40 @@ void main() {
     );
     expect(restored.connectionTypeDefinitions.single.id, 'swornTo');
     expect(restored.connectionTypeDefinitions.single.scopeId, 'project-1');
+  });
+
+  test('an archive carries the book, not only the graph describing it', () {
+    // A backup that restored every fact about a manuscript except its words
+    // would not be a backup.
+    final restored = service.importSnapshot(
+      _export(service, _snapshot(), archiveId: 'archive-prose'),
+    );
+
+    final prose = restored.sceneProse.single;
+    expect(prose.sceneId, 'scene-opening');
+    expect(prose.chapterId, 'chapter-1');
+    expect(prose.revision, 3);
+    expect(
+      prose.plainText,
+      'The message arrived at dawn.\n\nAri did not open it.',
+    );
+    expect(prose.wordCount, 10);
+  });
+
+  test('an archive written before prose moved into the database still loads',
+      () {
+    // Round-tripping a snapshot that has no prose entry at all is what an
+    // older archive looks like on import.
+    final legacy = ConnectedDomainSnapshot(
+      records: _snapshot().records,
+      manuscriptNodes: _snapshot().manuscriptNodes,
+      links: _snapshot().links,
+    );
+    final restored = service.importSnapshot(
+      _export(service, legacy, archiveId: 'archive-legacy'),
+    );
+    expect(restored.sceneProse, isEmpty);
+    expect(restored.manuscriptNodes.single.id, 'scene-opening');
   });
 
   test('unchanged creative content has a stable fingerprint', () {
@@ -183,6 +219,18 @@ ConnectedDomainSnapshot _snapshot() {
         title: 'The Message',
         createdAt: timestamp,
         updatedAt: timestamp,
+      ),
+    ],
+    sceneProse: [
+      SceneProse(
+        sceneId: 'scene-opening',
+        projectId: 'project-1',
+        chapterId: 'chapter-1',
+        document: ProseDocument.fromPlainText(
+          'The message arrived at dawn.\n\nAri did not open it.',
+        ),
+        updatedAt: timestamp,
+        revision: 3,
       ),
     ],
     links: [

@@ -9,6 +9,7 @@ import 'core/record_service.dart';
 import 'core/record_validation.dart';
 import 'core/safe_delete.dart';
 import 'core/safe_delete_service.dart';
+import 'core/scene_prose.dart';
 import 'core/search_models.dart';
 import 'core/universal_search.dart';
 import 'core/version_audit.dart';
@@ -319,6 +320,7 @@ class ManuscriptService {
     Map<String, Object?> metadata = const {},
     DateTime? timestamp,
     bool requireCanon = true,
+    Set<String> forceProseSnapshotFor = const {},
   }) async {
     if (requireCanon) _requireCanonEditable();
     final now = (timestamp ?? DateTime.now()).toUtc();
@@ -326,7 +328,11 @@ class ManuscriptService {
         .copyWith(chapters: _sequencedChapters(manuscript.chapters))
         .normalized()
         .copyWith(updatedAt: now);
-    await store.saveStudio(normalized);
+    await store.saveStudio(
+      normalized,
+      timestamp: now,
+      forceProseSnapshotFor: forceProseSnapshotFor,
+    );
     for (final nodeId in changed.toSet()) {
       await _appendNodeHistory(
         normalized,
@@ -1854,6 +1860,66 @@ class ManuscriptService {
       summary: 'Restored ${node.title} from $versionId',
       metadata: {'restoredVersionId': versionId},
       timestamp: now,
+    );
+  }
+
+  // --- Prose history ------------------------------------------------------
+  //
+  // Node history above records what a chapter or scene *is* -- its title,
+  // status, POV, connections. It has never recorded what a scene *says*, which
+  // is why its restore dialog has to warn that drafted prose is not rolled
+  // back. These two methods are the other half: the words themselves, kept as
+  // a bounded per-scene history and restorable from it.
+
+  /// One scene's prose history, newest first.
+  Future<List<SceneProseSnapshot>> proseHistoryFor(
+    String sceneId, {
+    int? limit,
+  }) =>
+      store.sceneProseHistory(sceneId, limit: limit);
+
+  /// The prose currently stored for [sceneId], or `null` when it has none.
+  Future<SceneProse?> proseFor(String sceneId) => store.sceneProse(sceneId);
+
+  /// Puts [sceneId] back to the words it held at [snapshotId].
+  ///
+  /// The prose being replaced is copied into history first and unconditionally
+  /// -- see `ManuscriptStore.saveStudio`'s `forceProseSnapshotFor` -- so a
+  /// restore is itself reversible. Only the prose moves: the scene keeps its
+  /// title, status, metadata and every connection it has.
+  Future<ManuscriptProjectSummary> restoreSceneProse(
+    ManuscriptProjectSummary manuscript, {
+    required String sceneId,
+    required String snapshotId,
+    DateTime? timestamp,
+  }) async {
+    _requireCanonEditable();
+    final snapshot = await repository.sceneProseSnapshotById(snapshotId);
+    if (snapshot == null || snapshot.sceneId != sceneId) {
+      throw StateError('Unknown prose snapshot: $snapshotId');
+    }
+    if (snapshot.projectId != projectId) {
+      throw StateError('Prose snapshot $snapshotId belongs to another project.');
+    }
+    final scene = manuscript.sceneById(sceneId);
+    if (scene == null) {
+      throw StateError('Prose snapshot $snapshotId has no matching scene.');
+    }
+    final now = (timestamp ?? DateTime.now()).toUtc();
+    return save(
+      _withScene(
+        manuscript,
+        scene.copyWith(content: snapshot.plainText, updatedAt: now),
+      ),
+      changed: [sceneId],
+      changeType: AuditChangeType.restored,
+      summary: 'Restored the prose of ${scene.title}',
+      metadata: {
+        'restoredProseSnapshotId': snapshotId,
+        'restoredWordCount': snapshot.wordCount,
+      },
+      timestamp: now,
+      forceProseSnapshotFor: {sceneId},
     );
   }
 

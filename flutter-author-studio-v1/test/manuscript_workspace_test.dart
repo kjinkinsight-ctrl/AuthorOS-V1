@@ -252,6 +252,84 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the History pane restores an earlier draft of the prose',
+      (tester) async {
+    // Structure history has never been able to roll prose back; its own
+    // restore dialog says so. This is the other half.
+    var manuscript = await loadManuscript();
+    final sceneId = manuscript.chapters.first.scenes.first.id;
+    manuscript = await service.writeSceneBody(
+      manuscript,
+      sceneId,
+      'The harbour smelled of salt and iron.',
+    );
+    manuscript = await service.writeSceneBody(
+      manuscript,
+      sceneId,
+      'A rewrite the author will regret.',
+    );
+
+    final history = await service.proseHistoryFor(sceneId);
+    expect(history, hasLength(1));
+    expect(history.single.plainText, 'The harbour smelled of salt and iron.');
+
+    await pumpStudio(tester);
+    await openConnectedPane(tester);
+    await openTab(tester, ManuscriptPanelTab.history);
+
+    expect(
+      find.byKey(const Key('manuscript-prose-history-empty')),
+      findsNothing,
+    );
+    final restore = find.byKey(
+      Key('manuscript-restore-prose-${history.single.id}'),
+    );
+    await tester.ensureVisible(restore);
+    await tester.pumpAndSettle();
+    await tester.tap(restore);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('manuscript-confirm')));
+    await tester.pumpAndSettle();
+
+    final reloaded = await service.load(
+      manuscriptTitle: project.title,
+      defaultChapters: const [],
+    );
+    expect(
+      reloaded.sceneById(sceneId)!.content,
+      'The harbour smelled of salt and iron.',
+    );
+    // The rewrite it replaced is kept, so the restore is itself reversible.
+    expect(
+      (await service.proseHistoryFor(sceneId)).first.plainText,
+      'A rewrite the author will regret.',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a chapter is not offered a prose history it cannot have',
+      (tester) async {
+    await loadManuscript();
+    await pumpStudio(tester);
+
+    // Select the chapter rather than a scene.
+    final chapterTile = find.text('Chapter 01 - The Beginning');
+    await tester.ensureVisible(chapterTile);
+    await tester.pumpAndSettle();
+    await tester.tap(chapterTile);
+    await tester.pumpAndSettle();
+    await openConnectedPane(tester);
+    await openTab(tester, ManuscriptPanelTab.history);
+
+    expect(
+      find.byKey(const Key('manuscript-prose-history-empty')),
+      findsNothing,
+    );
+    expect(find.text('PROSE'), findsNothing);
+    expect(find.byKey(const Key('manuscript-history-list')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('search and filtering narrow the navigator to matching scenes',
       (tester) async {
     var manuscript = await loadManuscript();

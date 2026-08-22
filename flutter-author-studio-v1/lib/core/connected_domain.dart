@@ -1,5 +1,6 @@
 import 'record_scope.dart';
 import 'record_types.dart';
+import 'scene_prose.dart';
 import 'connection_types.dart';
 import 'branch_domain.dart';
 import 'branch_engine.dart';
@@ -286,6 +287,7 @@ class ConnectedDomainSnapshot {
     this.branchLinkOverlays = const [],
     this.versions = const [],
     this.auditEvents = const [],
+    this.sceneProse = const [],
   });
 
   final List<AuthorRecord> records;
@@ -298,6 +300,14 @@ class ConnectedDomainSnapshot {
   final List<BranchLinkOverlay> branchLinkOverlays;
   final List<RecordVersion> versions;
   final List<AuditEvent> auditEvents;
+
+  /// The prose of every scene in the snapshot.
+  ///
+  /// Prose is not graph data -- it has no entity row and no links -- but a
+  /// snapshot that omitted it would be a backup of everything about the book
+  /// except the book. Added after the fact, so it defaults to empty and an
+  /// archive written before it existed still loads.
+  final List<SceneProse> sceneProse;
 
   Map<String, Object?> toJson() => {
         'schemaVersion': 1,
@@ -318,6 +328,7 @@ class ConnectedDomainSnapshot {
             branchLinkOverlays.map((overlay) => overlay.toJson()).toList(),
         'versions': versions.map((version) => version.toJson()).toList(),
         'auditEvents': auditEvents.map((event) => event.toJson()).toList(),
+        'sceneProse': sceneProse.map((prose) => prose.toJson()).toList(),
       };
 
   factory ConnectedDomainSnapshot.fromJson(Map<String, dynamic> json) {
@@ -346,6 +357,7 @@ class ConnectedDomainSnapshot {
       versions: _mapList(json['versions']).map(RecordVersion.fromJson).toList(),
       auditEvents:
           _mapList(json['auditEvents']).map(AuditEvent.fromJson).toList(),
+      sceneProse: _mapList(json['sceneProse']).map(SceneProse.fromJson).toList(),
     );
   }
 }
@@ -368,6 +380,7 @@ class InMemoryConnectedDomainRepository {
   final List<BranchLinkOverlay> _branchLinkOverlays = [];
   final Map<String, RecordVersion> _versions = {};
   final Map<String, AuditEvent> _auditEvents = {};
+  final Map<String, SceneProse> _sceneProse = {};
 
   T transaction<T>(T Function(ConnectedDomainTransaction transaction) action) {
     final records = Map<String, AuthorRecord>.from(_records);
@@ -424,6 +437,8 @@ class InMemoryConnectedDomainRepository {
           ..sort((left, right) => left.createdAt.compareTo(right.createdAt)),
         auditEvents: _auditEvents.values.toList()
           ..sort((left, right) => left.createdAt.compareTo(right.createdAt)),
+        sceneProse: _sceneProse.values.toList()
+          ..sort((left, right) => left.sceneId.compareTo(right.sceneId)),
       );
 
   void _replaceWith(ConnectedDomainSnapshot snapshot) {
@@ -433,6 +448,9 @@ class InMemoryConnectedDomainRepository {
       snapshot.manuscriptNodes.map((value) => MapEntry(value.id, value)),
     );
     _links.addEntries(snapshot.links.map((value) => MapEntry(value.id, value)));
+    _sceneProse.addEntries(
+      snapshot.sceneProse.map((value) => MapEntry(value.sceneId, value)),
+    );
     RecordTypeRegistry(snapshot.recordTypeDefinitions);
     _recordTypeDefinitions.addEntries(
       snapshot.recordTypeDefinitions.map((value) => MapEntry(value.id, value)),

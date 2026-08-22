@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/connected_domain.dart';
+import 'core/prose_document.dart';
+import 'core/scene_prose.dart';
 import 'persistence/authoros_database.dart';
 
 class ManuscriptId {
@@ -195,20 +197,25 @@ class ManuscriptScene {
         updatedAt: updatedAt ?? this.updatedAt,
       );
 
-  int get wordCount {
-    final trimmed = content.trim();
-    if (trimmed.isEmpty) {
-      return 0;
-    }
-    return trimmed.split(RegExp(r'\s+')).length;
-  }
+  /// The scene's word count.
+  ///
+  /// Delegates to [ProseDocument.countWords] so a scene, its stored prose and
+  /// its snapshots can never disagree about how long it is -- and so writing
+  /// sessions, streaks and goals keep counting the same thing they always did.
+  int get wordCount => ProseDocument.countWords(content);
 
-  Map<String, Object> toJson() => {
+  /// The persisted shape.
+  ///
+  /// [includeProse] is false when the manuscript is written to its structure
+  /// blob: prose lives one row per scene in the embedded database, and copying
+  /// it back into the blob would restore exactly the whole-manuscript rewrite
+  /// that separation removed.
+  Map<String, Object> toJson({bool includeProse = true}) => {
         'id': id,
         'chapterId': chapterId,
         'title': title,
         'order': order,
-        'content': content,
+        'content': includeProse ? content : '',
         'status': status.name,
         'pov': pov,
         'location': location,
@@ -299,7 +306,7 @@ class ManuscriptChapter {
   int get wordCount =>
       scenes.fold<int>(0, (sum, scene) => sum + scene.wordCount);
 
-  Map<String, Object> toJson() => {
+  Map<String, Object> toJson({bool includeProse = true}) => {
         'id': id,
         'title': title,
         'order': order,
@@ -308,7 +315,9 @@ class ManuscriptChapter {
         'prompt': prompt,
         'pov': pov,
         'linkedChapterIds': linkedChapterIds,
-        'scenes': scenes.map((scene) => scene.toJson()).toList(),
+        'scenes': scenes
+            .map((scene) => scene.toJson(includeProse: includeProse))
+            .toList(),
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
       };
@@ -484,10 +493,12 @@ class ManuscriptProjectSummary {
     return result;
   }
 
-  Map<String, Object> toJson() => {
+  Map<String, Object> toJson({bool includeProse = true}) => {
         'projectId': projectId,
         'manuscriptTitle': manuscriptTitle,
-        'chapters': chapters.map((chapter) => chapter.toJson()).toList(),
+        'chapters': chapters
+            .map((chapter) => chapter.toJson(includeProse: includeProse))
+            .toList(),
         'currentChapterId': currentChapterId,
         'currentSceneId': currentSceneId,
         'createdAt': createdAt.toIso8601String(),
@@ -566,10 +577,37 @@ class ManuscriptChapterSeed {
   final List<String> linkedChapterIds;
 }
 
+/// Where a manuscript is kept.
+///
+/// Two stores, on purpose:
+///
+/// * **Structure** -- chapters, scenes, order, status, POV, relationships --
+///   stays in one `SharedPreferences` entry per project. It is small, it is
+///   read whole, and it changes only when the author adds, moves, renames or
+///   retitles something.
+/// * **Prose** lives one row per scene in the embedded database, alongside a
+///   bounded history of what each scene used to say.
+///
+/// Before the split, both lived in the structure blob, and an autosave 700ms
+/// after a keystroke re-serialised the entire manuscript -- every chapter and
+/// every word of every other scene -- to record a single edit. A save now
+/// costs one row for the scene the author is actually typing in.
+///
+/// The split is invisible above this class: [ManuscriptScene.content] is still
+/// a `String`, [loadStudio] still returns a whole manuscript, and callers do
+/// not know a second store exists. Manuscripts written before the split are
+/// migrated on first touch by [_ensureProseMigrated], which keeps a verbatim
+/// copy of the pre-migration blob first.
 class ManuscriptStore {
-  const ManuscriptStore({this.repository});
+  const ManuscriptStore({
+    this.repository,
+    this.snapshotPolicy = const SceneProseSnapshotPolicy(),
+  });
 
   final DriftConnectedDomainRepository? repository;
+
+  /// Decides when a save copies the prose it is about to replace into history.
+  final SceneProseSnapshotPolicy snapshotPolicy;
 
   DriftConnectedDomainRepository get _repository =>
       repository ?? authorOsRepository;
@@ -582,6 +620,15 @@ class ManuscriptStore {
   static String _legacyBackupKey(String projectId) =>
       'author_studio.manuscript_legacy_backup.$projectId';
 
+  /// Holds the structure blob exactly as it stood before its prose moved into
+  /// the database, and doubles as the marker that the move has happened.
+  ///
+  /// An empty value means there was nothing to migrate -- a new project, or
+  /// one whose scenes were all empty -- and is what stops every later save
+  /// from re-checking.
+  static String _proseBackupKey(String projectId) =>
+      'author_studio.manuscript_prose_backup.$projectId';
+
   static String _chaptersKey(String projectId) =>
       'author_studio.chapters.$projectId';
 
@@ -591,7 +638,11 @@ class ManuscriptStore {
     if (encodedStudio != null && encodedStudio.isNotEmpty) {
       try {
         final decoded = jsonDecode(encodedStudio) as Map<String, dynamic>;
-        return ManuscriptProjectSummary.fromJson(decoded).exportAsSingleText();
+        await _ensureProseMigrated(preferences, projectId);
+        final manuscript = await _withStoredProse(
+          ManuscriptProjectSummary.fromJson(decoded),
+        );
+        return manuscript.exportAsSingleText();
       } catch (_) {
         return preferences.getString(_key(projectId)) ?? '';
       }
@@ -647,7 +698,8 @@ class ManuscriptStore {
     if (encoded != null && encoded.isNotEmpty) {
       try {
         final decoded = jsonDecode(encoded) as Map<String, dynamic>;
-        return ManuscriptProjectSummary.fromJson(decoded);
+        await _ensureProseMigrated(preferences, projectId);
+        return _withStoredProse(ManuscriptProjectSummary.fromJson(decoded));
       } catch (_) {
         // Fallback to migration path if the structured blob is malformed.
       }
@@ -663,14 +715,134 @@ class ManuscriptStore {
     return migrated;
   }
 
+  /// Overlays the stored prose of [manuscript]'s scenes onto its structure.
+  ///
+  /// The database is authoritative for prose. A scene with no row keeps
+  /// whatever the structure blob held, which is how a manuscript saved by a
+  /// build older than the split still opens with its words in it.
+  Future<ManuscriptProjectSummary> _withStoredProse(
+    ManuscriptProjectSummary manuscript,
+  ) async {
+    final stored = await _repository.sceneProseForProject(manuscript.projectId);
+    if (stored.isEmpty) return manuscript;
+    return manuscript.copyWith(
+      chapters: [
+        for (final chapter in manuscript.chapters)
+          chapter.copyWith(
+            scenes: [
+              for (final scene in chapter.scenes)
+                if (stored[scene.id] case final SceneProse prose)
+                  scene.copyWith(content: prose.plainText)
+                else
+                  scene,
+            ],
+          ),
+      ],
+    );
+  }
+
+  /// Moves a pre-split manuscript's prose out of its structure blob and into
+  /// the database, once, keeping the original blob verbatim.
+  ///
+  /// Runs before the first read and before the first write, because either can
+  /// be the first thing that happens to a project: a save that overwrote the
+  /// blob with its prose-free form before the prose had been read out of it
+  /// would destroy the manuscript.
+  Future<void> _ensureProseMigrated(
+    SharedPreferences preferences,
+    String projectId,
+  ) async {
+    if (preferences.getString(_proseBackupKey(projectId)) != null) return;
+
+    final encoded = preferences.getString(_studioKey(projectId));
+    if (encoded == null || encoded.isEmpty) {
+      await preferences.setString(_proseBackupKey(projectId), '');
+      return;
+    }
+
+    final ManuscriptProjectSummary manuscript;
+    try {
+      manuscript = ManuscriptProjectSummary.fromJson(
+        jsonDecode(encoded) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      // A malformed blob is the caller's problem, not this migration's. Do
+      // not mark the project migrated: whatever repairs the blob deserves to
+      // have its prose moved too.
+      return;
+    }
+
+    final now = DateTime.now().toUtc();
+    final stored = await _repository.sceneProseForProject(projectId);
+    final pending = <SceneProse>[
+      for (final chapter in manuscript.chapters)
+        for (final scene in chapter.scenes)
+          if (scene.content.isNotEmpty && !stored.containsKey(scene.id))
+            SceneProse(
+              sceneId: scene.id,
+              projectId: projectId,
+              chapterId: chapter.id,
+              document: ProseDocument.fromPlainText(scene.content),
+              updatedAt: scene.updatedAt.toUtc(),
+              lastSnapshotAt: now,
+            ),
+    ];
+
+    if (pending.isEmpty) {
+      await preferences.setString(_proseBackupKey(projectId), '');
+      return;
+    }
+
+    // The backup is written before the prose rows, so an interruption leaves
+    // the blob intact and the migration simply runs again.
+    await preferences.setString(_proseBackupKey(projectId), encoded);
+    await _repository.putSceneProse(pending);
+    // The state each scene arrived in is worth one history entry: it is the
+    // only version of the prose that predates the database, and the point an
+    // author would want to return to if the move went wrong.
+    await _repository.appendSceneProseSnapshots(
+      [
+        for (final prose in pending)
+          prose.snapshot(
+            capturedAt: now,
+            reason: SceneProseSnapshotReason.imported,
+          ),
+      ],
+      retainedPerScene: snapshotPolicy.retainedPerScene,
+    );
+  }
+
+  /// Persists [manuscript]: prose per changed scene, then structure.
+  ///
+  /// [persistLegacyText] refreshes the flattened pre-2.0 text mirror. It
+  /// defaults to false because refreshing it means writing the whole
+  /// manuscript as one string, which is the cost this split exists to remove;
+  /// the database's per-scene rows and their snapshot history are a better
+  /// fallback than the mirror ever was. [load] reads prose from the database,
+  /// so nothing that consulted the mirror loses anything by its going stale.
+  ///
+  /// [forceProseSnapshotFor] names scenes whose outgoing prose must be kept
+  /// whatever [snapshotPolicy] would have decided. A restore uses it: replacing
+  /// prose with an older version is the one edit an author is most likely to
+  /// want to take back, and it must not depend on how recently the routine
+  /// policy happened to fire.
   Future<void> saveStudio(
     ManuscriptProjectSummary manuscript, {
-    bool persistLegacyText = true,
+    bool persistLegacyText = false,
+    DateTime? timestamp,
+    Set<String> forceProseSnapshotFor = const {},
   }) async {
     final preferences = await SharedPreferences.getInstance();
+    await _ensureProseMigrated(preferences, manuscript.projectId);
+    await _saveProse(
+      manuscript,
+      timestamp: timestamp,
+      forceSnapshotFor: forceProseSnapshotFor,
+    );
+
     await preferences.setString(
       _studioKey(manuscript.projectId),
-      jsonEncode(manuscript.toJson()),
+      jsonEncode(manuscript.toJson(includeProse: false)),
     );
 
     if (persistLegacyText) {
@@ -698,6 +870,157 @@ class ManuscriptStore {
       await _repository.removeManuscriptNodes(retired);
     }
   }
+
+  /// Writes the prose of every scene whose text changed, and only those.
+  ///
+  /// This is where the saving actually gets cheap. One narrow read gives a
+  /// digest of every scene -- no documents, no JSON -- and a string comparison
+  /// reduces the save to the scenes the author touched, which during ordinary
+  /// writing is exactly one. Only those scenes have their stored document
+  /// read. A save that changed no prose -- a rename, a reorder, an autosave
+  /// tick after an idle pause -- writes nothing at all.
+  ///
+  /// Before a scene's prose is overwritten, [snapshotPolicy] decides whether
+  /// the outgoing text is worth keeping. That is the whole of the recovery
+  /// story: the manuscript's undo stack lives only as long as the editor is
+  /// open, and until now nothing survived it.
+  Future<void> _saveProse(
+    ManuscriptProjectSummary manuscript, {
+    DateTime? timestamp,
+    Set<String> forceSnapshotFor = const {},
+  }) async {
+    final now = (timestamp ?? DateTime.now()).toUtc();
+    final digests =
+        await _repository.sceneProseDigestsForProject(manuscript.projectId);
+    final updates = <SceneProse>[];
+    final snapshots = <SceneProseSnapshot>[];
+    final live = <String>{};
+
+    for (final chapter in manuscript.chapters) {
+      for (final scene in chapter.scenes) {
+        live.add(scene.id);
+        final digest = digests[scene.id];
+
+        if (digest == null) {
+          // A scene with nothing in it gets no row. New scenes are created
+          // empty and often stay that way for a while; giving each one a row
+          // on creation would fill the table with blanks.
+          if (scene.content.isEmpty) continue;
+          updates.add(
+            SceneProse(
+              sceneId: scene.id,
+              projectId: manuscript.projectId,
+              chapterId: chapter.id,
+              document: ProseDocument.fromPlainText(scene.content),
+              updatedAt: now,
+            ),
+          );
+          continue;
+        }
+
+        if (digest.matchesPlainText(scene.content)) {
+          // The words are unchanged, and this comparison cost no JSON and no
+          // allocation -- which is what keeps an autosave proportional to the
+          // edit rather than to the manuscript. A scene that moved between
+          // chapters still needs its row re-parented, but not a new revision:
+          // nothing was written.
+          if (digest.chapterId != chapter.id) {
+            final existing = await _repository.sceneProseById(scene.id);
+            if (existing != null) {
+              updates.add(existing.copyWith(chapterId: chapter.id));
+            }
+          }
+          continue;
+        }
+
+        // Only now is the stored document worth reading: this is the scene the
+        // author is actually typing in.
+        final incoming = ProseDocument.fromPlainText(scene.content);
+        final existing = await _repository.sceneProseById(scene.id);
+        if (existing == null) {
+          // The digest said there was a row and the document says there is
+          // not. Whatever lost it, the words in hand are the only copy left:
+          // write them rather than drop the edit on the floor.
+          updates.add(
+            SceneProse(
+              sceneId: scene.id,
+              projectId: manuscript.projectId,
+              chapterId: chapter.id,
+              document: incoming,
+              updatedAt: now,
+            ),
+          );
+          continue;
+        }
+        if (existing.document == incoming) {
+          if (existing.chapterId != chapter.id) {
+            updates.add(existing.copyWith(chapterId: chapter.id));
+          }
+          continue;
+        }
+
+        final forced = forceSnapshotFor.contains(scene.id);
+        var lastSnapshotAt = existing.lastSnapshotAt;
+        if (forced ||
+            snapshotPolicy.shouldCapture(
+              outgoing: existing,
+              incoming: incoming,
+              now: now,
+            )) {
+          snapshots.add(
+            existing.snapshot(
+              capturedAt: now,
+              reason: forced
+                  ? SceneProseSnapshotReason.beforeRestore
+                  : SceneProseSnapshotReason.autosave,
+            ),
+          );
+          lastSnapshotAt = now;
+        }
+        updates.add(
+          existing.copyWith(
+            chapterId: chapter.id,
+            document: incoming,
+            updatedAt: now,
+            revision: existing.revision + 1,
+            lastSnapshotAt: lastSnapshotAt,
+          ),
+        );
+      }
+    }
+
+    if (snapshots.isNotEmpty) {
+      await _repository.appendSceneProseSnapshots(
+        snapshots,
+        retainedPerScene: snapshotPolicy.retainedPerScene,
+      );
+    }
+    if (updates.isNotEmpty) {
+      await _repository.putSceneProse(updates);
+    }
+
+    // The manuscript is authoritative for which scenes exist, so a save has to
+    // retire the prose of the ones it no longer contains -- the same rule the
+    // node projection below follows, and for the same reason.
+    final orphaned = [
+      for (final sceneId in digests.keys)
+        if (!live.contains(sceneId)) sceneId,
+    ];
+    if (orphaned.isNotEmpty) {
+      await _repository.removeSceneProse(orphaned);
+    }
+  }
+
+  /// One scene's prose history, newest first.
+  Future<List<SceneProseSnapshot>> sceneProseHistory(
+    String sceneId, {
+    int? limit,
+  }) =>
+      _repository.sceneProseSnapshots(sceneId, limit: limit);
+
+  /// The prose currently stored for [sceneId], or `null` when it has none.
+  Future<SceneProse?> sceneProse(String sceneId) =>
+      _repository.sceneProseById(sceneId);
 
   /// The shared-entity projection of [manuscript].
   ///

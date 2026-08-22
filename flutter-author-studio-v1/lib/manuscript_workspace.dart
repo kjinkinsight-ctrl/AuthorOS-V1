@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'continuity.dart';
 import 'core/connected_domain.dart';
 import 'core/record_validation.dart';
+import 'core/scene_prose.dart';
 import 'core/search_models.dart';
 import 'core/version_audit.dart';
 import 'manuscript_continuity.dart';
@@ -72,6 +73,7 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
   Future<ManuscriptContinuityReport>? _continuity;
   Future<ManuscriptNodeInspection?>? _inspection;
   Future<List<RecordVersion>>? _history;
+  Future<List<SceneProseSnapshot>>? _proseHistory;
 
   String _message = '';
 
@@ -110,6 +112,10 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
       );
       _inspection = service.inspectNode(widget.manuscript, widget.nodeId);
       _history = service.historyFor(widget.nodeId);
+      // Chapters hold no prose of their own, so there is nothing to ask for.
+      _proseHistory = widget.nodeKind == ManuscriptNodeKind.scene
+          ? service.proseHistoryFor(widget.nodeId)
+          : Future<List<SceneProseSnapshot>>.value(const []);
     });
   }
 
@@ -450,7 +456,67 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
 
   // --- History -----------------------------------------------------------
 
-  Widget _buildHistory() => FutureBuilder<List<RecordVersion>>(
+  /// The History tab: what the scene *said*, then what it *was*.
+  ///
+  /// Prose comes first because it is what an author reaches for. Structure
+  /// history — renames, reorders, status changes — has always been here;
+  /// prose history is only possible now that the words live in the database
+  /// with a bounded history of their own.
+  Widget _buildHistory() => ListView(
+        key: const Key('manuscript-history-list'),
+        children: [
+          if (widget.nodeKind == ManuscriptNodeKind.scene) ...[
+            _historySectionHeading('Prose'),
+            _buildProseHistory(),
+            const SizedBox(height: 16),
+          ],
+          _historySectionHeading('Structure'),
+          _buildStructureHistory(),
+        ],
+      );
+
+  Widget _historySectionHeading(String label) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          label.toUpperCase(),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+      );
+
+  Widget _buildProseHistory() =>
+      FutureBuilder<List<SceneProseSnapshot>>(
+        future: _proseHistory,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final entries = snapshot.data ?? const <SceneProseSnapshot>[];
+          if (entries.isEmpty) {
+            return const Text(
+              'No earlier drafts of this scene yet. AuthorOS keeps a copy of '
+              'the prose as you write, so a bad rewrite is always recoverable.',
+              key: Key('manuscript-prose-history-empty'),
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final entry in entries)
+                _ManuscriptProseHistoryTile(
+                  key: Key('manuscript-prose-snapshot-${entry.id}'),
+                  snapshot: entry,
+                  canRestore: widget.service.canEditCanon,
+                  onRestore: () => _restoreProse(entry),
+                ),
+            ],
+          );
+        },
+      );
+
+  Widget _buildStructureHistory() => FutureBuilder<List<RecordVersion>>(
         future: _history,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
@@ -465,8 +531,8 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
               key: Key('manuscript-history-empty'),
             );
           }
-          return ListView(
-            key: const Key('manuscript-history-list'),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (final version in versions)
                 _ManuscriptHistoryTile(
@@ -480,12 +546,35 @@ class _ManuscriptConnectedPanelState extends State<ManuscriptConnectedPanel> {
         },
       );
 
+  Future<void> _restoreProse(SceneProseSnapshot snapshot) async {
+    final confirmed = await _confirm(
+      title: 'Restore this draft?',
+      message: 'This replaces the scene with the ${snapshot.wordCount} words '
+          'it held at ${_date(snapshot.capturedAt)}. The prose being replaced '
+          'is kept, so you can come straight back.',
+      confirmLabel: 'Restore',
+    );
+    if (!confirmed) return;
+    try {
+      final restored = await widget.service.restoreSceneProse(
+        widget.manuscript,
+        sceneId: widget.nodeId,
+        snapshotId: snapshot.id,
+      );
+      _report('Restored the prose from ${_date(snapshot.capturedAt)}.');
+      await _adopt(restored);
+    } on Object catch (error) {
+      _report(error.toString());
+    }
+  }
+
   Future<void> _restore(RecordVersion version) async {
     final confirmed = await _confirm(
       title: 'Restore this version?',
       message:
           'This restores the title, status and scene details recorded at '
-          '${_date(version.createdAt)}. Drafted prose is not rolled back.',
+          '${_date(version.createdAt)}. The prose itself is not rolled back; '
+          'use the Prose section above for that.',
       confirmLabel: 'Restore',
     );
     if (!confirmed) return;
@@ -679,6 +768,83 @@ class _ManuscriptContinuityTile extends StatelessWidget {
                   onPressed: canResolve ? onResolve : null,
                   child: Text(actionLabel),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One earlier draft of a scene, with the way back to it.
+class _ManuscriptProseHistoryTile extends StatelessWidget {
+  const _ManuscriptProseHistoryTile({
+    super.key,
+    required this.snapshot,
+    required this.canRestore,
+    required this.onRestore,
+  });
+
+  final SceneProseSnapshot snapshot;
+  final bool canRestore;
+  final VoidCallback onRestore;
+
+  /// What this copy of the prose was taken for, in the author's terms.
+  String get _reasonLabel => switch (snapshot.reason) {
+        SceneProseSnapshotReason.autosave => 'While writing',
+        SceneProseSnapshotReason.manual => 'Saved by you',
+        SceneProseSnapshotReason.beforeRestore => 'Before a restore',
+        SceneProseSnapshotReason.imported => 'First draft on record',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // The first line of the scene is what tells one draft from another; a
+    // timestamp on its own tells the author nothing about what they would be
+    // getting back.
+    final preview = snapshot.plainText
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${snapshot.wordCount} words • '
+                      '${_date(snapshot.capturedAt)}',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(_reasonLabel, style: theme.textTheme.bodySmall),
+                    if (preview.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        preview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              TextButton(
+                key: Key('manuscript-restore-prose-${snapshot.id}'),
+                onPressed: canRestore ? onRestore : null,
+                child: const Text('Restore'),
               ),
             ],
           ),

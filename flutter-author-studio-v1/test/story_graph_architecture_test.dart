@@ -48,6 +48,14 @@ const _auditedTables = {
   // merged into main. It is deliberately in this list and deliberately NOT
   // graph truth — see the invariant I-12 test below.
   'writing_session_rows',
+  // Scene prose, and a bounded history of what each scene used to say.
+  // Deliberately in this list, and deliberately not graph truth: prose has no
+  // entity row, no typed links and no branch overlay, and nothing traverses
+  // it. The master plan requires exactly this — scene text stored apart from
+  // the graph indexes so editing a long chapter never rewrites the project
+  // graph. Chapters and scenes remain single-sourced in manuscript_node_rows.
+  'scene_prose_rows',
+  'scene_prose_snapshot_rows',
 };
 
 final _timestamp = DateTime.utc(2026, 8, 21, 9);

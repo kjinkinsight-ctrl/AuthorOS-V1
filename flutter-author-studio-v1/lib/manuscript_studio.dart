@@ -1758,15 +1758,21 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('MANUSCRIPT',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: Text(
-                  '${manuscript.chapterCount} chapters • ${manuscript.sceneCount} scenes'),
-              onTap: _selectManuscript,
-              selected: _selection.kind == ManuscriptSelectionKind.manuscript,
+            // A ListTile paints its selection and ink on the nearest Material.
+            // The decorated box above is not one, so without this the tile's
+            // own feedback is drawn behind the panel and never seen.
+            Material(
+              color: Colors.transparent,
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('MANUSCRIPT',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(
+                    '${manuscript.chapterCount} chapters • ${manuscript.sceneCount} scenes'),
+                onTap: _selectManuscript,
+                selected: _selection.kind == ManuscriptSelectionKind.manuscript,
+              ),
             ),
             const Divider(),
             if (_showSearchResults) ...[
@@ -2322,13 +2328,16 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
             )
           else
             ...chapter.scenes.map(
-              (scene) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                    '${scene.order.toString().padLeft(2, '0')} - ${scene.title}'),
-                subtitle:
-                    Text('${scene.wordCount} words • ${scene.status.label}'),
-                onTap: () => _selectScene(chapter.id, scene.id),
+              (scene) => Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                      '${scene.order.toString().padLeft(2, '0')} - ${scene.title}'),
+                  subtitle:
+                      Text('${scene.wordCount} words • ${scene.status.label}'),
+                  onTap: () => _selectScene(chapter.id, scene.id),
+                ),
               ),
             ),
         ],

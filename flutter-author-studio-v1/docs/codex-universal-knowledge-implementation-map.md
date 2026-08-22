@@ -223,6 +223,13 @@ infrastructure records on every Codex open.
 
 ## 6a. Open question — two series, one word
 
+> **Status update, 2026-08-22:** answered in principle. The direction is locked
+> to option (1) below — the Projects/Series system owns identity, the Codex
+> consumes it. The full design is in
+> [`series-identity-delta.md`](series-identity-delta.md), which is **proposed and
+> awaiting approval**. No production code until it is approved; Codex Phase 3 is
+> gated behind it.
+
 **Q-S1. `WritingSeries` and series scope are two identities for the same noun,
 and nothing reconciles them.** Raised here rather than resolved, because it is
 an architecture decision and both halves are days old.

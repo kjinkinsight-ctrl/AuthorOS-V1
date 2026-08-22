@@ -1,143 +1,87 @@
 # AUTHOROS — UNIVERSAL STORY GRAPH
 
-Phase 2 — Interactive Graph Explorer
+Phase 2 — Explorer Gap Closure
 
+Status: **rewritten against `main` at `d1b74c8`**
+Supersedes: the original Phase 2 directive, written when no Story Graph existed
 Decision in force: **D-3** — scenes and chapters remain manuscript-domain nodes
-Scope decision taken here: **D-4** — the Explorer is project-scoped by default (§2)
-Depends on: `docs/story-graph-phase-0-integrity-directive.md`, Phase 1 (see §1)
-Source findings: `docs/universal-story-graph-architecture.md`, including its §0 amendments
+Scope decision: **D-4** — the Explorer is project-scoped (§2)
 
 You are working in `flutter-author-studio-v1/`.
 
 ---
 
-## What Phase 2 is
+## 0. Why this document was rewritten
 
-Phase 1 produces a bounded, project-scoped **read model** over the graph. Phase 2 turns
-that read model into a usable visual exploration experience for the author.
+The original Phase 2 directive specified an Interactive Graph Explorer to be built
+on a Phase 1 read model that did not yet exist. Both halves have since shipped:
 
-That is the whole of it. Phase 2 is a **consumer**. It adds a canvas, a panel, filters,
-traversal controls and navigation back into the owning Studios. It adds no truth.
-
-> Phase 2 renders the graph. It never becomes the graph.
-
----
-
-## 1. PRECONDITION — verify before writing any code
-
-**The repository does not currently contain Phase 1.** Verify this yourself before
-starting; do not take this directive's word for it.
-
-At the time of writing:
-
-| Expected | Actual |
+| Merged | What it delivered |
 |---|---|
-| `lib/core/story_graph.dart` | **absent** |
-| `lib/core/story_graph_service.dart` | **absent** |
-| `test/story_graph_phase1_test.dart` | **absent** |
-| `docs/universal-story-graph-phase-0-integrity.md` | **absent** — Phase 0 was directed but not executed |
-| A depth-bounded traversal API | **absent** |
+| **#29** — Story Graph Phase 0 | Manuscript node lifecycle. Retires nodes whose scene or chapter is gone, and fixes the edge foreign key that made a connected node undeletable. **R-1 is closed.** |
+| **#35** — Knowledge Graph, Story Graph Phases 1–3 | `lib/core/story_graph.dart`, `story_graph_service.dart`, `story_graph_modes.dart`, `story_graph_mutations.dart`, and the `lib/knowledge_graph/` studio — canvas, layout, side panels, canvas persistence. |
 
-What does exist is **`lib/core/record_graph.dart`** — `RecordGraph`, reached through
-`UniversalRecordsRepository.graph`. It is project-scoped and it excludes soft-deleted
-records, but it is **one hop only**: `related()`, `outgoingRelationships()`,
-`incomingRelationships()`, `relationships()`. There is no depth, no visited-set, no node
-budget, no shortest path, and it reads `AuthorRecord`s only — it cannot see
-`ManuscriptNodeReference`s at all.
+So the milestone is no longer "build the Explorer". It is **close the gaps between
+what the shipped studio does and what Phase 2 specified**. This document is that
+gap list, verified against the merged tree rather than assumed.
 
-Also note: `test/story_graph_architecture_test.dart` contains a guardrail named
-**`no Story Graph UI or service has been implemented`** which fails the moment
-`StoryGraphView`, `StoryGraphPanel`, `StoryGraphNode` or `StoryGraphEdge` appears in
-`lib/`. That guardrail is doing its job. See §14.
-
-### The API Phase 2 requires from Phase 1
-
-Do not start Phase 2 until the canonical read source provides all of the following.
-If it does not, **stop and report** — do not build the missing half inside the Explorer.
-
-1. **Both node kinds.** A unified node view over `AuthorRecord` **and**
-   `ManuscriptNodeReference` (D-3 makes two kinds permanent). Every node exposes: id,
-   kind, type id, title, owning domain/Studio, status, and whether its underlying entity
-   is still resolvable.
-2. **Bounded traversal.** Traversal from an origin node to a caller-supplied depth, with
-   a hard node/edge budget, a visited set, and an explicit truncation signal the UI can
-   render. Unbounded traversal must not be expressible.
-3. **Neighbours.** Depth-1 neighbours of a node, direction-aware.
-4. **Shortest path.** Between two nodes, bounded, returning the node and edge sequence, and
-   returning "no path within bound" as a value rather than an exception.
-5. **Project totals.** Node count and edge count for the current project, without
-   materialising the whole graph into the UI layer.
-6. **Unresolvable references.** A node whose entity no longer exists is returned as an
-   explicit unavailable/deleted node, never as a silent omission and never as a crash.
-
-If Phase 1 delivers less than this, Phase 2 is not ready. Say so and stop.
+**Do not rebuild what exists.** Do not create a second graph view, a second read
+model, or a second canvas. Every item below is a change to the studio that is
+already there.
 
 ---
 
-## 2. Decision D-4 — the Explorer is project-scoped
+## 1. Verified state — what is already done
 
-Record this decision formally in the Phase 2 documentation.
+Checked against `lib/knowledge_graph/` and `lib/core/story_graph_service.dart` at
+`d1b74c8`. **Do not redo any of this.**
 
-```text
-AuthorOS
-   ↓
-Current Project
-   ↓
-Universal Story Graph
-   ↓
-Interactive Explorer
-```
+| Phase 2 requirement | Status | Evidence |
+|---|---|---|
+| Pan | **Done** | `onPan` / drag handlers in `graph_canvas.dart` |
+| Zoom | **Done** | `_zoomControls`, keys `graph-zoom-in` / `graph-zoom-out`, `projection.zoom` |
+| Node selection | **Done** | `_selectedId`, `onNodeTap`, `graph-node-<id>` keys |
+| Focus / re-root subgraph | **Done** | click-to-refocus Connection Explorer |
+| Filters | **Done** | filter rail, and it states what it hides |
+| Truncation surfaced | **Partly** | `graph-truncation-notice` renders "Showing the first N nodes" — see §3.1 |
+| Open in owning Studio | **Done** | `onNavigate`, `SearchNavigationTarget`, `searchDestinationForType`, `onOpenInStudio` |
+| Tooltips on nodes | **Done** | `Tooltip` around the node chip |
+| Node semantics | **Partly** | `Semantics(button:, selected:, label: '<title>, <typeId>')` — see §3.4 |
+| Bounded reads | **Done** | `kStoryGraphDefaultMaxNodes = 250`, `truncated` on subgraph and neighbourhood |
+| Canvas persistence | **Done** | positions and entity ids stored as an ordinary record, never edges |
 
-The Explorer reads **the current project only**. There is no all-projects graph, no
-cross-project view, and no scope selector. A user must not be able to open a graph
-containing every project they have ever created.
-
-This is not only a performance decision. It preserves a clean future boundary:
-
-```text
-PRIVATE                          LATER — COMMUNITY
-Project Story Graph              Shared World Graph
-        ↓                                ↓
-Interactive Explorer             Public / Community Explorer
-        ↓                                ↓
-Author's Studios                 Profiles / Shared Worlds / Maps
-```
-
-A shared or public graph scope, if it ever exists, is a separate surface. It must not be
-introduced by widening this one. Do not add a scope parameter "for later".
+The original directive's §7 called for author-friendly navigation into the owning
+Studio and treated it as unbuilt. **It is built.** It reuses the existing
+`SearchDestination` contract exactly as specified. Nothing to do there.
 
 ---
 
-## HARD RULES
+## 2. Boundary — unchanged and still binding
+
+The shipped studio respects the graph boundary. Keep it that way.
 
 ### DO NOT
 
-- Do not create a new database, table, migration, or schema version.
-- Do not create a new node model, edge model, or relationship model.
-- Do not persist graph state, graph layout, node positions, or viewport state to the
-  database. (Ephemeral in-memory view state is fine. See §9 for the one narrow exception.)
-- Do not create a second graph cache, graph index, or graph store. The Phase 1 service is
-  the **only** read source.
-- Do not read `DriftConnectedDomainRepository`, `AuthorOsDatabase`, `ManuscriptStore` or
-  `record_link_rows` directly from Explorer code. Everything goes through Phase 1.
-- Do not create, edit, or delete records, relationships, or manuscript nodes. **The
-  Explorer is read-only.** No collaborative graph editing, no drag-to-connect.
-- Do not create relationships automatically or infer them.
-- Do not add AI relationship discovery, AI suggestions, or any AI functionality.
-- Do not add community sharing, public profiles, leaderboards, cloud graph, or sync.
-- Do not replace, wrap, or migrate any existing Studio model.
-- Do not promote scenes or chapters into Universal Records. **D-3 stands.**
-- Do not make `WritingSession` a node. Sessions are history, not graph truth — the
-  guardrail in `test/story_graph_architecture_test.dart` pins this and must keep passing.
-- Do not give Map Studio its own graph or model, and do not make the Story Graph
-  responsible for map rendering. Map entities are consumed as ordinary graph
-  entities/relationships **when available**, and nothing more. Map Studio Phase 3 is
-  in flight; do not touch it.
-- Do not build a second graph engine of any kind.
-- Do not start Phase 3, Community, publishing, or further Analytics features.
-- Do not weaken, skip, or delete existing tests to make this milestone pass. §14 governs
-  the one guardrail that must legitimately change.
-- Do not modify unrelated completed Studios except for the navigation hooks in §7.
+- Do not add a database, table, migration, or schema version.
+- Do not add a second node model, edge model, read model, service, or canvas.
+- Do not persist graph structure. Canvas arrangement persists as an ordinary
+  record holding positions and entity ids; **edges are never persisted there**,
+  and that must stay true.
+- Do not widen `story_graph_mutations.dart`. Whatever write surface it already
+  has is the write surface; this milestone adds none.
+- Do not add automatic relationship creation, relationship inference, or any AI
+  feature.
+- Do not add community sharing, public profiles, shared worlds, or a cloud graph.
+- Do not add collaborative graph editing.
+- Do not promote scenes or chapters into `AuthorRecord`s. **D-3 stands.**
+- Do not make `WritingSession` a node.
+- Do not give Map Studio its own graph, and do not make the Story Graph
+  responsible for map rendering.
+- Do not remove the project scope. **D-4 stands**: the Explorer reads the current
+  project only. A shared or public graph is a separate future surface, never a
+  widening of this one.
+- Do not weaken or delete a guardrail in `story_graph_architecture_test.dart` to
+  make a change pass.
 
 ### AT THE END
 
@@ -145,319 +89,179 @@ Do not commit. Do not push. Leave the working tree ready for manual review.
 
 ---
 
-## 3. Placement — and one correction
+## 3. The gaps — what this milestone builds
 
-The Explorer's **model** belongs in core. The Explorer's **UI** does not.
+Ordered by value to the author, not by implementation cost.
 
-`lib/core/` is currently Flutter-free: **zero of its files import `package:flutter`**, and
-`lib/core/universal_records.dart` states the dependency direction explicitly —
-*core → storage → services → studios*, and *"nothing imports Flutter directly"*. Map
-Studio is pinned to the same rule by `test/map_architecture_test.dart`.
+### 3.1 Truncation tells the author how much is missing
 
-A pan/zoom canvas cannot be written without Flutter. So the split is:
+**Current:** the notice reads *"Showing the first N nodes. Filter down to see the
+rest."* It is honest that the view is partial, which is the important half, and it
+is already better than silent truncation.
 
-```text
-lib/core/story_graph_explorer/     ← pure Dart. NO package:flutter import.
-    explorer_state.dart              view state, selection, origin, depth
-    explorer_filters.dart            filter model + predicates
-    explorer_layout.dart             layout math, viewport, fit-to-view, hit-testing
-    explorer_view_model.dart         composes Phase 1 reads into renderable output
+**Gap:** it never says how much "the rest" is. Forty-eight of fifty reads the same
+as forty-eight of five thousand, and those call for completely different author
+decisions.
 
-lib/story_graph_view.dart          ← Flutter widgets. Sibling of map_studio_view.dart,
-                                      plot_studio_view.dart, research_studio_view.dart.
-```
+**Build:** a project totals read on `StoryGraphService` — node count and edge count
+for the current project, counted in the database rather than by materialising
+records — and render "Showing 48 of 512". `findPaths` already proves the service
+can answer a question the studio does not ask; this is the same shape.
 
-If the widget layer grows past one file, use `lib/story_graph/` — matching the existing
-`lib/world_board/` precedent — not `lib/core/`.
+Counts must match what a default read would show: exclude soft-deleted records, and
+count both node kinds.
 
-**Everything decidable without Flutter must live in core and be unit-testable without a
-widget pump.** Filtering, traversal shaping, depth handling, fit-to-view arithmetic and
-hit-testing are model concerns, not paint concerns. If a rule can only be tested by
-pumping a widget, it is in the wrong layer.
+### 3.2 Fit-to-view and reset view
 
-Add an architecture assertion that `lib/core/story_graph_explorer/` contains no
-`package:flutter/` import.
+**Current:** pan and zoom exist. Neither has a way back.
 
----
+**Gap:** an author who pans far or zooms deep has no recovery except reloading the
+studio. Verified absent — no `fitTo*`, no `resetView`.
 
-## 4. Interactive graph canvas
+**Build:** *Fit to view* frames the **currently visible** node set, after filters,
+not the whole project graph. *Reset view* returns to a defined initial projection,
+not to an arbitrary earlier one. Both sit with the existing zoom controls and take
+the same tooltip and key treatment (`graph-fit-to-view`, `graph-reset-view`).
 
-Build a canvas supporting:
+### 3.3 Edge selection and hover
 
-- Pan
-- Zoom (with sane min/max bounds; the author must never lose the graph off-screen)
-- Fit-to-view
-- Node selection
-- Edge selection
-- Hover information
-- Focus selected node
-- Reset view
+**Current:** nodes are selectable. Relationships are drawn but inert — no
+`onEdgeTap`, no `selectedEdge`, no `MouseRegion` anywhere in the studio.
 
-Requirements:
+**Gap:** the relationship *is* the story information. "How is Kali connected to
+Endovier" is answered by the edge, and today the author cannot select one to find
+out.
 
-- Selection state is single-source. A node and an edge cannot both be "the selection".
-- Hover must not mutate selection.
-- Reset view returns the viewport to a defined initial state, not to an arbitrary
-  previous one.
-- Fit-to-view fits the **currently visible** node set, after filters, not the whole graph.
-- Rendering must not be O(all project records). See §9.
+**Build:**
 
-Use Flutter's existing painting primitives. Do not add a graph-rendering package, a
-layout package, or a physics engine dependency without justifying it in the final report
-and confirming it builds on web, Android and Windows.
+- Edge selection, showing the relationship's type, label, direction and endpoints
+  in the side panel.
+- Hover information on nodes and edges. **Hover must not mutate selection** — it
+  is a preview, not a click.
+- Selection stays single-source: a node and an edge cannot both be "the selection".
 
----
+### 3.4 Semantic labels carry state, not just identity
 
-## 5. Graph Explorer panel
+**Current:** `Semantics(button: true, selected: isSelected, label: '<title>, <typeId>')`.
+Good foundation — the node is a button, and selection is exposed.
 
-A panel showing:
+**Gap:** the label stops at identity. A screen-reader user hears "Kali, character"
+and learns nothing about what the canvas is showing them visually: whether the node
+is canon, archived, the traversal origin, isolated, manuscript-domain, or an
+unavailable reference.
 
-- Current project
-- Node count
-- Edge count
-- Selected node details
-- Relationship details for a selected edge
-- Connected-node list for the selection
-- Depth controls
+**Build:** extend the label to carry the states in §3.5. No `semanticLabel` exists
+anywhere in the studio today; this is the accessibility gap that matters most,
+because it is where visual and non-visual users get different information.
 
-Counts are the project totals from Phase 1 (§1.5). Where the rendered view is a bounded
-subgraph, the panel must make the distinction visible — *"showing 48 of 512 nodes"* — and
-never present the rendered subset as though it were the whole graph.
+### 3.5 Visual states, each with a non-colour channel
 
-The connected-node list is navigable: selecting an entry selects that node on the canvas.
+**Gap:** the state vocabulary is incomplete and leans on colour.
 
----
-
-## 6. Filters and traversal
-
-### 6.1 Filters
-
-- Node type
-- Studio / domain
-- Relationship type
-- Canon / certainty status **where the underlying entity actually exposes it** — do not
-  invent the field, and do not add it to entities that lack it
-- Connected-only / isolated nodes
-- Search (title match, project-scoped)
-
-Filters are inclusive and composable. An empty filter set means "any", matching the
-existing `RecordGraph.related()` convention. Filters must be applied in the model layer
-(§3), never inside a widget's `build()`.
-
-Filtering must never widen the result set beyond the traversal bound, and must never be
-implemented by fetching everything and then discarding.
-
-### 6.2 Traversal controls
-
-- Start from selected node (the **origin**)
-- Depth 1 / 2 / 3+, with a hard maximum
-- Neighbours
-- Shortest path between two selected nodes
-- Focus subgraph (re-root the view on the selection)
-
-All of it goes through the Phase 1 bounded traversal API. The Explorer supplies the bound;
-it does not implement traversal. If the Explorer contains a BFS, a DFS, or a visited set,
-the boundary has been crossed — move it into Phase 1 or stop.
-
-When traversal truncates, say so in the UI. Silent truncation is a correctness bug: the
-author will read "no connection" where the real answer is "not within depth 2".
-
----
-
-## 7. Author-friendly navigation
-
-Selecting a graph node must offer a way to open the real AuthorOS object in its owning
-Studio.
-
-Reuse the existing navigation contract. Do not invent a second one:
-
-- `SearchDestination` and `SearchNavigationTarget` — `lib/core/search_models.dart`
-- `StudioSection` and its `onNavigate` plumbing — `lib/main.dart`
-
-Precedents to follow rather than reinvent: `WorldBoardDestination`,
-`CharacterWorkspaceDestination`, and the `SearchDestination` switch already wired in the
-shell.
-
-Rules:
-
-- A node whose Studio destination is unknown offers no navigation action — it must not
-  offer a dead one.
-- A node whose entity is unresolvable (§8) offers no navigation action and says why.
-- Manuscript nodes navigate to Manuscript Studio via the existing manuscript path. If the
-  current plumbing cannot address a specific scene or chapter, navigate to the closest
-  correct place and **report the limitation** — do not add a new deep-link mechanism.
-- Adding a `StudioSection` value and its label/icon entries is expected. Rewiring other
-  Studios' navigation is not.
-
-The Explorer is exposed through the existing AuthorOS shell — a `StudioSection`, themed
-through `StudioThemeScope` / `StudioId` (`lib/theme/theme_tokens.dart`). It is **not** a
-separate application, a separate window, or a second graph surface.
-
----
-
-## 8. Visual states
-
-Every state below must be distinguishable:
+**Build:** every state below must be distinguishable, and **none may be conveyed by
+colour alone** — each needs a second channel (shape, border, icon, label, or
+opacity paired with a text affordance), and each must appear in the semantic label:
 
 | State | Meaning |
 |---|---|
-| Selected | The current selection |
-| Origin | The node traversal started from |
-| Connected | Reachable from the origin within the current depth |
-| Filtered | Excluded by the active filters |
-| Isolated | No relationships in scope |
-| Unavailable / deleted | The reference resolves to no live entity |
-| Manuscript-domain | The D-3 second node kind, visibly distinct |
+| Selected | the current selection |
+| Origin | the node the current subgraph was rooted at |
+| Connected | reachable from the origin within the current depth |
+| Filtered | excluded by the active filters |
+| Isolated | no relationships in scope |
+| Unavailable | the reference resolves to no live entity |
+| Manuscript-domain | the D-3 second node kind, visibly distinct |
 
-**No state may be conveyed by colour alone** (§10). Each needs a second channel — shape,
-border, icon, label, or opacity paired with a text affordance.
+Unavailable nodes are **shown, not hidden**. Phase 0 closed the ghost-node hole
+that created most of them, but an archive restore can still produce structure
+whose entity is absent. A dangling reference the author can see is a problem they
+can fix; one silently dropped is a problem they never learn about.
 
-Unavailable nodes are shown, not hidden. A dangling reference the author can see is a
-problem they can fix; one that is silently dropped is a problem they never learn about.
+### 3.6 Keyboard navigation
 
----
+**Current:** `Ctrl`/`Cmd`-K toggles search. That is the whole keyboard surface, and
+the code says so — a comment records that a wider binding was left out of that
+milestone deliberately.
 
-## 9. Performance safeguards
+**Gap:** the canvas cannot be operated without a pointer. Move between nodes,
+select, focus, change depth, zoom, fit, reset — none is reachable from the
+keyboard.
 
-- **Do not render an unbounded graph by default.** Opening the Explorer on a large
-  project must not attempt to lay out every node.
-- Choose and document a default: a sensible origin (or an explicit empty state prompting
-  the author to pick one) and a default depth. Justify the choice.
-- Use the Phase 1 bounded traversal API for every read. Node and edge budgets are
-  enforced there, not here.
-- Do not build a second graph cache or store. Ephemeral per-frame view state is fine;
-  a durable parallel copy of the graph is not.
-- The Phase 1 service stays the canonical read source.
-- Traversal and filtering happen off the build path. `build()` renders already-computed
-  state.
-- Repeated identical reads within one interaction should not re-query per frame. If you
-  memoise, memoise **within the view model's lifetime**, keyed by the query — and say so
-  in the documentation. That is the only caching permitted, and it is not a store.
+**Build:** keyboard traversal of the visible node set with a visible focus
+indicator, plus keyboard access to select, focus, reset and zoom. Keep it
+Studio-scoped, as the existing `Shortcuts`/`Actions` block already is; do not wrap
+the shell.
 
-State the tested ceiling in the final report: the node/edge count at which the canvas
-stays interactive, and what happens beyond it.
+### 3.7 Author-controlled depth
 
----
+**Current:** depth is fixed per mode — `depth: _mode.defaultDepth`.
 
-## 10. Accessibility
+**Gap:** the four modes are a good default frame, but the author cannot ask "one
+more hop" without changing mode, which changes everything else too.
 
-- Keyboard navigation: move between nodes, select, change depth, focus, reset — reachable
-  without a pointer.
-- Semantic labels on every interactive element. A node's semantic label carries its
-  title, type and state, not just its title.
-- Tooltips on controls and on nodes.
-- Accessible node information: everything the canvas conveys visually is available as
-  text somewhere reachable.
-- **No information conveyed solely by colour** — this applies to §8 states, to edges, and
-  to the truncation and unavailable indicators.
-- Respect the platform's reduced-motion setting for any animated transition.
+**Build:** a depth control (1 / 2 / 3+, to the bound the service already enforces)
+that re-reads through the existing bounded traversal. The Explorer supplies the
+bound; it must not implement traversal. If the studio grows a BFS or a visited set,
+the boundary has been crossed — stop.
 
-Test the keyboard path and the semantics, not just the pointer path.
+### 3.8 Surface shortest path
 
----
+**Current:** `StoryGraphService.findPaths` exists and is **not called from the
+studio**. A shipped capability with no way to reach it.
 
-## 11. Boundary — what Phase 2 does not do
+**Gap:** "how are these two connected" is one of the questions a story graph is
+most useful for.
 
-Restated as a checklist because the boundary is the point of this milestone. **No:**
-
-- new database
-- new graph tables
-- new edge model
-- graph persistence
-- automatic relationship creation
-- AI relationship discovery
-- community sharing
-- public profiles
-- leaderboards
-- cloud graph
-- collaborative graph editing
-- replacing existing Studio models
-- promoting scenes/chapters into Universal Records
-- `WritingSession` nodes
-- Map Studio's own graph/model
-- a second graph engine
-
-If a requirement in §4–§10 appears to need one of these, the requirement is wrong. Stop
-and report rather than crossing the line.
+**Build:** select two nodes, show the path between them, and render "no path within
+this depth" as a distinct answer from "not connected" — the search is bounded, and
+conflating those two tells the author something false.
 
 ---
 
-## 12. Tests
+## 4. Tests
 
-Name them `test/story_graph_phase2_*.dart`. Cover:
+Extend the existing files — `knowledge_graph_view_test.dart`,
+`knowledge_graph_canvas_test.dart`, `story_graph_service_test.dart` — rather than
+starting parallel ones.
 
-**Model (no widget pump):**
+Cover, at minimum:
 
-- Filters: each filter type, composition, empty set means any, no filter widens the set.
-- Depth: 1, 2, 3+, and the hard maximum enforced.
-- Truncation is surfaced as a value the UI can render.
-- Shortest path: found, not found within bound, path to self.
-- Isolated nodes, connected-only.
-- Search filtering is project-scoped.
-- Both node kinds appear (D-3): records **and** manuscript nodes.
-- Unresolvable references become explicit unavailable nodes; no crash, no silent drop.
-- Fit-to-view and reset-view arithmetic.
-- Project isolation: an Explorer opened on Project A can never surface a Project B node,
-  through any filter, depth, path or search input.
+- Totals: counts exclude soft-deleted records, count both node kinds, and the
+  notice renders "N of M".
+- Fit-to-view frames the filtered set, not the project.
+- Reset view returns to the defined initial projection.
+- Edge selection shows relationship detail; hover does not change selection;
+  node and edge selection are mutually exclusive.
+- Semantic labels carry state for each of the seven states in §3.5.
+- Every §3.5 state is distinguishable without colour.
+- Keyboard: reach a node, select it, focus it, change depth, reset — no pointer.
+- Depth control re-reads through the bounded service and never traverses locally.
+- Shortest path: found, and "none within bound" reported distinctly.
+- Project isolation still holds through every new control.
+- No new write path: the studio still mutates nothing beyond the existing canvas
+  arrangement record.
 
-**Widget:**
-
-- Selection, hover-does-not-select, edge selection.
-- Focus subgraph re-roots the view.
-- Panel counts match the service, and the "showing N of M" distinction is rendered.
-- Navigation to the owning Studio fires the existing destination contract.
-- A node with no known destination offers no navigation action.
-- Keyboard navigation reaches and selects nodes.
-- Semantic labels carry title, type and state.
-
-**Architecture:**
-
-- `lib/core/story_graph_explorer/` imports no `package:flutter/`.
-- The Explorer does not import `AuthorOsDatabase`, `DriftConnectedDomainRepository` or
-  `ManuscriptStore`.
-- No new table, no schema version change.
-- No write path: the Explorer calls no create/update/delete on records or relationships.
-- No second traversal implementation in the Explorer layer.
-
-**Tests must prove behaviour, not inspect implementation text**, except where the
+Tests must prove behaviour, not inspect implementation text, except where the
 assertion *is* an architectural boundary.
 
 ---
 
-## 13. Regression protection
+## 5. Regression protection
 
-Run the full suite. These must remain intact: Analytics, Writing Session History, World
-Board, Research Studio, Map Studio, Plot Studio, Timeline Studio, Character Studio,
-Manuscript Studio, Story Codex, Theme Engine, Web Application, Startup Experience.
+Run the full suite. `main` is green at `d1b74c8`; that is the baseline.
 
-Map Studio Phase 3 is in flight on its own branch. Do not modify Map Studio. If the
-Explorer needs something from it, consume it through the canonical graph API or record
-the gap as follow-up.
+Every guardrail in `story_graph_architecture_test.dart` must still pass —
+particularly the single persistence system, project isolation,
+writing-sessions-are-not-graph-truth, map-coordinates-stay-record-fields, and the
+dangling-link assertions. If one fails, an architectural decision was made, and
+`docs/universal-story-graph-architecture.md` must be updated alongside it in the
+same commit.
 
----
-
-## 14. The `no Story Graph UI` guardrail
-
-`test/story_graph_architecture_test.dart` asserts that no `StoryGraphView`,
-`StoryGraphPanel`, `StoryGraphWorkspace`, `StoryGraphNode`, `StoryGraphEdge` or
-`StoryGraphService` exists in `lib/`. Phase 2 makes that assertion false **by design**.
-
-- **Do not delete the test.** Do not weaken it to `skip`. Do not rename symbols to evade it.
-- **Rewrite it into the invariant that replaces it** — the same treatment R-4 received
-  when the research migration landed. The replacement asserts what is now true and still
-  forbidden: the Explorer exists, and it has no second store, no second edge model, no
-  write path, and no direct database access.
-- Update `docs/universal-story-graph-architecture.md` in the same commit, per its own
-  §13 instruction. A guardrail change is an architectural decision and must be recorded
-  as one.
-
-Every other guardrail in that file must still pass unchanged — in particular the single
-persistence system, the project isolation, the writing-sessions-are-not-graph-truth, the
-map-coordinates-stay-record-fields and the dangling-link assertions.
+Map Studio Phase 3 is in flight on its own branch. Do not modify Map Studio.
 
 ---
 
-## 15. Validation
+## 6. Validation
 
 ```
 flutter test
@@ -468,43 +272,44 @@ git diff --check
 
 Compare analyzer output against baseline. **No new analyzer issues are acceptable.**
 
-The canvas must be verified on more than one form factor — a narrow window must not
-produce an unusable Explorer. If Windows or Android verification is unavailable, say so
-explicitly rather than omitting it.
+Verify the canvas on more than one form factor — a narrow window must not produce
+an unusable Explorer. Verify the keyboard path on a real build, not only in tests.
+If Windows or Android verification is unavailable, say so explicitly rather than
+omitting it.
 
 ---
 
-## 16. Documentation
+## 7. Documentation
 
-Create `docs/universal-story-graph-phase-2-explorer.md` covering: what was built; the
-core/UI split and why (§3); decision **D-4** and its future community boundary (§2); the
-exact Phase 1 API consumed; the default origin and depth and their justification; the
-filter model; the traversal controls; the visual-state vocabulary and its non-colour
-channel for each state; the navigation contract and any Studio it cannot yet address;
-the performance ceiling measured; the memoisation used, if any, and why it is not a
-store; the accessibility surface; the guardrail rewritten in §14 and why; remaining
-limitations; and the recommended Phase 3 starting point.
+Update `docs/universal-story-graph-architecture.md` with anything that changes an
+architectural claim, and write `docs/universal-story-graph-phase-2-gap-closure.md`
+covering: what was closed and what was left; the totals read and its cost; the
+visual-state vocabulary with the non-colour channel for each state; the
+accessibility surface and what was tested on a real build; the keyboard map; the
+depth control and the bound it respects; and any gap in §3 deliberately not closed,
+with the reason.
 
 ---
 
-## 17. Final report
+## 8. Final report
 
-Return: files created, modified, deleted; the Phase 1 API surface consumed; confirmation
-that no table, migration, schema version, node model or edge model was added;
-confirmation that the Explorer holds no write path and no direct database access; the
-default origin/depth choice; the measured performance ceiling and behaviour beyond it;
-the visual-state vocabulary with its non-colour channels; the accessibility surface and
-what was tested; the navigation destinations wired and any that could not be; the §14
-guardrail rewrite; tests added; full test result; analyzer result vs baseline; web build
-result; multi-form-factor result; Windows/Android result or an explicit statement that it
-was unavailable; `git diff --check` result; remaining limitations; and the recommended
-Phase 3 starting point.
+Return: files modified; each §3 gap and whether it was closed; confirmation that no
+table, migration, schema change, second read model, second canvas or new write path
+was added; the totals implementation and its query cost; the visual-state vocabulary
+with non-colour channels; the keyboard map; tests added; full test result; analyzer
+result vs baseline; web build result; multi-form-factor result; Windows/Android
+result or an explicit statement that it was unavailable; `git diff --check` result;
+and anything left open.
 
 ---
 
 ## STOP CONDITION
 
-**STOP after Phase 2.** Do not start Phase 3, a shared or community graph, graph editing,
-graph persistence, relationship inference, or any AI feature.
+**STOP after closing these gaps.** Do not start a shared or community graph, graph
+editing beyond what already exists, relationship inference, or any AI feature.
+
+If a gap in §3 turns out to be already closed, say so and skip it — do not rebuild
+it to match this document. This directive was written from a verified read of the
+merged tree, but the tree moves.
 
 Do not commit. Do not push. Leave the working tree ready for manual review.

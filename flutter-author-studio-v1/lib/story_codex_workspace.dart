@@ -12,6 +12,9 @@ import 'core/record_validation.dart';
 import 'core/story_graph.dart';
 import 'core/story_graph_service.dart';
 import 'core/search_models.dart';
+import 'codex_suggestions.dart';
+import 'core/codex_intelligence.dart';
+import 'core/series_scope.dart';
 import 'core/story_codex_domain.dart';
 import 'core/template_engine.dart';
 import 'core/universal_search.dart';
@@ -85,6 +88,17 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
   List<RecordTypeDefinition> templates = const [];
   List<CodexSavedView> savedViews = const [];
   List<StoryBranch> branches = const [];
+  ScopeChain scopeChain = const ScopeChain(projectId: '');
+  SeriesScope? currentSeries;
+  /// The last sweep, or [CodexSuggestionSweep.empty] before one has run.
+  ///
+  /// Sweeping reads every entry and every scene, so it is not part of opening
+  /// the Codex: it runs when the author asks to see suggestions. Making the
+  /// workspace wait for it would make a project's size the cost of opening it.
+  CodexSuggestionSweep sweep = CodexSuggestionSweep.empty;
+  bool showSuggestions = false;
+  bool sweeping = false;
+  bool sweptOnce = false;
   Set<String> pinnedIds = const {};
   Map<String, RecordValidationResult> validation = const {};
   Map<String, TemplateCompatibilityReport> templateReports = const {};
@@ -123,7 +137,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
       final entries = onBranch
           ? await service.listByBranch(activeBranchId!)
           : await service.getEntries(includeArchived: true);
-      final results = await Future.wait<Object>([
+      final results = await Future.wait<Object?>([
         service.filterEntries(filter, branchId: activeBranchId),
         service.getCategories(),
         service.getTags(),
@@ -133,6 +147,8 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         service.getPinnedEntries(),
         service.validateEntries(entries),
         service.templateReports(entries),
+        service.scopeChain(),
+        service.series.currentSeries(),
       ]);
       if (!mounted) return;
       final registry = results[3] as RecordTypeRegistry;
@@ -154,6 +170,8 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         validation = results[7] as Map<String, RecordValidationResult>;
         templateReports =
             results[8] as Map<String, TemplateCompatibilityReport>;
+        scopeChain = results[9] as ScopeChain;
+        currentSeries = results[10] as SeriesScope?;
         loading = false;
         loadError = null;
         if (selectedId != null &&
@@ -236,6 +254,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         onBranch: onBranch,
         registry: null,
         service: service,
+        scopeChain: scopeChain,
       ),
     );
     if (draft == null) return;
@@ -311,6 +330,215 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         () => service.restoreCodexEntry(entry.id),
         success: 'Restored ${entry.title}',
       );
+
+  /// Starts a series and enrols this book in it.
+  /// Applies a recommendation, using the same path the per-entry Continuity
+  /// tab has always used.
+  ///
+  /// Nothing here writes a link or a record itself. `ContinuityActionService`
+  /// owns both mutations, so an accepted suggestion is validated, versioned and
+  /// audited exactly like a hand-made one — which is what keeps a derived edge
+  /// from ever reaching storage as anything but an author's decision.
+  Future<void> _acceptSuggestion(CodexSuggestion suggestion) async {
+    final actions = ContinuityActionService(
+      projectId: service.projectId,
+      repository: service.repository,
+      activeBranchId: activeBranchId,
+    );
+    ContinuityActionResult result;
+    if (suggestion.actionKind == ContinuityActionKind.create) {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (context) => _CodexNameDialog(
+          title: 'Create the missing record',
+          label: 'Name',
+          confirmLabel: 'Create record',
+          initialValue: suggestion.missingName,
+          message: suggestion.message,
+          fieldKey: const Key('codex-suggestion-name-field'),
+          confirmKey: const Key('codex-suggestion-name-confirm'),
+        ),
+      );
+      if (name == null || name.isEmpty) return;
+      result = await actions.createForRecommendation(
+        suggestion.issue,
+        name: name,
+        confirmed: true,
+      );
+    } else {
+      final confirmed = await _confirm(
+        title: 'Link these records?',
+        message: suggestion.message,
+        confirmLabel: 'Create link',
+      );
+      if (!confirmed) return;
+      final registry = await service.connectionRegistry();
+      final definition = registry.resolve(suggestion.connectionTypeId);
+      result = await actions.linkForRecommendation(
+        suggestion.issue,
+        sourceId: suggestion.subjectId,
+        targetId: suggestion.targetId!,
+        typeId: suggestion.connectionTypeId,
+        confirmed: true,
+        direction: definition.direction == ConnectionDirection.directed
+            ? RecordLinkDirection.directed
+            : RecordLinkDirection.undirected,
+      );
+    }
+    if (!mounted) return;
+    if (!result.mutationApplied) {
+      setState(() {
+        saveState = CodexSaveState.failed;
+        saveMessage = result.message.isEmpty
+            ? 'That recommendation could not be applied.'
+            : result.message;
+      });
+      return;
+    }
+    // An applied suggestion must not come back on the next sweep even if the
+    // rule that produced it is slow to notice. Recording the dismissal stores
+    // the author's decision rather than trusting the finding to disappear.
+    await _mutate(
+      () => service.suggestions.dismiss(suggestion.id),
+      success: 'Applied.',
+    );
+    if (!mounted) return;
+    await _refreshSuggestions();
+  }
+
+  /// Opens or closes the inbox, sweeping the first time it is opened.
+  Future<void> _toggleSuggestions() async {
+    if (showSuggestions) {
+      setState(() => showSuggestions = false);
+      return;
+    }
+    setState(() => showSuggestions = true);
+    if (sweptOnce) return;
+    await _refreshSuggestions();
+  }
+
+  Future<void> _refreshSuggestions() async {
+    setState(() => sweeping = true);
+    try {
+      final result = await service.suggestions.sweep();
+      if (!mounted) return;
+      setState(() {
+        sweep = result;
+        sweptOnce = true;
+        sweeping = false;
+      });
+    } catch (caught) {
+      if (!mounted) return;
+      setState(() {
+        sweeping = false;
+        sweptOnce = true;
+        saveState = CodexSaveState.failed;
+        saveMessage = _readableError(caught);
+      });
+    }
+  }
+
+  Future<void> _dismissSuggestion(CodexSuggestion suggestion) async {
+    await service.suggestions.dismiss(suggestion.id);
+    if (!mounted) return;
+    await _refreshSuggestions();
+  }
+
+  Future<void> _restoreDismissed() async {
+    await service.suggestions.restoreDismissed();
+    if (!mounted) return;
+    await _refreshSuggestions();
+  }
+
+  Future<void> _startSeries() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => const _CodexNameDialog(
+        title: 'Start a series',
+        label: 'Series name',
+        confirmLabel: 'Start series',
+        fieldKey: Key('codex-series-name-field'),
+        confirmKey: Key('codex-series-confirm'),
+        message: 'Entries you share with the series stay readable from every '
+            'book in it. This book keeps everything it already has.',
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    await _mutate(
+      () => service.series.createSeries(title: name),
+      success: '$name is now this book\'s series.',
+    );
+  }
+
+  /// Enrols this book in a series that already exists.
+  Future<void> _joinSeries(String seriesId, String seriesName) async {
+    final confirmed = await _confirm(
+      title: 'Join $seriesName?',
+      message: 'This book will read $seriesName\'s shared canon alongside its '
+          'own entries. Nothing this book owns is changed.',
+      confirmLabel: 'Join',
+    );
+    if (!confirmed) return;
+    await _mutate(
+      () => service.series.enrol(seriesId),
+      success: 'This book is part of $seriesName.',
+    );
+  }
+
+  Future<void> _leaveSeries(String seriesName) async {
+    final confirmed = await _confirm(
+      title: 'Leave $seriesName?',
+      message: 'This book stops seeing $seriesName\'s shared canon. Entries '
+          'this book shared stay in the series.',
+      confirmLabel: 'Leave',
+    );
+    if (!confirmed) return;
+    await _mutate(
+      () => service.series.withdraw(),
+      success: 'This book is standalone again.',
+    );
+  }
+
+  Future<void> _openSeriesMenu() async {
+    final available = (await service.series.allSeries())
+        .where((series) => series.id != scopeChain.seriesId)
+        .toList();
+    if (!mounted) return;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        key: const Key('codex-series-menu'),
+        title: const Text('Series'),
+        children: [
+          SimpleDialogOption(
+            key: const Key('codex-series-start'),
+            onPressed: () => Navigator.pop(context, _startSeriesValue),
+            child: const Text('Start a new series'),
+          ),
+          for (final series in available)
+            SimpleDialogOption(
+              key: Key('codex-series-join-${series.id}'),
+              onPressed: () => Navigator.pop(context, series.id),
+              child: Text('Join ${series.title}'),
+            ),
+          if (currentSeries != null)
+            SimpleDialogOption(
+              key: const Key('codex-series-leave'),
+              onPressed: () => Navigator.pop(context, _leaveSeriesValue),
+              child: Text('Leave ${currentSeries!.title}'),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    if (chosen == _startSeriesValue) return _startSeries();
+    if (chosen == _leaveSeriesValue) {
+      return _leaveSeries(currentSeries?.title ?? 'this series');
+    }
+    final match =
+        available.where((series) => series.id == chosen).firstOrNull;
+    if (match != null) await _joinSeries(match.id, match.title);
+  }
 
   Future<void> _saveCurrentView() async {
     final name = await showDialog<String>(
@@ -442,6 +670,18 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
         children: [
           _header(context),
           const SizedBox(height: 16),
+          if (showSuggestions)
+            if (sweeping)
+              const _CodexCard(child: _CodexInlineLoader())
+            else
+              _CodexSuggestionInbox(
+                key: const Key('codex-suggestion-inbox'),
+                sweep: sweep,
+                onAccept: _acceptSuggestion,
+                onDismiss: _dismissSuggestion,
+                onRestoreDismissed: _restoreDismissed,
+              )
+          else
           LayoutBuilder(builder: (context, constraints) {
             final rail = _CodexFilterRail(
               filter: filter,
@@ -451,6 +691,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
               savedViews: savedViews,
               activeSavedViewId: activeSavedViewId,
               searchController: searchController,
+              inSeries: !scopeChain.isStandalone,
               onFilterChanged: _applyFilter,
               onApplySavedView: (view) =>
                   _applyFilter(view.filter, savedViewId: view.id),
@@ -505,6 +746,7 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                     onArchive: () => _archive(entry),
                     onRestore: () => _restore(entry),
                     onConfirm: _confirm,
+                    scopeChain: scopeChain,
                     onNavigate: _navigate,
                     onNavigateNode: _navigateNode,
                     onOpenInGraph: _openInGraph,
@@ -599,7 +841,8 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                 const SizedBox(height: 4),
                 Text(
                   '${allEntries.length} connected knowledge record'
-                  '${allEntries.length == 1 ? '' : 's'} in this project.',
+                  '${allEntries.length == 1 ? '' : 's'} '
+                  '${currentSeries == null ? 'in this book.' : 'in this book and ${currentSeries!.title}.'}',
                   style: theme.textTheme.bodyMedium,
                 ),
               ],
@@ -642,6 +885,24 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
                       ),
                     ),
                   ),
+                OutlinedButton.icon(
+                  key: const Key('codex-suggestions-button'),
+                  onPressed: _toggleSuggestions,
+                  icon: Badge(
+                    // No badge before the first sweep: a zero would claim the
+                    // project is clean when nothing has looked at it yet.
+                    isLabelVisible: sweptOnce && sweep.suggestions.isNotEmpty,
+                    label: Text('${sweep.suggestions.length}'),
+                    child: const Icon(Icons.lightbulb_outline),
+                  ),
+                  label: Text(showSuggestions ? 'Back to entries' : 'Suggestions'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('codex-series-button'),
+                  onPressed: _openSeriesMenu,
+                  icon: const Icon(Icons.auto_stories_outlined),
+                  label: Text(currentSeries?.title ?? 'Series'),
+                ),
                 FilledButton.icon(
                   key: const Key('codex-new-entry-button'),
                   onPressed: templates.isEmpty ? null : _createEntry,
@@ -672,6 +933,8 @@ class _StoryCodexWorkspaceState extends State<StoryCodexWorkspace> {
 }
 
 const _canonBranchValue = '__canon__';
+const _startSeriesValue = '__start_series__';
+const _leaveSeriesValue = '__leave_series__';
 
 // ---------------------------------------------------------------------------
 // Filter rail and saved views
@@ -686,6 +949,7 @@ class _CodexFilterRail extends StatelessWidget {
     required this.savedViews,
     required this.activeSavedViewId,
     required this.searchController,
+    required this.inSeries,
     required this.onFilterChanged,
     required this.onApplySavedView,
     required this.onSaveView,
@@ -699,6 +963,13 @@ class _CodexFilterRail extends StatelessWidget {
   final List<CodexSavedView> savedViews;
   final String? activeSavedViewId;
   final TextEditingController searchController;
+
+  /// Whether this book belongs to a series.
+  ///
+  /// The scope facet is hidden when it does not: an author writing a standalone
+  /// book has no second scope to filter by, and a control with one possible
+  /// answer is noise.
+  final bool inSeries;
   final ValueChanged<CodexEntryFilter> onFilterChanged;
   final ValueChanged<CodexSavedView> onApplySavedView;
   final VoidCallback onSaveView;
@@ -770,6 +1041,24 @@ class _CodexFilterRail extends StatelessWidget {
                 ),
             ],
           ),
+          if (inSeries) ...[
+            const SizedBox(height: 18),
+            _railHeader(context, 'Scope'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final facet in CodexScopeFacet.values)
+                  FilterChip(
+                    key: Key('codex-scope-filter-${facet.name}'),
+                    label: Text(codexScopeFacetLabel(facet)),
+                    selected: filter.scopes.contains(facet),
+                    onSelected: (_) => onFilterChanged(filter.toggleScope(facet)),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 18),
           _railHeader(context, 'Canon state'),
           const SizedBox(height: 8),
@@ -1120,6 +1409,19 @@ class _CodexEntryTile extends StatelessWidget {
                       padding: EdgeInsets.only(right: 6),
                       child: Icon(Icons.push_pin, size: 14),
                     ),
+                  if (entry.isShared)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Tooltip(
+                        message: 'Shared with the whole series',
+                        child: Icon(
+                          Icons.auto_stories_outlined,
+                          key: Key('codex-shared-marker-${entry.id}'),
+                          size: 14,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ),
                   Expanded(
                     child: Text(
                       entry.title,
@@ -1145,7 +1447,8 @@ class _CodexEntryTile extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 '${categoryName ?? entry.categoryId} · '
-                '${codexCanonStatusLabel(entry.canonStatus)}'
+                '${codexCanonStatusLabel(entry.canonStatus)} · '
+                '${codexScopeFacetLabel(entry.scopeFacet)}'
                 '${entry.isArchived ? ' · Archived' : ''}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -1161,6 +1464,188 @@ class _CodexEntryTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Every recommendation this project has, in one place.
+///
+/// The inbox owns no intelligence: it renders what `CodexSuggestionService`
+/// swept and hands each decision back to the workspace.
+class _CodexSuggestionInbox extends StatelessWidget {
+  const _CodexSuggestionInbox({
+    super.key,
+    required this.sweep,
+    required this.onAccept,
+    required this.onDismiss,
+    required this.onRestoreDismissed,
+  });
+
+  final CodexSuggestionSweep sweep;
+  final ValueChanged<CodexSuggestion> onAccept;
+  final ValueChanged<CodexSuggestion> onDismiss;
+  final VoidCallback onRestoreDismissed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scanned = '${sweep.entriesScanned} '
+        '${sweep.entriesScanned == 1 ? 'entry' : 'entries'} and '
+        '${sweep.scenesScanned} '
+        '${sweep.scenesScanned == 1 ? 'scene' : 'scenes'}';
+    return _CodexCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Suggestions',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Found by reading $scanned. Nothing is changed until you '
+                      'accept it.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (sweep.dismissedCount > 0)
+                TextButton.icon(
+                  key: const Key('codex-restore-dismissed'),
+                  onPressed: onRestoreDismissed,
+                  icon: const Icon(Icons.undo_rounded, size: 16),
+                  label: Text('${sweep.dismissedCount} dismissed'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (sweep.proseUnavailable) ...[
+            const _CodexBanner(
+              key: Key('codex-prose-unavailable-banner'),
+              icon: Icons.menu_book_outlined,
+              message: 'Your manuscript could not be read, so these suggestions '
+                  'cover Codex entries only.',
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (sweep.isEmpty)
+            const _CodexMessage(
+              key: Key('codex-suggestions-clean-state'),
+              icon: Icons.verified_outlined,
+              title: 'Nothing to suggest',
+              message: 'Every name in this project has a record, and every '
+                  'mention is connected.',
+            )
+          else
+            for (final suggestion in sweep.suggestions)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _CodexSuggestionTile(
+                  key: Key('codex-suggestion-${suggestion.id}'),
+                  suggestion: suggestion,
+                  onAccept: () => onAccept(suggestion),
+                  onDismiss: () => onDismiss(suggestion),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CodexSuggestionTile extends StatelessWidget {
+  const _CodexSuggestionTile({
+    super.key,
+    required this.suggestion,
+    required this.onAccept,
+    required this.onDismiss,
+  });
+
+  final CodexSuggestion suggestion;
+  final VoidCallback onAccept;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                switch (suggestion.severity) {
+                  ContinuitySeverity.critical => Icons.error_outline,
+                  ContinuitySeverity.warning => Icons.warning_amber_rounded,
+                  ContinuitySeverity.notice => Icons.info_outline,
+                },
+                size: 16,
+                color: suggestion.severity == ContinuitySeverity.critical
+                    ? scheme.error
+                    : scheme.tertiary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  suggestion.title,
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text(codexSuggestionSourceLabel(suggestion.source)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(suggestion.message, style: theme.textTheme.bodySmall),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              // Confidence is only meaningful where a rule computed one, and
+              // stating "100%" on an exact name match would overclaim.
+              if (suggestion.confidence < 1)
+                Text(
+                  '${(suggestion.confidence * 100).round()}% confidence',
+                  style: theme.textTheme.labelSmall,
+                ),
+              const Spacer(),
+              TextButton(
+                key: Key('codex-suggestion-dismiss-${suggestion.id}'),
+                onPressed: onDismiss,
+                child: const Text('Dismiss'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                key: Key('codex-suggestion-accept-${suggestion.id}'),
+                onPressed: onAccept,
+                child: Text(switch (suggestion.actionKind) {
+                  ContinuityActionKind.create => 'Create record',
+                  ContinuityActionKind.link => 'Create link',
+                  ContinuityActionKind.review => 'Review',
+                }),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1268,6 +1753,7 @@ class _CodexEntryPane extends StatefulWidget {
     required this.onNavigateNode,
     required this.onOpenInGraph,
     required this.onOpenEntry,
+    required this.scopeChain,
   });
 
   final StoryCodexService service;
@@ -1303,6 +1789,7 @@ class _CodexEntryPane extends StatefulWidget {
   final ValueChanged<StoryGraphNode> onNavigateNode;
   final ValueChanged<AuthorRecord> onOpenInGraph;
   final ValueChanged<String> onOpenEntry;
+  final ScopeChain scopeChain;
 
   @override
   State<_CodexEntryPane> createState() => _CodexEntryPaneState();
@@ -1486,6 +1973,47 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
     return views;
   }
 
+  /// Whether this entry is shared canon another book authored.
+  ///
+  /// An entry this book promoted stays editable here: promotion moves where a
+  /// record is *visible*, not who is responsible for it. Master plan §6.1 makes
+  /// inheritance read-only by default, and the canonical record's own book is
+  /// where that default is lifted.
+  bool get _isForeignCanon =>
+      widget.entry.isShared &&
+      widget.entry.record.projectId != widget.service.projectId;
+
+  Future<void> _shareWithSeries() async {
+    final seriesId = widget.scopeChain.seriesId;
+    if (seriesId == null) return;
+    final confirmed = await widget.onConfirm(
+      title: 'Share with the series?',
+      message: '${widget.entry.title} becomes shared canon. Every book in the '
+          'series will see it, and it keeps its id, its history and its '
+          'relationships.',
+      confirmLabel: 'Share',
+    );
+    if (!confirmed) return;
+    await widget.onMutate(
+      () => widget.service.promoteToSeries(widget.entry.id),
+      success: '${widget.entry.title} is now shared with the series.',
+    );
+  }
+
+  Future<void> _returnToBook() async {
+    final confirmed = await widget.onConfirm(
+      title: 'Return to this book?',
+      message: '${widget.entry.title} stops being shared canon. Other books in '
+          'the series will no longer see it.',
+      confirmLabel: 'Return',
+    );
+    if (!confirmed) return;
+    await widget.onMutate(
+      () => widget.service.demoteToProject(widget.entry.id),
+      success: '${widget.entry.title} belongs to this book again.',
+    );
+  }
+
   Future<CodexContinuityReport> _analyzeContinuity() async {
     final connections = await widget.service.getCodexConnections(widget.entry.id);
     final records = await widget.service
@@ -1501,6 +2029,16 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
   // --- Saving -----------------------------------------------------------
 
   Future<void> _save() async {
+    // The guard is here rather than only on the button because read-only is a
+    // rule about the record, not a state of the widget: a keyboard shortcut, a
+    // pending edit restored after a rebuild, or a future caller must all hit it.
+    if (_isForeignCanon) {
+      setState(() {
+        saveError = 'This entry belongs to another book in the series.';
+        saveIssues = const [];
+      });
+      return;
+    }
     final title = controllers[_titleKey]!.text.trim();
     if (title.isEmpty) {
       setState(() {
@@ -1921,6 +2459,8 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
                 onSelected: (value) {
                   if (value == 'archive') widget.onArchive();
                   if (value == 'restore') widget.onRestore();
+                  if (value == 'share') _shareWithSeries();
+                  if (value == 'return') _returnToBook();
                 },
                 itemBuilder: (context) => [
                   if (entry.isArchived)
@@ -1933,6 +2473,19 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
                       value: 'archive',
                       child: Text('Archive entry'),
                     ),
+                  if (!widget.scopeChain.isStandalone && !_isForeignCanon)
+                    if (entry.isShared)
+                      const PopupMenuItem(
+                        key: Key('codex-return-to-book'),
+                        value: 'return',
+                        child: Text('Return to this book'),
+                      )
+                    else
+                      const PopupMenuItem(
+                        key: Key('codex-share-with-series'),
+                        value: 'share',
+                        child: Text('Share with the series'),
+                      ),
                 ],
               ),
             ],
@@ -1947,6 +2500,16 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
                 key: const Key('codex-canon-chip'),
                 label: Text(codexCanonStatusLabel(entry.canonStatus)),
                 avatar: const Icon(Icons.verified_outlined, size: 16),
+              ),
+              Chip(
+                key: const Key('codex-scope-chip'),
+                label: Text(codexScopeFacetLabel(entry.scopeFacet)),
+                avatar: Icon(
+                  entry.isShared
+                      ? Icons.auto_stories_outlined
+                      : Icons.menu_book_outlined,
+                  size: 16,
+                ),
               ),
               Chip(
                 key: const Key('codex-knowledge-chip'),
@@ -1964,6 +2527,16 @@ class _CodexEntryPaneState extends State<_CodexEntryPane> {
                 Chip(label: Text(tag.name)),
             ],
           ),
+          if (_isForeignCanon) ...[
+            const SizedBox(height: 12),
+            const _CodexBanner(
+              key: Key('codex-foreign-canon-banner'),
+              icon: Icons.auto_stories_outlined,
+              message: 'Shared series canon, owned by another book. Open it '
+                  'there to change it — editing here would rewrite a fact the '
+                  'whole series depends on.',
+            ),
+          ],
           const SizedBox(height: 12),
           _CodexSaveIndicator(
             key: const Key('codex-detail-save-state'),
@@ -2878,6 +3451,7 @@ class _CodexCreateDialog extends StatefulWidget {
     required this.onBranch,
     required this.registry,
     required this.service,
+    required this.scopeChain,
   });
 
   final List<RecordTypeDefinition> templates;
@@ -2885,6 +3459,7 @@ class _CodexCreateDialog extends StatefulWidget {
   final bool onBranch;
   final RecordTypeRegistry? registry;
   final StoryCodexService service;
+  final ScopeChain scopeChain;
 
   @override
   State<_CodexCreateDialog> createState() => _CodexCreateDialogState();
@@ -2899,7 +3474,19 @@ class _CodexCreateDialogState extends State<_CodexCreateDialog> {
   late String templateId;
   late String categoryId;
   CodexCanonStatus canonStatus = CodexCanonStatus.draft;
+  CodexScopeFacet scope = CodexScopeFacet.book;
   CodexEditorMode mode = CodexEditorMode.simple;
+
+  /// Whether the new entry should be created as shared series canon.
+  ///
+  /// A branch is a what-if inside one book, so a branch entry is never shared:
+  /// offering the choice there would promise something the branch model cannot
+  /// keep.
+  bool get _canShare =>
+      !widget.scopeChain.isStandalone && !widget.onBranch;
+
+  bool get _shareWithSeries =>
+      _canShare && scope == CodexScopeFacet.series;
   String? error;
 
   RecordTypeDefinition get template =>
@@ -2967,6 +3554,10 @@ class _CodexCreateDialogState extends State<_CodexCreateDialog> {
         summary: summaryController.text.trim(),
         content: contentController.text.trim(),
         canonStatus: canonStatus,
+        scopeType: _shareWithSeries
+            ? RecordScopeType.series
+            : RecordScopeType.project,
+        seriesId: _shareWithSeries ? widget.scopeChain.seriesId : null,
         structuredFields: {
           for (final field in template.fields)
             if (!_isCoreFieldId(field.id) &&
@@ -3083,6 +3674,22 @@ class _CodexCreateDialogState extends State<_CodexCreateDialog> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+                if (_canShare) ...[
+                  const SizedBox(height: 12),
+                  SegmentedButton<CodexScopeFacet>(
+                    key: const Key('codex-create-scope-selector'),
+                    segments: [
+                      for (final facet in CodexScopeFacet.values)
+                        ButtonSegment(
+                          value: facet,
+                          label: Text(codexScopeFacetLabel(facet)),
+                        ),
+                    ],
+                    selected: {scope},
+                    onSelectionChanged: (value) =>
+                        setState(() => scope = value.first),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 DropdownButtonFormField<CodexCanonStatus>(
                   key: const Key('codex-create-canon-field'),

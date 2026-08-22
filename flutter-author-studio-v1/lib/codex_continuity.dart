@@ -1,6 +1,7 @@
 import 'continuity.dart';
 import 'core/connected_domain.dart';
 import 'core/story_codex_domain.dart';
+import 'core/entity_recognition.dart';
 
 /// Codex-side inputs and resolution parameters for one Continuity
 /// Intelligence recommendation.
@@ -144,7 +145,7 @@ class CodexContinuityIntelligence {
       final mention = [candidate.title, ...candidate.aliases]
           .map((name) => name.trim())
           .where((name) => name.length >= minimumMentionLength)
-          .where((name) => _mentions(prose, name))
+          .where((name) => mentionsName(prose, name))
           .firstOrNull;
       if (mention == null) continue;
       findings.add(CodexContinuityFinding(
@@ -207,10 +208,6 @@ class CodexContinuityIntelligence {
       }..remove('');
 }
 
-bool _mentions(String prose, String name) {
-  final escaped = RegExp.escape(name.toLowerCase());
-  return RegExp('(^|[^a-z0-9])$escaped([^a-z0-9]|\$)').hasMatch(prose);
-}
 
 List<String> _names(Object? value) {
   if (value is String) {

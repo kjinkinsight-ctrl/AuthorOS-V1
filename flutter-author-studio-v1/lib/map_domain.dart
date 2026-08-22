@@ -86,6 +86,41 @@ class MapTypes {
 
   /// The link from a marker to the entity it stands for.
   static const markerRepresents = 'represents';
+
+  /// The link that says where something becomes known to the reader.
+  ///
+  /// Canonical and shared: `revealedIn` is defined once in
+  /// `built_in_connection_types.dart` and read by the Story Graph and the
+  /// Codex as well as by Map Studio. Phase 6 writes it only through
+  /// `MapService.addRevealPoint`, and only when an author asks.
+  static const revealedIn = 'revealedIn';
+
+  /// The manuscript node types a reveal point may name.
+  ///
+  /// `revealedIn` is registered with wildcard endpoints, so the registry alone
+  /// would accept a reveal pointing at anything. A reveal has to sit somewhere
+  /// in reading order to mean anything, so Map Studio narrows it to the three
+  /// node types that do.
+  static const revealTargetTypes = {'chapter', 'scene', 'book'};
+}
+
+/// A reveal point as it is stored: the link, and the node it points at.
+///
+/// Returned by `MapService.revealPointsFor` so the Studio can list what an
+/// author has already said and undo any of it. Holding the link means removal
+/// needs no second lookup and no reconstructed identifier.
+class MapRevealLink {
+  const MapRevealLink({required this.link, required this.node});
+
+  final RecordLink link;
+  final ManuscriptNodeReference node;
+
+  String get nodeId => node.id;
+  String get nodeType => node.nodeType;
+  String get nodeTitle => node.title;
+
+  /// How this reads to the author: "Revealed in Chapter 7".
+  String get label => 'Revealed in ${node.title}';
 }
 
 /// The default map extent, in map-space units.

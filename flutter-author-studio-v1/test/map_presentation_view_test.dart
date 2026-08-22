@@ -260,11 +260,16 @@ void main() {
       expect(find.byKey(const Key('map-export-dialog')), findsOneWidget);
       await press(tester, 'map-export-format-png');
       // Rasterising goes through the engine, which needs real async: inside the
-      // test's fake clock `Picture.toImage` never completes.
+      // test's fake clock `Picture.toImage` never completes. How long the
+      // engine takes is the machine's business, so wait for the saver to be
+      // called rather than for a fixed delay — a fixed delay is a race that a
+      // cold CI runner loses.
       await tester.runAsync(() async {
         await tester.tap(find.byKey(const Key('map-export-run')));
-        await tester.pump();
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        final deadline = DateTime.now().add(const Duration(seconds: 30));
+        while (saver.name == null && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
       });
       await tester.pumpAndSettle();
 

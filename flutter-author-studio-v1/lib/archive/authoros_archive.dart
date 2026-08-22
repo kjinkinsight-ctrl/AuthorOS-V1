@@ -9,6 +9,7 @@ import '../core/connection_types.dart';
 import '../core/record_types.dart';
 import '../core/branch_domain.dart';
 import '../core/version_audit.dart';
+import '../core/writing_session.dart';
 
 class AuthorOsArchiveLimits {
   const AuthorOsArchiveLimits({
@@ -20,6 +21,26 @@ class AuthorOsArchiveLimits {
   final int maximumEntries;
   final int maximumTotalBytes;
   final int maximumEntryBytes;
+}
+
+/// Everything an archive carries.
+///
+/// The graph travels in [snapshot]. Manuscript prose does not: scene content
+/// lives in the Manuscript Studio's own store, not in the database, so it
+/// arrives here as already-serialised [ManuscriptProjectSummary] JSON. Keeping
+/// it untyped is deliberate — the archive is a serialisation layer, and
+/// importing the store's model would drag `shared_preferences` into it.
+class AuthorOsArchiveContents {
+  const AuthorOsArchiveContents({
+    required this.snapshot,
+    this.manuscripts = const [],
+  });
+
+  final ConnectedDomainSnapshot snapshot;
+
+  /// Raw `ManuscriptProjectSummary.toJson()` maps, prose included. Empty for
+  /// an archive written before manuscripts were carried.
+  final List<Map<String, dynamic>> manuscripts;
 }
 
 class AuthorOsArchiveService {
@@ -36,6 +57,7 @@ class AuthorOsArchiveService {
     required String applicationVersion,
     required String platform,
     required DateTime createdAt,
+    Iterable<Map<String, Object?>> manuscripts = const [],
   }) {
     InMemoryConnectedDomainRepository(initial: snapshot);
     final entries = <String, Uint8List>{
@@ -76,6 +98,24 @@ class AuthorOsArchiveService {
       'data/audit-events.jsonl': _jsonLines(
         snapshot.auditEvents.map((event) => event.toJson()),
       ),
+      // Sessions and prose are emitted only when there is something to say.
+      // An archive of a project with neither is byte-identical to one written
+      // before these entries existed, so nothing that already reads the format
+      // has to change.
+      if (snapshot.writingSessions.isNotEmpty)
+        'data/writing-sessions.jsonl': _jsonLines(
+          snapshot.writingSessions.map((session) => session.toJson()),
+        ),
+      if (manuscripts.isNotEmpty)
+        'data/manuscripts.jsonl': _jsonLines(
+          // `_jsonLines` sorts on `id`, and a manuscript is keyed by its
+          // project. Synthesising one mirrors what the branch overlays above
+          // already do.
+          manuscripts.map((manuscript) => {
+                'id': manuscript['projectId'],
+                ...manuscript,
+              }),
+        ),
     };
     final contentFingerprint = _contentFingerprint(entries);
     final entryMetadata = [
@@ -137,7 +177,8 @@ class AuthorOsArchiveService {
     );
   }
 
-  ConnectedDomainSnapshot importSnapshot(Uint8List bytes) {
+  /// Reads an archive whole, prose and sessions included.
+  AuthorOsArchiveContents importArchive(Uint8List bytes) {
     final archive = ZipDecoder().decodeBytes(bytes, verify: true);
     if (archive.length > limits.maximumEntries) {
       throw const FormatException('Archive contains too many entries.');
@@ -265,10 +306,26 @@ class AuthorOsArchiveService {
               .map(AuditEvent.fromJson)
               .toList()
           : const [],
+      // Optional, so an archive written before sessions were carried still
+      // imports rather than failing on a missing entry.
+      writingSessions: files.containsKey('data/writing-sessions.jsonl')
+          ? _decodeJsonLines(files['data/writing-sessions.jsonl'])
+              .map(WritingSession.fromJson)
+              .toList()
+          : const [],
     );
     InMemoryConnectedDomainRepository(initial: snapshot);
-    return snapshot;
+    return AuthorOsArchiveContents(
+      snapshot: snapshot,
+      manuscripts: files.containsKey('data/manuscripts.jsonl')
+          ? _decodeJsonLines(files['data/manuscripts.jsonl'])
+          : const [],
+    );
   }
+
+  /// The graph half of [importArchive], for callers that only need it.
+  ConnectedDomainSnapshot importSnapshot(Uint8List bytes) =>
+      importArchive(bytes).snapshot;
 
   Future<ConnectedDomainSnapshot> importAndCommit(
     Uint8List bytes,
@@ -342,6 +399,8 @@ int _lineCount(Uint8List bytes) =>
     const LineSplitter().convert(utf8.decode(bytes)).length;
 
 String _roleFor(String path) => switch (path) {
+      'data/writing-sessions.jsonl' => 'writing-sessions',
+      'data/manuscripts.jsonl' => 'manuscripts',
       'data/records.jsonl' => 'records',
       'data/manuscript-nodes.jsonl' => 'manuscript-nodes',
       'data/links.jsonl' => 'links',

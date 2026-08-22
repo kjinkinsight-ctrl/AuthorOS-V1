@@ -9,8 +9,10 @@ import 'analytics_studio_view.dart';
 import 'backup_health.dart';
 import 'character_studio.dart';
 import 'core/connected_domain.dart' show AuthorRecord;
-import 'core/search_models.dart' show SearchDestination;
+import 'core/search_models.dart'
+    show SearchDestination, SearchNavigationTarget;
 import 'create_profile_page.dart';
+import 'knowledge_graph/knowledge_graph_view.dart';
 import 'local_image.dart';
 import 'login_select_user_page.dart';
 import 'manuscript_studio.dart';
@@ -635,6 +637,7 @@ enum StudioSection {
   map,
   plot,
   timeline,
+  knowledgeGraph,
   research,
   notes,
   settings,
@@ -658,6 +661,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.map => 'Map',
         StudioSection.plot => 'Plot',
         StudioSection.timeline => 'Timeline',
+        StudioSection.knowledgeGraph => 'Knowledge Graph',
         StudioSection.research => 'Research',
         StudioSection.notes => 'Notes',
         StudioSection.settings => 'Settings',
@@ -680,6 +684,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.map => Icons.map_outlined,
         StudioSection.plot => Icons.route_outlined,
         StudioSection.timeline => Icons.timeline_outlined,
+        StudioSection.knowledgeGraph => Icons.share_outlined,
         StudioSection.research => Icons.local_library_outlined,
         StudioSection.notes => Icons.sticky_note_2_outlined,
         StudioSection.settings => Icons.settings_outlined,
@@ -726,6 +731,13 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
   int selectedIndex = 0;
   bool focusModeEnabled = false;
 
+  /// The record the Knowledge Graph should open on.
+  ///
+  /// Section navigation otherwise carries only a destination, so "open Kali in
+  /// the graph" would arrive at the graph without Kali. This is presentation
+  /// state and never reaches a record.
+  String? graphFocusId;
+
   static const workspaceSections = <StudioSection>[
     StudioSection.dashboard,
     StudioSection.worldBoard,
@@ -746,6 +758,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.knowledgeGraph,
     StudioSection.research,
     StudioSection.notes,
   ];
@@ -764,12 +777,20 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     selectedIndex = index >= 0 ? index : sections.indexOf(StudioSection.manuscript);
   }
 
-  void _selectSection(StudioSection section) {
+  void _selectSection(StudioSection section, {String? focusRecordId}) {
     final index = sections.indexOf(section);
     if (index >= 0) {
-      setState(() => selectedIndex = index);
+      setState(() {
+        selectedIndex = index;
+        // Cleared on any other navigation, so returning to the graph by hand
+        // shows the graph rather than silently re-opening the last record
+        // somebody jumped to.
+        graphFocusId =
+            section == StudioSection.knowledgeGraph ? focusRecordId : null;
+      });
     }
   }
+
 
   void _toggleFocusMode() {
     setState(() => focusModeEnabled = !focusModeEnabled);
@@ -798,6 +819,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
             onThemeChanged: widget.onThemeChanged,
             manuscriptStore: widget.manuscriptStore,
             onLogout: widget.onLogout,
+            graphFocusId: graphFocusId,
             minimalFocusMode:
                 focusModeEnabled && currentSection == StudioSection.manuscript,
           ),
@@ -939,7 +961,11 @@ class _TopBar extends StatelessWidget {
   });
 
   final StudioSection section;
-  final ValueChanged<StudioSection> onNavigate;
+  /// Section routing. [focusRecordId] names the record a Studio asked to open,
+  /// which only the Knowledge Graph currently uses; every other caller passes a
+  /// section alone and is unaffected.
+  final void Function(StudioSection section, {String? focusRecordId})
+      onNavigate;
   final bool focusMode;
   final VoidCallback onToggleFocus;
 
@@ -1196,6 +1222,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.map,
     StudioSection.plot,
     StudioSection.timeline,
+    StudioSection.knowledgeGraph,
     StudioSection.research,
     StudioSection.notes,
   ];
@@ -1461,12 +1488,17 @@ class _SectionView extends StatelessWidget {
     required this.manuscriptStore,
     this.onLogout,
     this.minimalFocusMode = false,
+    this.graphFocusId,
   });
 
   final StudioSection section;
   final StarterProject project;
   final bool startSprint;
-  final ValueChanged<StudioSection> onNavigate;
+  /// Section routing. [focusRecordId] names the record a Studio asked to open,
+  /// which only the Knowledge Graph currently uses; every other caller passes a
+  /// section alone and is unaffected.
+  final void Function(StudioSection section, {String? focusRecordId})
+      onNavigate;
   final ThemeSelection? themeSelection;
   final ValueChanged<ThemeSelection>? onThemeSelectionChanged;
   final String themeId;
@@ -1476,8 +1508,51 @@ class _SectionView extends StatelessWidget {
   final Future<void> Function()? onLogout;
   final bool minimalFocusMode;
 
+  /// The record the Knowledge Graph should open on, when a Studio asked for it.
+  final String? graphFocusId;
+
   @override
   Widget build(BuildContext context) {
+    // The graph is a pan-and-zoom canvas, so it cannot measure itself the way
+    // the scrolling sections below do. It takes the same full-bleed treatment
+    // the manuscript already uses rather than inventing a second one.
+    if (section == StudioSection.knowledgeGraph) {
+      final studio = Padding(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+        child: KnowledgeGraphView(
+          projectId: project.id,
+          initialNodeId: graphFocusId,
+          // The shell's store already carries the repository the rest of the
+          // workspace reads through; reuse it so tests can inject an in-memory
+          // database without a new plumbing path.
+          repository: manuscriptStore.repository,
+          onNavigate: (target) => onNavigate(
+            switch (target.destination) {
+              SearchDestination.characterStudio => StudioSection.characters,
+              SearchDestination.worldStudio => StudioSection.world,
+              SearchDestination.timelineStudio => StudioSection.timeline,
+              SearchDestination.plotStudio => StudioSection.plot,
+              SearchDestination.knowledgeGraph =>
+                StudioSection.knowledgeGraph,
+              SearchDestination.storyCodex => StudioSection.codex,
+              SearchDestination.seriesStudio => StudioSection.projects,
+              SearchDestination.manuscriptStudio ||
+              SearchDestination.record =>
+                StudioSection.manuscript,
+            },
+            focusRecordId: target.recordId,
+          ),
+        ),
+      );
+      return SizedBox(
+        key: PageStorageKey(section),
+        height: minimalFocusMode
+            ? (MediaQuery.sizeOf(context).height - 140).clamp(520, 900)
+            : (MediaQuery.sizeOf(context).height - 180).clamp(560, 1200),
+        child: studio,
+      );
+    }
+
     if (section == StudioSection.manuscript) {
       final studio = Padding(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
@@ -1494,12 +1569,15 @@ class _SectionView extends StatelessWidget {
                   SearchDestination.worldStudio => StudioSection.world,
                   SearchDestination.timelineStudio => StudioSection.timeline,
                   SearchDestination.plotStudio => StudioSection.plot,
+                  SearchDestination.knowledgeGraph =>
+                    StudioSection.knowledgeGraph,
                   SearchDestination.storyCodex => StudioSection.codex,
                   SearchDestination.seriesStudio => StudioSection.projects,
                   SearchDestination.manuscriptStudio ||
                   SearchDestination.record =>
                     StudioSection.manuscript,
                 },
+                focusRecordId: request.recordId,
               ),
             );
             final research = _ResearchSidePanel(
@@ -1599,6 +1677,10 @@ class _SectionView extends StatelessWidget {
                 CharacterWorkspaceDestination.plot => StudioSection.plot,
               },
             ),
+            onOpenInGraph: (target) => onNavigate(
+              StudioSection.knowledgeGraph,
+              focusRecordId: target.recordId,
+            ),
           ),
         StudioSection.codex => StoryCodexWorkspace(
             projectId: project.id,
@@ -1608,12 +1690,15 @@ class _SectionView extends StatelessWidget {
                 SearchDestination.worldStudio => StudioSection.world,
                 SearchDestination.timelineStudio => StudioSection.timeline,
                 SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.knowledgeGraph =>
+                  StudioSection.knowledgeGraph,
                 SearchDestination.manuscriptStudio => StudioSection.manuscript,
                 SearchDestination.seriesStudio => StudioSection.projects,
                 SearchDestination.storyCodex ||
                 SearchDestination.record =>
                   StudioSection.codex,
               },
+              focusRecordId: request.recordId,
             ),
           ),
         StudioSection.world => WorldWorkspace(
@@ -1624,11 +1709,14 @@ class _SectionView extends StatelessWidget {
                 SearchDestination.worldStudio => StudioSection.world,
                 SearchDestination.timelineStudio => StudioSection.timeline,
                 SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.knowledgeGraph =>
+                  StudioSection.knowledgeGraph,
                 SearchDestination.manuscriptStudio => StudioSection.manuscript,
                 SearchDestination.seriesStudio => StudioSection.projects,
                 SearchDestination.storyCodex => StudioSection.codex,
                 SearchDestination.record => StudioSection.world,
               },
+              focusRecordId: request.recordId,
             ),
           ),
         StudioSection.map => MapStudioView(
@@ -1648,6 +1736,10 @@ class _SectionView extends StatelessWidget {
             projectId: project.id,
             repository: authorOsRepository,
           ),
+          onOpenInGraph: (target) => onNavigate(
+            StudioSection.knowledgeGraph,
+            focusRecordId: target.recordId,
+          ),
         ),
         StudioSection.timeline => TimelineStudioView(
             project: project,
@@ -1657,13 +1749,20 @@ class _SectionView extends StatelessWidget {
                 SearchDestination.worldStudio => StudioSection.world,
                 SearchDestination.timelineStudio => StudioSection.timeline,
                 SearchDestination.plotStudio => StudioSection.plot,
+                SearchDestination.knowledgeGraph =>
+                  StudioSection.knowledgeGraph,
                 SearchDestination.manuscriptStudio => StudioSection.manuscript,
                 SearchDestination.seriesStudio => StudioSection.projects,
                 SearchDestination.storyCodex => StudioSection.codex,
                 SearchDestination.record => StudioSection.timeline,
               },
+              focusRecordId: request.recordId,
             ),
           ),
+        // Unreachable: the Knowledge Graph returns above, because a
+        // pan-and-zoom canvas cannot measure itself inside this scroll view.
+        // The switch still has to name it to stay exhaustive.
+        StudioSection.knowledgeGraph => const SizedBox.shrink(),
         StudioSection.research => ResearchStudioView(
             project: project,
             service: ResearchService(
@@ -3088,7 +3187,11 @@ class _DashboardView extends StatelessWidget {
   });
 
   final StarterProject project;
-  final ValueChanged<StudioSection> onNavigate;
+  /// Section routing. [focusRecordId] names the record a Studio asked to open,
+  /// which only the Knowledge Graph currently uses; every other caller passes a
+  /// section alone and is unaffected.
+  final void Function(StudioSection section, {String? focusRecordId})
+      onNavigate;
 
   @override
   Widget build(BuildContext context) {

@@ -524,6 +524,14 @@ class DriftConnectedDomainRepository {
     if (ids.isEmpty) return;
     await database.transaction(() async {
       for (final id in ids) {
+        // Edges reference the entity row, so they have to go first. The
+        // foreign key would otherwise refuse the delete outright, and a node
+        // whose links were not disconnected beforehand could not be removed
+        // at all -- which is how a deleted scene became a permanent ghost.
+        await (database.delete(database.recordLinkRows)
+              ..where((table) =>
+                  table.sourceId.equals(id) | table.targetId.equals(id)))
+            .go();
         await (database.delete(database.manuscriptNodeRows)
               ..where((table) => table.id.equals(id)))
             .go();
@@ -1064,6 +1072,10 @@ class DriftConnectedDomainRepository {
       await database.delete(database.authorRecordRows).go();
       await database.delete(database.manuscriptNodeRows).go();
       await database.delete(database.connectedEntities).go();
+      // A restore is a whole-snapshot replace, so session history goes with
+      // it. Leaving it behind would leave totals and streaks describing a
+      // manuscript that no longer exists.
+      await database.delete(database.writingSessionRows).go();
       if (database.schemaVersion >= 2) {
         await database.customStatement('DELETE FROM author_search');
       }
@@ -1100,6 +1112,105 @@ class DriftConnectedDomainRepository {
           ..where((table) => table.id.equals(id)))
         .getSingleOrNull();
     return row == null ? null : _recordFromRow(row);
+  }
+
+  /// Hydrates many records in one pass.
+  ///
+  /// A graph read resolves a whole neighbourhood at once, and doing that
+  /// through [recordById] costs one query per edge. Missing ids are simply
+  /// absent from the result: an id may name a manuscript node rather than a
+  /// record, and asking for both kinds is normal.
+  Future<List<AuthorRecord>> recordsByIds(Iterable<String> ids) async {
+    final rows = await _rowsByIds(
+      ids,
+      (chunk) => (database.select(database.authorRecordRows)
+            ..where((table) => table.id.isIn(chunk))
+            ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+          .get(),
+    );
+    return rows.map(_recordFromRow).toList();
+  }
+
+  /// The manuscript-node half of [recordsByIds].
+  ///
+  /// Scenes and chapters are a second node kind (decision D-3), so a graph read
+  /// that hydrated only records would silently drop half the manuscript spine.
+  Future<List<ManuscriptNodeReference>> manuscriptNodesByIds(
+    Iterable<String> ids,
+  ) async {
+    final rows = await _rowsByIds(
+      ids,
+      (chunk) => (database.select(database.manuscriptNodeRows)
+            ..where((table) => table.id.isIn(chunk))
+            ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+          .get(),
+    );
+    return rows.map(_nodeFromRow).toList();
+  }
+
+  /// Every link touching any of [ids], in either direction.
+  ///
+  /// [typeIds] filters in SQL rather than in the caller. That matters because
+  /// `relatedTo` is suggested on every record type: excluding it here keeps the
+  /// rows out of memory instead of discarding them after the fact.
+  Future<List<RecordLink>> linksForEntities(
+    Iterable<String> ids, {
+    Set<String>? typeIds,
+  }) async {
+    if (typeIds != null && typeIds.isEmpty) return const [];
+    final rows = await _rowsByIds(
+      ids,
+      (chunk) => (database.select(database.recordLinkRows)
+            ..where((table) {
+              final touches =
+                  table.sourceId.isIn(chunk) | table.targetId.isIn(chunk);
+              return typeIds == null
+                  ? touches
+                  : touches & table.typeId.isIn(typeIds.toList());
+            })
+            ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+          .get(),
+    );
+    // A link between two ids in the same chunk is returned once, but a link
+    // spanning two chunks comes back from both, so the id set is the authority.
+    final seen = <String>{};
+    return [
+      for (final row in rows)
+        if (seen.add(row.id)) _linkFromRow(row),
+    ];
+  }
+
+  /// Runs [query] over [ids] in chunks, so a large neighbourhood cannot exceed
+  /// SQLite's bound-variable limit.
+  Future<List<T>> _rowsByIds<T>(
+    Iterable<String> ids,
+    Future<List<T>> Function(List<String> chunk) query,
+  ) async {
+    final unique = ids.toSet().toList();
+    if (unique.isEmpty) return const [];
+    const chunkSize = 400;
+    final rows = <T>[];
+    for (var start = 0; start < unique.length; start += chunkSize) {
+      final end =
+          start + chunkSize < unique.length ? start + chunkSize : unique.length;
+      rows.addAll(await query(unique.sublist(start, end)));
+    }
+    return rows;
+  }
+
+  /// Every manuscript node the project owns.
+  ///
+  /// A project's manuscript is authoritative for its own chapters and scenes,
+  /// so saving one has to be able to see which nodes already exist in order to
+  /// retire the ones the manuscript no longer contains.
+  Future<List<ManuscriptNodeReference>> manuscriptNodesForProject(
+    String projectId,
+  ) async {
+    final rows = await (database.select(database.manuscriptNodeRows)
+          ..where((table) => table.projectId.equals(projectId))
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
+    return rows.map(_nodeFromRow).toList();
   }
 
   Future<ManuscriptNodeReference?> manuscriptNodeById(String id) async {
@@ -1313,6 +1424,9 @@ class DriftConnectedDomainRepository {
     final auditRows = await (database.select(database.auditEventRows)
           ..orderBy([(table) => OrderingTerm.asc(table.createdAt)]))
         .get();
+    final sessionRows = await (database.select(database.writingSessionRows)
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
     return ConnectedDomainSnapshot(
       records: recordRows.map(_recordFromRow).toList(),
       manuscriptNodes: nodeRows.map(_nodeFromRow).toList(),
@@ -1327,6 +1441,7 @@ class DriftConnectedDomainRepository {
           branchLinkRows.map(_branchLinkOverlayFromRow).toList(),
       versions: versionRows.map(_versionFromRow).toList(),
       auditEvents: auditRows.map(_auditFromRow).toList(),
+      writingSessions: sessionRows.map(_writingSessionFromRow).toList(),
     );
   }
 
@@ -1356,6 +1471,9 @@ class DriftConnectedDomainRepository {
     }
     for (final overlay in snapshot.branchLinkOverlays) {
       await putBranchLinkOverlay(overlay);
+    }
+    if (snapshot.writingSessions.isNotEmpty) {
+      await putWritingSessions(snapshot.writingSessions);
     }
     for (final version in snapshot.versions) {
       await _insertVersion(version);

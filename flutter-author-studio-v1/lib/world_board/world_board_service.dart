@@ -1,14 +1,22 @@
 /// World Board Phase 1 — the aggregation layer.
 ///
-/// This service owns no storage. It asks the Studios that already own each
-/// domain — manuscript, characters, world, timeline, plot — for what they
-/// hold, and folds the answers into one [WorldBoardSnapshot].
+/// This service owns no storage. It asks the layers that already own each
+/// number for what they hold, and folds the answers into one
+/// [WorldBoardSnapshot].
 ///
-/// The rule that keeps the board honest: every number it reports has to come
-/// back from one of those services. Nothing here invents a record, a count, or
-/// a second definition of "what a character is".
+/// Every aggregate the Analytics Studio also reports — words, chapters,
+/// scenes, characters, timeline events, plot records, the writing goal and
+/// the progress toward it — comes back from [AnalyticsService] as a single
+/// [AnalyticsSummary]. The board renders those values; it does not re-derive
+/// them. That is what makes it impossible for the two screens to disagree
+/// about the same metric.
+///
+/// What is left here is the board's own material: the World Studio's records,
+/// which analytics does not report, the record titles that populate the
+/// relationship map, and the shared audit history behind the activity feed.
 library;
 
+import '../analytics_service.dart';
 import '../core/connected_domain.dart';
 import '../core/version_audit.dart';
 import '../core/version_audit_service.dart';
@@ -22,13 +30,19 @@ import 'world_board_models.dart';
 
 /// Gathers the active project's ecosystem from the existing AuthorOS services.
 class WorldBoardService {
-  const WorldBoardService({
+  WorldBoardService({
     required this.project,
     DriftConnectedDomainRepository? repository,
     this.manuscriptStore = const ManuscriptStore(),
+    AnalyticsService? analytics,
     this.branchSampleSize = 3,
     this.activityLimit = 6,
-  }) : _repository = repository;
+  })  : _repository = repository,
+        _analytics = analytics,
+        assert(
+          analytics == null || analytics.project.id == project.id,
+          "World Board analytics must be scoped to the board's own project.",
+        );
 
   /// The project the shell currently has open. AuthorOS is single-project, so
   /// this is also the whole of the author's world today.
@@ -36,8 +50,11 @@ class WorldBoardService {
 
   final DriftConnectedDomainRepository? _repository;
 
+  final AnalyticsService? _analytics;
+
   /// Reused rather than re-implemented: the manuscript's word, chapter, and
-  /// scene counts are the Manuscript Studio's to define.
+  /// scene counts are the Manuscript Studio's to define, and the Analytics
+  /// Studio's to aggregate.
   final ManuscriptStore manuscriptStore;
 
   /// How many real record titles each branch samples for the relationship map.
@@ -49,9 +66,23 @@ class WorldBoardService {
   DriftConnectedDomainRepository get repository =>
       _repository ?? authorOsRepository;
 
-  /// The character record type, as the Characters Studio defines it. Kept
-  /// identical so the board's count and that Studio's list never disagree.
-  static const characterTypeId = 'character';
+  /// The canonical analytics layer for [project].
+  ///
+  /// Injectable so tests can hand the board a service they control, and
+  /// scoped to the same project and repository by default so the board can
+  /// never end up reading another project's numbers.
+  AnalyticsService get analytics =>
+      _analytics ??
+      AnalyticsService(
+        project: project,
+        repository: repository,
+        manuscriptStore: manuscriptStore,
+      );
+
+  /// The character record type, as the Characters Studio defines it. Taken
+  /// from [AnalyticsService] rather than restated, so the board's cast and
+  /// the analytics cast can never mean two different things.
+  static const characterTypeId = AnalyticsService.characterTypeId;
 
   WorldService get worlds =>
       WorldService(projectId: project.id, repository: repository);
@@ -67,12 +98,18 @@ class WorldBoardService {
 
   /// Loads everything the board renders.
   ///
-  /// The record queries run in turn: they share one database connection, and
-  /// a board that opens in a few milliseconds does not need to race them. The
-  /// manuscript is read separately because it does not live in the record
-  /// repository.
+  /// The analytics summary supplies every shared aggregate. The record
+  /// queries that follow exist only to name things — the relationship map
+  /// shows real titles — and the counts beside those names still come from
+  /// the summary. The queries run in turn: they share one database
+  /// connection, and a board that opens in a few milliseconds does not need
+  /// to race them.
   Future<WorldBoardSnapshot> load({DateTime? now}) async {
-    final manuscript = await _loadManuscript();
+    final analyticsService = analytics;
+    final summary = await analyticsService.getSummary();
+    // The manuscript is read again only for its chapter titles; every
+    // manuscript figure on the board comes from [summary].
+    final manuscript = await analyticsService.loadManuscript();
 
     final characters = await _activeCharacters();
     final worldRecords = await worlds.worldRecords(includeArchived: false);
@@ -81,22 +118,47 @@ class WorldBoardService {
     final activity = await _recentActivity();
 
     final context = WorldBoardProjectContext(
-      projectId: project.id,
-      title: project.title,
+      projectId: summary.projectId,
+      title: summary.projectName,
       genre: project.genre,
       projectType: project.projectType,
-      wordCount: manuscript.wordCount,
-      wordGoal: project.wordGoal,
-      chapterCount: manuscript.chapterCount,
-      sceneCount: manuscript.sceneCount,
+      wordCount: summary.totalWordCount,
+      wordGoal: summary.targetWordCount,
+      chapterCount: summary.chapterCount,
+      sceneCount: summary.sceneCount,
+      // A project without a writing target reports no progress rather than a
+      // false 100%; analytics says so by returning null, and the board shows
+      // an empty bar.
+      progress: summary.progressTowardTarget ?? 0,
+      wordsRemaining: summary.wordsRemaining ?? 0,
     );
 
     final branches = <WorldBoardBranch>[
-      _branch(WorldBoardSection.manuscript, _chapterTitles(manuscript)),
-      _branch(WorldBoardSection.characters, _titles(characters)),
-      _branch(WorldBoardSection.worlds, _titles(worldRecords)),
-      _branch(WorldBoardSection.timelines, _titles(timelineRecords)),
-      _branch(WorldBoardSection.plot, _titles(plotRecords)),
+      _branch(
+        WorldBoardSection.manuscript,
+        summary.chapterCount,
+        _chapterTitles(manuscript),
+      ),
+      _branch(
+        WorldBoardSection.characters,
+        summary.characterCount,
+        _titles(characters),
+      ),
+      _branch(
+        WorldBoardSection.worlds,
+        worldRecords.length,
+        _titles(worldRecords),
+      ),
+      _branch(
+        WorldBoardSection.timelines,
+        summary.timelineEventCount,
+        _titles(timelineRecords),
+      ),
+      _branch(
+        WorldBoardSection.plot,
+        summary.plotRecordCount,
+        _titles(plotRecords),
+      ),
     ];
 
     return WorldBoardSnapshot(
@@ -112,15 +174,19 @@ class WorldBoardService {
           section: WorldBoardSection.manuscript,
           // A manuscript with no words and no chapters has not been started,
           // and the tile should say so rather than show a confident "0 words".
-          count: manuscript.wordCount + manuscript.chapterCount,
-          value: formatWorldBoardCount(manuscript.wordCount),
-          caption: _manuscriptCaption(manuscript),
+          count: summary.totalWordCount + summary.chapterCount,
+          value: formatWorldBoardCount(summary.totalWordCount),
+          caption: _manuscriptCaption(summary),
         ),
         WorldBoardSection.characters: _countMetric(
           WorldBoardSection.characters,
-          characters.length,
+          summary.characterCount,
           'in this project',
         ),
+        // Worlds are the one section analytics does not report: the Analytics
+        // Studio has no world-building panel, so there is no shared metric to
+        // consume and nothing to keep in step. The count stays the World
+        // Studio's, read through its own service.
         WorldBoardSection.worlds: _countMetric(
           WorldBoardSection.worlds,
           worldRecords.length,
@@ -128,12 +194,12 @@ class WorldBoardService {
         ),
         WorldBoardSection.timelines: _countMetric(
           WorldBoardSection.timelines,
-          timelineRecords.length,
+          summary.timelineEventCount,
           'chronology records',
         ),
         WorldBoardSection.plot: _countMetric(
           WorldBoardSection.plot,
-          plotRecords.length,
+          summary.plotRecordCount,
           'arcs, beats, and threads',
         ),
       },
@@ -142,34 +208,8 @@ class WorldBoardService {
     );
   }
 
-  /// Reads the manuscript through the Manuscript Studio's own store, seeded
-  /// exactly the way the Statistics Studio seeds it, so both screens report
-  /// the same word count for the same project.
-  Future<ManuscriptProjectSummary> _loadManuscript() async {
-    final migrated = await manuscriptStore.loadLegacyChapterSeeds(project.id);
-    final seeds = migrated.isNotEmpty
-        ? migrated
-        : project.chapters
-            .map(
-              (chapter) => ManuscriptChapterSeed(
-                title: chapter.title,
-                prompt: chapter.prompt,
-                status: chapter.status,
-                scenes: chapter.scenes,
-                linkedChapterIds: chapter.linkedChapterIds,
-              ),
-            )
-            .toList();
-    return manuscriptStore.loadStudio(
-      project.id,
-      manuscriptTitle: project.title,
-      defaultChapters: seeds,
-      firstSceneTitle: project.firstSceneTitle,
-    );
-  }
-
-  /// Characters as the Characters Studio lists them: project-scoped records of
-  /// the character type that have not been deleted.
+  /// Characters as the Characters Studio lists them, read here only for their
+  /// titles: how many there are is [AnalyticsSummary.characterCount]'s answer.
   Future<List<AuthorRecord>> _activeCharacters() async {
     final records = await repository.recordsByTypeAndScope(
       typeId: characterTypeId,
@@ -209,10 +249,16 @@ class WorldBoardService {
         caption: count == 0 ? '' : caption,
       );
 
-  WorldBoardBranch _branch(WorldBoardSection section, List<String> titles) =>
+  /// [count] is the section's total as analytics reports it; [titles] only
+  /// decides which names the branch shows.
+  WorldBoardBranch _branch(
+    WorldBoardSection section,
+    int count,
+    List<String> titles,
+  ) =>
       WorldBoardBranch(
         section: section,
-        count: titles.length,
+        count: count,
         leaves: titles.take(branchSampleSize).toList(),
       );
 
@@ -226,12 +272,12 @@ class WorldBoardService {
   List<String> _chapterTitles(ManuscriptProjectSummary manuscript) =>
       [for (final chapter in manuscript.chapters) chapter.title];
 
-  String _manuscriptCaption(ManuscriptProjectSummary manuscript) {
-    if (manuscript.chapterCount == 0) return '';
+  String _manuscriptCaption(AnalyticsSummary summary) {
+    if (summary.chapterCount == 0) return '';
     final chapters =
-        '${manuscript.chapterCount} chapter${manuscript.chapterCount == 1 ? '' : 's'}';
+        '${summary.chapterCount} chapter${summary.chapterCount == 1 ? '' : 's'}';
     final scenes =
-        '${manuscript.sceneCount} scene${manuscript.sceneCount == 1 ? '' : 's'}';
+        '${summary.sceneCount} scene${summary.sceneCount == 1 ? '' : 's'}';
     return '$chapters · $scenes';
   }
 

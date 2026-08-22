@@ -4,6 +4,7 @@ import '../persistence/authoros_database.dart';
 import 'built_in_connection_types.dart';
 import 'connected_domain.dart';
 import 'connection_types.dart';
+import 'relationship_validation.dart';
 import 'version_audit.dart';
 import 'version_audit_service.dart';
 
@@ -40,37 +41,16 @@ class ConnectionEngine {
     if (sourceId == targetId) {
       throw ArgumentError('A record cannot connect to itself.');
     }
-    final sourceProject = await repository.entityProjectId(sourceId);
-    final targetProject = await repository.entityProjectId(targetId);
-    if (sourceProject != scopeId || targetProject != scopeId) {
+    final source = await repository.relationshipEndpoint(sourceId);
+    final target = await repository.relationshipEndpoint(targetId);
+    if (!source.exists || !target.exists) {
       throw StateError('Connection endpoints must exist in $scopeId.');
     }
-    final sourceTypeId = await repository.entityTypeId(sourceId);
-    final targetTypeId = await repository.entityTypeId(targetId);
-    if (sourceTypeId == null || targetTypeId == null) {
+    if (source.projectId != scopeId || target.projectId != scopeId) {
+      throw StateError('Connection endpoints must exist in $scopeId.');
+    }
+    if (source.typeId == null || target.typeId == null) {
       throw StateError('Connection endpoint types could not be resolved.');
-    }
-    final definition = registry.resolve(typeId);
-    final expectedDirection =
-        definition.direction == ConnectionDirection.directed
-            ? RecordLinkDirection.directed
-            : RecordLinkDirection.undirected;
-    if (direction != expectedDirection) {
-      throw StateError('$typeId requires ${expectedDirection.name} links.');
-    }
-    registry.validateConnection(
-      typeId: typeId,
-      sourceTypeId: sourceTypeId,
-      targetTypeId: targetTypeId,
-      metadata: metadata,
-    );
-    final existing = await repository.outgoingLinks(sourceId);
-    for (final link in existing) {
-      if (link.targetId == targetId &&
-          link.typeId == typeId &&
-          link.direction == direction) {
-        return link;
-      }
     }
     final now = (timestamp ?? DateTime.now()).toUtc();
     final identity = base64Url
@@ -88,10 +68,27 @@ class ConnectionEngine {
       createdAt: now,
       updatedAt: now,
     );
+    final validation = RelationshipValidator(registry).validate(
+      relationship: link,
+      projectId: scopeId,
+      source: source,
+      target: target,
+    );
+    if (!validation.isValid) {
+      throw StateError(validation.errorSummary!);
+    }
+    final existing = await repository.outgoingLinks(sourceId);
+    for (final candidate in existing) {
+      if (candidate.targetId == targetId &&
+          candidate.typeId == typeId &&
+          candidate.direction == direction) {
+        return candidate;
+      }
+    }
     final entry = await history.forConnection(
       link,
       recordId: sourceId,
-      recordType: sourceTypeId,
+      recordType: source.typeId!,
       changeType: AuditChangeType.connectionAdded,
       summary: 'Added $typeId connection to $targetId',
       timestamp: now,
@@ -118,26 +115,13 @@ class ConnectionEngine {
     if (existing == null || existing.scopeId != scopeId) {
       throw StateError('Connection $linkId does not belong to $scopeId.');
     }
-    final sourceType = await repository.entityTypeId(existing.sourceId);
-    final targetType = await repository.entityTypeId(existing.targetId);
-    if (sourceType == null || targetType == null) {
+    final source = await repository.relationshipEndpoint(existing.sourceId);
+    final target = await repository.relationshipEndpoint(existing.targetId);
+    final sourceType = source.typeId;
+    if (sourceType == null || target.typeId == null) {
       throw StateError('Connection endpoints could not be resolved.');
     }
     final nextType = typeId ?? existing.typeId;
-    final definition = registry.resolve(nextType);
-    registry.validateConnection(
-      typeId: nextType,
-      sourceTypeId: sourceType,
-      targetTypeId: targetType,
-      metadata: metadata ?? existing.metadata,
-    );
-    final expectedDirection =
-        definition.direction == ConnectionDirection.directed
-            ? RecordLinkDirection.directed
-            : RecordLinkDirection.undirected;
-    if (existing.direction != expectedDirection) {
-      throw StateError('$nextType requires ${expectedDirection.name} links.');
-    }
     final now = (timestamp ?? DateTime.now()).toUtc();
     final updated = RecordLink(
       id: existing.id,
@@ -153,6 +137,15 @@ class ConnectionEngine {
       updatedAt: now,
       extensionData: existing.extensionData,
     );
+    final validation = RelationshipValidator(registry).validate(
+      relationship: updated,
+      projectId: scopeId,
+      source: source,
+      target: target,
+    );
+    if (!validation.isValid) {
+      throw StateError(validation.errorSummary!);
+    }
     final changeType = nextType != existing.typeId
         ? AuditChangeType.connectionTypeChanged
         : AuditChangeType.connectionMetadataChanged;

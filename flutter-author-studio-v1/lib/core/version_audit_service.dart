@@ -64,6 +64,34 @@ class VersionAuditService {
         metadata: metadata,
       );
 
+  /// History for a manuscript node (chapter or scene).
+  ///
+  /// Manuscript nodes are entities in the same connected store as records, but
+  /// they are not [AuthorRecord]s, so they cannot go through [forRecord]. They
+  /// still belong in the one shared history system, so this builds the same
+  /// [RecordVersion]/[AuditEvent] pair from the node reference. The snapshot is
+  /// the node reference itself: manuscript body text stays in the manuscript
+  /// store and is never copied into history.
+  Future<({RecordVersion version, AuditEvent audit})> forManuscriptNode(
+    ManuscriptNodeReference node, {
+    required AuditChangeType changeType,
+    required String summary,
+    required DateTime timestamp,
+    Map<String, Object?> metadata = const {},
+  }) =>
+      _build(
+        entityId: node.id,
+        entityKind: VersionEntityKind.record,
+        recordId: node.id,
+        recordType: node.nodeType,
+        schemaVersion: 1,
+        snapshot: node.toJson(),
+        changeType: changeType,
+        summary: summary,
+        timestamp: timestamp,
+        metadata: metadata,
+      );
+
   Future<({RecordVersion version, AuditEvent audit})> forBranch(
     StoryBranch branch, {
     required AuditChangeType changeType,

@@ -81,14 +81,20 @@ re-resolve the lockfile on 3.44.9 — so that the pin and the lockfile agree.
 
 | Step | Command |
 | --- | --- |
-| Dependencies | `flutter pub get` |
+| Dependencies | `flutter pub get --enforce-lockfile` |
 | Static analysis | `flutter analyze --no-fatal-infos --no-fatal-warnings` |
 | Tests | `flutter test` |
 | Drift web assets | `bash ../scripts/provision-drift-web-assets.sh` |
 | Web release build | `flutter build web --release --no-web-resources-cdn` |
 
+`--enforce-lockfile` makes an out-of-date `pubspec.lock` fail the build rather
+than silently resolving something different from what developers run. It exits
+65 against a stale `.dart_tool`, so after pulling you may need one plain
+`flutter pub get` locally; CI always checks out clean.
+
 The workflow also accepts `workflow_dispatch`, so it can be triggered manually
-from the Actions tab without pushing.
+from the Actions tab without pushing. It declares `permissions: contents: read`
+and a `concurrency` group that cancels superseded runs on the same ref.
 
 Two details of the web build are easy to break by accident:
 

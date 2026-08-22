@@ -18,9 +18,11 @@ import 'core/version_audit.dart';
 import 'core/version_audit_service.dart';
 import 'core/world_record_types.dart';
 import 'map_domain.dart';
+import 'map_terrain.dart';
 import 'persistence/authoros_database.dart';
 
 export 'map_domain.dart';
+export 'map_terrain.dart';
 
 /// The values needed to create or re-describe a map.
 class MapDraft {
@@ -606,6 +608,281 @@ class MapService {
       for (final record in records) MapRegionView(record: record, mapId: mapId),
     ];
   }
+
+  // -------------------------------------------------- terrain and scenery ---
+  //
+  // Phase 3 stores how a map *looks* in fields on the map record itself. It is
+  // presentation data: terrain, scenery and styling are never AuthorRecords and
+  // never endpoints of a RecordLink, so a densely painted map adds nothing to
+  // the story graph. A place a story turns on is a location or a region, which
+  // Phase 1 already provides and which are graph entities.
+
+  /// Replaces a map's painted ground.
+  Future<MapSummary> setTerrain(
+    String id,
+    MapTerrainGrid terrain, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields);
+    if (terrain.isEmpty && terrain.cellCount == 0) {
+      fields.remove(MapVisualFields.terrain);
+    } else {
+      fields[MapVisualFields.terrain] = terrain.toJson();
+    }
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// Applies one brush stroke at a map-space position.
+  ///
+  /// The pointer's pixels were converted by [MapProjection] before they reached
+  /// here, and the brush radius is in map units, so the same stroke covers the
+  /// same ground at any zoom.
+  Future<MapSummary> paintTerrain(
+    String id,
+    MapTerrainBrush brush,
+    MapPosition position, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final extent = MapExtent.fromRecord(existing);
+    var terrain = MapTerrainGrid.read(existing.fields);
+    if (terrain.cellCount == 0) {
+      terrain = MapTerrainGrid.empty();
+    }
+    final painted = terrain.painted(
+      brush,
+      position.clampTo(extent),
+      extent,
+    );
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.terrain] = painted.toJson();
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// Applies a whole brush stroke in one write.
+  ///
+  /// A stroke is one editing act, so it is one record revision and one audit
+  /// event -- not one per pointer move. The canvas previews the stroke locally
+  /// while the writer drags and sends it here on release.
+  Future<MapSummary> paintTerrainStroke(
+    String id,
+    MapTerrainBrush brush,
+    List<MapPosition> positions, {
+    DateTime? timestamp,
+  }) async {
+    if (positions.isEmpty) return MapSummary(record: await _requireMap(id));
+    final existing = await _requireMap(id);
+    final extent = MapExtent.fromRecord(existing);
+    var terrain = MapTerrainGrid.read(existing.fields);
+    if (terrain.cellCount == 0) {
+      terrain = MapTerrainGrid.empty();
+    }
+    for (final position in positions) {
+      terrain = terrain.painted(brush, position.clampTo(extent), extent);
+    }
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.terrain] = terrain.toJson();
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// Floods the whole map with one kind — the usual way to start.
+  Future<MapSummary> fillTerrain(
+    String id,
+    MapTerrainKind kind, {
+    int resolution = MapTerrainGrid.defaultResolution,
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    var terrain = MapTerrainGrid.read(existing.fields);
+    if (terrain.cellCount == 0) {
+      terrain = MapTerrainGrid.empty(columns: resolution, rows: resolution);
+    }
+    return setTerrain(id, terrain.filled(kind), timestamp: timestamp);
+  }
+
+  /// Returns the map to unpainted ground. Removes the field entirely rather
+  /// than storing an empty grid, so an unpainted map costs nothing.
+  Future<MapSummary> clearTerrain(String id, {DateTime? timestamp}) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..remove(MapVisualFields.terrain);
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  Future<MapTerrainGrid> terrainFor(String id) async =>
+      MapTerrainGrid.read((await _requireMap(id)).fields);
+
+  /// Replaces the biome vocabulary this map recognises.
+  Future<MapSummary> setBiomes(
+    String id,
+    List<MapBiome> biomes, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.biomes] = [
+        for (final biome in biomes) biome.toJson(),
+      ];
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  Future<List<MapBiome>> biomesFor(String id) async =>
+      MapBiome.read((await _requireMap(id)).fields);
+
+  /// Rewrites the map's visual styling.
+  Future<MapSummary> setVisualStyle(
+    String id,
+    MapVisualStyle style, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final fields = Map<String, Object?>.from(existing.fields)
+      ..[MapVisualFields.style] = style.toJson();
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  Future<MapVisualStyle> visualStyleFor(String id) async =>
+      MapVisualStyle.read((await _requireMap(id)).fields);
+
+  // ------------------------------------------------------------- scenery ----
+
+  /// Places a visual asset on the map.
+  Future<MapSummary> addAsset(
+    String id,
+    MapAssetInstance asset, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    if (asset.id.trim().isEmpty) {
+      throw ArgumentError('An asset needs an id.');
+    }
+    if (MapAssetDefinition.byId(asset.definitionId) == null) {
+      throw ArgumentError.value(
+        asset.definitionId,
+        'definitionId',
+        'is not in the asset library',
+      );
+    }
+    final extent = MapExtent.fromRecord(existing);
+    final assets = MapAssetInstance.read(existing.fields);
+    if (assets.any((item) => item.id == asset.id)) {
+      throw MapStudioException('Asset ${asset.id} is already on $id.');
+    }
+    final placed = asset.copyWith(position: asset.position.clampTo(extent));
+    return _writeAssets(existing, [...assets, placed], timestamp);
+  }
+
+  /// Moves an asset to a map-space position, clamped into the map.
+  Future<MapSummary> moveAsset(
+    String id,
+    String assetId,
+    MapPosition position, {
+    DateTime? timestamp,
+  }) =>
+      _updateAsset(
+        id,
+        assetId,
+        (asset, extent) => asset.copyWith(position: position.clampTo(extent)),
+        timestamp: timestamp,
+      );
+
+  /// Rotates, scales, re-layers or relabels an asset.
+  Future<MapSummary> transformAsset(
+    String id,
+    String assetId, {
+    double? rotation,
+    double? scale,
+    int? layer,
+    String? label,
+    DateTime? timestamp,
+  }) =>
+      _updateAsset(
+        id,
+        assetId,
+        (asset, _) => asset.copyWith(
+          rotation: rotation,
+          scale: scale,
+          layer: layer,
+          label: label,
+        ),
+        timestamp: timestamp,
+      );
+
+  Future<MapSummary> removeAsset(
+    String id,
+    String assetId, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final assets = MapAssetInstance.read(existing.fields);
+    if (!assets.any((item) => item.id == assetId)) {
+      throw MapStudioException('Asset $assetId is not on $id.');
+    }
+    return _writeAssets(
+      existing,
+      [for (final item in assets) if (item.id != assetId) item],
+      timestamp,
+    );
+  }
+
+  Future<List<MapAssetInstance>> assetsFor(String id) async =>
+      MapAssetInstance.inDrawOrder(
+        MapAssetInstance.read((await _requireMap(id)).fields),
+      );
+
+  Future<MapSummary> _updateAsset(
+    String id,
+    String assetId,
+    MapAssetInstance Function(MapAssetInstance asset, MapExtent extent) change, {
+    DateTime? timestamp,
+  }) async {
+    final existing = await _requireMap(id);
+    final extent = MapExtent.fromRecord(existing);
+    final assets = MapAssetInstance.read(existing.fields);
+    if (!assets.any((item) => item.id == assetId)) {
+      throw MapStudioException('Asset $assetId is not on $id.');
+    }
+    return _writeAssets(
+      existing,
+      [
+        for (final item in assets)
+          if (item.id == assetId) change(item, extent) else item,
+      ],
+      timestamp,
+    );
+  }
+
+  Future<MapSummary> _writeAssets(
+    AuthorRecord existing,
+    List<MapAssetInstance> assets,
+    DateTime? timestamp,
+  ) async {
+    final fields = Map<String, Object?>.from(existing.fields);
+    if (assets.isEmpty) {
+      fields.remove(MapVisualFields.assets);
+    } else {
+      fields[MapVisualFields.assets] = [
+        for (final asset in MapAssetInstance.inDrawOrder(assets))
+          asset.toJson(),
+      ];
+    }
+    return MapSummary(record: await _write(existing, fields, timestamp));
+  }
+
+  /// One write path for every Phase 3 change, so styling inherits the same
+  /// revisioning, version snapshots and audit events as everything else.
+  Future<AuthorRecord> _write(
+    AuthorRecord existing,
+    Map<String, Object?> fields,
+    DateTime? timestamp,
+  ) =>
+      records.updateRecord(
+        existing.copyWith(
+          fields: fields,
+          updatedAt: (timestamp ?? DateTime.now()).toUtc(),
+        ),
+      );
 
   // ------------------------------------------------------------- markers ----
 

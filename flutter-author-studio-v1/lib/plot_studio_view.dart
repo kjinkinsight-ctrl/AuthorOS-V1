@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'core/search_models.dart';
+import 'knowledge_graph/open_in_graph.dart';
 import 'core/connected_domain.dart';
 import 'core/plot_record_types.dart';
 import 'core/record_types.dart';
@@ -14,10 +16,17 @@ class PlotStudioView extends StatefulWidget {
     super.key,
     required this.project,
     required this.service,
+    this.onOpenInGraph,
   });
 
   final StarterProject project;
   final PlotService service;
+
+  /// Asks the shell for the Knowledge Graph, focused on a plot record.
+  ///
+  /// Plot Studio had no navigation callback at all, so this is the whole of
+  /// its routing contract rather than an addition to one.
+  final ValueChanged<SearchNavigationTarget>? onOpenInGraph;
 
   @override
   State<PlotStudioView> createState() => _PlotStudioViewState();
@@ -346,6 +355,7 @@ class _PlotStudioViewState extends State<PlotStudioView> {
                                         onDelete: _deleteRecord,
                                         onMoveUp: (record) => _moveRecord(record, -1),
                                         onMoveDown: (record) => _moveRecord(record, 1),
+                                        onOpenInGraph: widget.onOpenInGraph,
                                         primary: primary,
                                       ),
                                     ),
@@ -377,6 +387,7 @@ class _StatusLane extends StatelessWidget {
     required this.onDelete,
     required this.onMoveUp,
     required this.onMoveDown,
+    this.onOpenInGraph,
     required this.primary,
   });
 
@@ -394,6 +405,7 @@ class _StatusLane extends StatelessWidget {
   final Future<void> Function(AuthorRecord record) onDelete;
   final Future<void> Function(AuthorRecord record) onMoveUp;
   final Future<void> Function(AuthorRecord record) onMoveDown;
+  final ValueChanged<SearchNavigationTarget>? onOpenInGraph;
   final Color primary;
 
   @override
@@ -443,6 +455,7 @@ class _StatusLane extends StatelessWidget {
                 onDelete: onDelete,
                 onMoveUp: onMoveUp,
                 onMoveDown: onMoveDown,
+                onOpenInGraph: onOpenInGraph,
                 onSurface: onSurface,
                 onSurfaceVariant: onSurfaceVariant,
                 primary: primary,
@@ -466,6 +479,7 @@ class _PlotRecordCard extends StatelessWidget {
     required this.onDelete,
     required this.onMoveUp,
     required this.onMoveDown,
+    this.onOpenInGraph,
     required this.onSurface,
     required this.onSurfaceVariant,
     required this.primary,
@@ -479,6 +493,7 @@ class _PlotRecordCard extends StatelessWidget {
   final Future<void> Function(AuthorRecord record) onDelete;
   final Future<void> Function(AuthorRecord record) onMoveUp;
   final Future<void> Function(AuthorRecord record) onMoveDown;
+  final ValueChanged<SearchNavigationTarget>? onOpenInGraph;
   final Color onSurface;
   final Color onSurfaceVariant;
   final Color primary;
@@ -537,6 +552,19 @@ class _PlotRecordCard extends StatelessWidget {
                     ? Icons.unarchive_outlined
                     : Icons.archive_outlined,
               ),
+            ),
+            OpenInGraphButton(
+              recordId: record.id,
+              compact: true,
+              onOpen: onOpenInGraph == null
+                  ? null
+                  : () => onOpenInGraph!(
+                        SearchNavigationTarget(
+                          destination: SearchDestination.knowledgeGraph,
+                          recordId: record.id,
+                          projectId: record.projectId ?? record.scopeId,
+                        ),
+                      ),
             ),
             IconButton(
               tooltip: 'Delete',

@@ -1,7 +1,8 @@
 # AuthorOS — Codex / Universal Knowledge
 
 Status: **Phase 1 implemented — cross-book scope is live. Phases 2-4 designed, not built.**
-Audited: 2026-08-22, from the working tree at `d1b74c8` (PR #35, Knowledge Graph)
+Audited: 2026-08-22, from the working tree at `d1b74c8` (PR #35, Knowledge Graph);
+re-verified after merging `main` at `5092c72` (PR #52)
 Scope: series-wide and cross-book knowledge in the Story Codex, and the phase
 order for the rest of the Codex vision
 Builds on: `docs/story-codex-implementation-map.md`,
@@ -262,14 +263,20 @@ visibility model.
 Run locally against Flutter **3.44.9** (revision `6b182d2c75`) — the revision
 `.metadata` records and CI pins.
 
-| Step | Baseline at `d1b74c8` | After this milestone |
+Measured twice: once against the audit base, and again after merging `main` at
+`5092c72`, which had moved 22 commits ahead (Map Studio phases 4-5, cross-Studio
+graph entry, archive completeness).
+
+| Step | `main` at `5092c72` | This branch |
 |---|---|---|
-| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 57 issues, 0 errors | **57 issues, 0 errors** |
-| `flutter test` | 1153 passed, 0 failed | **1189 passed, 0 failed** |
+| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 58 issues, 0 errors | **58 issues, 0 errors** |
+| `flutter test` | 1258 passed, 0 failed | **1294 passed, 0 failed** |
 | `flutter build web --release --no-web-resources-cdn` | green | green |
 
-The analyzer count is unchanged: this work added no new issues and cleared the
-six it introduced along the way. The 36 new tests are
+The analyzer count is unchanged against the branch's own base: this work added no
+new issues and cleared the six it introduced along the way. (Against the audit
+base `d1b74c8` the same figures were 57 -> 57 and 1153 -> 1189; `main` has since
+added one issue and 105 tests of its own.) The 36 new tests are
 `scope_resolver_test.dart` (7), `series_scope_test.dart` (6),
 `scoped_records_test.dart` (8), `scope_architecture_test.dart` (10),
 `story_codex_series_view_test.dart` (5).

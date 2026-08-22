@@ -10,6 +10,7 @@
 /// made, and the master document needs updating alongside it.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:author_studio_v1/analytics_service.dart';
@@ -17,6 +18,8 @@ import 'package:author_studio_v1/core/built_in_connection_types.dart';
 import 'package:author_studio_v1/core/built_in_record_types.dart';
 import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
+import 'package:author_studio_v1/core/version_audit.dart';
+import 'package:author_studio_v1/manuscript_service.dart';
 import 'package:author_studio_v1/manuscript_store.dart';
 import 'package:author_studio_v1/onboarding.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
@@ -508,4 +511,347 @@ void main() {
           'endpoints do not exist.',
     );
   });
+
+  // ---------------------------------------------------------------------
+  // Phase 0 — manuscript node lifecycle integrity.
+  //
+  // Every test here proves behaviour against a real database. They exist
+  // because the manuscript node projection was upsert-only: a deleted scene
+  // kept its node, its links and its search row for the life of the database,
+  // and the edge foreign key made the node impossible to remove afterwards.
+  // ---------------------------------------------------------------------
+  group('Phase 0 — manuscript node lifecycle', () {
+    late AuthorOsDatabase database;
+    late DriftConnectedDomainRepository repository;
+    late ManuscriptStore store;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      database = AuthorOsDatabase(NativeDatabase.memory());
+      repository = DriftConnectedDomainRepository(database);
+      store = ManuscriptStore(repository: repository);
+    });
+
+    tearDown(() => database.close());
+
+    ManuscriptService serviceFor(String projectId) => ManuscriptService(
+          projectId: projectId,
+          repository: repository,
+          store: store,
+        );
+
+    Future<ManuscriptProjectSummary> seedManuscript(String projectId) =>
+        store.loadStudio(
+          projectId,
+          manuscriptTitle: 'Guardrail Book',
+          defaultChapters: const [
+            ManuscriptChapterSeed(
+              title: 'Chapter 01',
+              scenes: ['Scene 01', 'Scene 02'],
+            ),
+          ],
+          firstSceneTitle: 'Scene 01',
+        );
+
+    Future<bool> isSearchable(String entityId) async {
+      final rows = await database.customSelect(
+        'SELECT entity_id FROM author_search WHERE entity_id = ?',
+        variables: [Variable<String>(entityId)],
+      ).get();
+      return rows.isNotEmpty;
+    }
+
+    test('a scene dropped from the manuscript leaves no node behind',
+        () async {
+      final manuscript = await seedManuscript('project-ghost');
+      await store.saveStudio(manuscript);
+      final chapter = manuscript.chapters.first;
+      final removed = chapter.scenes.last;
+      final kept = chapter.scenes.first;
+      expect(await repository.manuscriptNodeById(removed.id), isNotNull);
+
+      // Saving a manuscript that no longer contains the scene is the path
+      // ManuscriptStudio.dispose() takes with its in-memory snapshot.
+      await store.saveStudio(
+        manuscript.copyWith(
+          chapters: [
+            chapter.copyWith(scenes: [kept]),
+          ],
+        ),
+      );
+
+      expect(await repository.manuscriptNodeById(removed.id), isNull,
+          reason: 'the projection must retire what it no longer contains');
+      expect(await isSearchable(removed.id), isFalse,
+          reason: 'a retired node must leave the search index with it');
+      expect(await repository.manuscriptNodeById(kept.id), isNotNull,
+          reason: 'reconciliation must not touch surviving nodes');
+    });
+
+    test('retiring a node removes the links that pointed at it', () async {
+      final manuscript = await seedManuscript('project-links');
+      await store.saveStudio(manuscript);
+      final chapter = manuscript.chapters.first;
+      final doomed = chapter.scenes.last;
+      final survivor = chapter.scenes.first;
+
+      await repository.putRecordsAndLinks(
+        records: [_record('char-1', 'Mara', 'project-links')],
+        links: [
+          RecordLink(
+            id: 'link-doomed-out',
+            sourceId: doomed.id,
+            targetId: 'char-1',
+            typeId: 'relatedTo',
+            scopeId: 'project-links',
+            createdAt: _timestamp,
+            updatedAt: _timestamp,
+          ),
+          RecordLink(
+            id: 'link-doomed-in',
+            sourceId: 'char-1',
+            targetId: doomed.id,
+            typeId: 'relatedTo',
+            scopeId: 'project-links',
+            createdAt: _timestamp,
+            updatedAt: _timestamp,
+          ),
+          RecordLink(
+            id: 'link-survivor',
+            sourceId: survivor.id,
+            targetId: 'char-1',
+            typeId: 'relatedTo',
+            scopeId: 'project-links',
+            createdAt: _timestamp,
+            updatedAt: _timestamp,
+          ),
+        ],
+      );
+      expect(await repository.backlinks(doomed.id), hasLength(2));
+
+      await store.saveStudio(
+        manuscript.copyWith(
+          chapters: [
+            chapter.copyWith(scenes: [survivor]),
+          ],
+        ),
+      );
+
+      expect(await repository.backlinks(doomed.id), isEmpty,
+          reason: 'no edge may outlive the node it points at');
+      expect(await repository.backlinks(survivor.id), hasLength(1),
+          reason: 'an unrelated edge must survive');
+      expect(await repository.recordById('char-1'), isNotNull,
+          reason: 'the connected record itself is never deleted');
+    });
+
+    test('a linked node can be removed at all', () async {
+      // Before Phase 0 this threw: record_link_rows references
+      // connected_entities, so deleting the entity row with a live edge failed
+      // the foreign key and the node could never be removed.
+      final manuscript = await seedManuscript('project-fk');
+      await store.saveStudio(manuscript);
+      final scene = manuscript.chapters.first.scenes.first;
+      await repository.putRecordsAndLinks(
+        records: [_record('char-fk', 'Mara', 'project-fk')],
+        links: [
+          RecordLink(
+            id: 'link-fk',
+            sourceId: scene.id,
+            targetId: 'char-fk',
+            typeId: 'relatedTo',
+            scopeId: 'project-fk',
+            createdAt: _timestamp,
+            updatedAt: _timestamp,
+          ),
+        ],
+      );
+
+      await repository.removeManuscriptNodes([scene.id]);
+
+      expect(await repository.manuscriptNodeById(scene.id), isNull);
+      expect(await repository.backlinks(scene.id), isEmpty);
+    });
+
+    test('deleting a scene through the service retires exactly its node',
+        () async {
+      final service = serviceFor('project-delete');
+      final manuscript = await seedManuscript('project-delete');
+      await store.saveStudio(manuscript);
+      final chapter = manuscript.chapters.first;
+      final doomed = chapter.scenes.last;
+      final kept = chapter.scenes.first;
+
+      await service.deleteScene(manuscript, doomed.id,
+          confirmed: true, timestamp: _timestamp);
+
+      expect(await repository.manuscriptNodeById(doomed.id), isNull);
+      expect(await repository.manuscriptNodeById(kept.id), isNotNull);
+      expect(await repository.manuscriptNodeById(chapter.id), isNotNull,
+          reason: 'deleting a scene must not take its chapter with it');
+      expect(await isSearchable(doomed.id), isFalse);
+    });
+
+    test('deleting a chapter retires the chapter and every scene it held',
+        () async {
+      final service = serviceFor('project-chapter');
+      var manuscript = await seedManuscript('project-chapter');
+      manuscript = await service.createChapter(manuscript,
+          title: 'Chapter 02', timestamp: _timestamp);
+      await store.saveStudio(manuscript);
+      final doomed = manuscript.chapters.first;
+      final survivor = manuscript.chapters.last;
+      final doomedScenes = doomed.scenes.map((scene) => scene.id).toList();
+      expect(doomedScenes, isNotEmpty);
+
+      await service.deleteChapter(manuscript, doomed.id,
+          confirmed: true, timestamp: _timestamp);
+
+      expect(await repository.manuscriptNodeById(doomed.id), isNull);
+      for (final sceneId in doomedScenes) {
+        expect(await repository.manuscriptNodeById(sceneId), isNull,
+            reason: 'a chapter takes its own scenes with it');
+        expect(await isSearchable(sceneId), isFalse);
+      }
+      expect(await repository.manuscriptNodeById(survivor.id), isNotNull);
+    });
+
+    test('deletion preserves version and audit history', () async {
+      final service = serviceFor('project-history');
+      final manuscript = await seedManuscript('project-history');
+      await store.saveStudio(manuscript);
+      final doomed = manuscript.chapters.first.scenes.last;
+
+      await service.deleteScene(manuscript, doomed.id,
+          confirmed: true, timestamp: _timestamp);
+
+      // Active graph state is gone; the historical record of it is not.
+      expect(await repository.manuscriptNodeById(doomed.id), isNull);
+      final versions = await repository.versionHistory(
+        HistoryFilter(projectId: 'project-history', recordId: doomed.id),
+      );
+      expect(versions, isNotEmpty,
+          reason: 'history must outlive the active node');
+    });
+
+    test('deletion is idempotent and recreation is clean', () async {
+      final manuscript = await seedManuscript('project-repeat');
+      await store.saveStudio(manuscript);
+      final chapter = manuscript.chapters.first;
+      final scene = chapter.scenes.last;
+      final pruned = manuscript.copyWith(
+        chapters: [
+          chapter.copyWith(scenes: [chapter.scenes.first]),
+        ],
+      );
+
+      await store.saveStudio(pruned);
+      await store.saveStudio(pruned);
+      expect(await repository.manuscriptNodeById(scene.id), isNull);
+
+      // Saving the original again recreates the node from the projection.
+      await store.saveStudio(manuscript);
+      expect(await repository.manuscriptNodeById(scene.id), isNotNull);
+      expect(await isSearchable(scene.id), isTrue,
+          reason: 'a recreated node must be searchable again');
+    });
+
+    test('retiring a node in one project cannot touch another', () async {
+      final a = await seedManuscript('project-a');
+      final b = await seedManuscript('project-b');
+      await store.saveStudio(a);
+      await store.saveStudio(b);
+      final bScenes = [
+        for (final chapter in b.chapters)
+          for (final scene in chapter.scenes) scene.id,
+      ];
+
+      final chapter = a.chapters.first;
+      await store.saveStudio(
+        a.copyWith(
+          chapters: [
+            chapter.copyWith(scenes: [chapter.scenes.first]),
+          ],
+        ),
+      );
+
+      for (final id in bScenes) {
+        expect(await repository.manuscriptNodeById(id), isNotNull,
+            reason: 'project B must be untouched by a save in project A');
+      }
+      final bNodes =
+          await repository.manuscriptNodesForProject('project-b');
+      expect(bNodes.map((node) => node.projectId).toSet(), {'project-b'},
+          reason: 'a project query must never return another project\'s nodes');
+    });
+
+    test('reading Analytics on a cold project still seeds manuscript nodes',
+        () async {
+      // R-21, pinned rather than fixed: this is a read path that writes graph
+      // nodes. Phase 0 makes it explicit so the future Story Graph cannot
+      // quietly depend on it. Changing it is Analytics work, not Phase 0 work.
+      final analytics = AnalyticsService(
+        repository: repository,
+        project: _project('project-cold'),
+        manuscriptStore: store,
+      );
+      expect(await repository.manuscriptNodesForProject('project-cold'),
+          isEmpty);
+
+      await analytics.getSummary();
+
+      expect(await repository.manuscriptNodesForProject('project-cold'),
+          isNotEmpty,
+          reason: 'documented side effect: a dashboard read seeds nodes');
+    });
+
+    test('an archive carries manuscript structure but never its prose',
+        () async {
+      // R-2, pinned rather than fixed. The graph must never read node
+      // existence as evidence that the writing still exists.
+      final manuscript = await seedManuscript('project-archive');
+      final scene = manuscript.chapters.first.scenes.first;
+      await store.saveStudio(
+        manuscript.copyWith(
+          chapters: [
+            manuscript.chapters.first.copyWith(
+              scenes: [
+                scene.copyWith(content: 'The bell rang twice before dawn.'),
+                ...manuscript.chapters.first.scenes.skip(1),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      final snapshot = await repository.snapshot();
+      final archived = snapshot.manuscriptNodes
+          .where((node) => node.id == scene.id)
+          .toList();
+      expect(archived, hasLength(1),
+          reason: 'structure is archived');
+      expect(jsonEncode(archived.single.toJson()),
+          isNot(contains('The bell rang twice before dawn')),
+          reason: 'prose lives in SharedPreferences and is NOT in the archive');
+    });
+
+    test('PlotService scene validation is dead because scenes are not records',
+        () async {
+      // R-5, pinned as a finding. Scenes are manuscript nodes under D-3, so a
+      // record query for typeId 'scene' finds nothing and the orphaned-scene
+      // rule never fires. The future graph must read manuscript nodes here.
+      final manuscript = await seedManuscript('project-plot');
+      await store.saveStudio(manuscript);
+      expect(await repository.manuscriptNodesForProject('project-plot'),
+          isNotEmpty);
+
+      final scenesAsRecords = await repository.recordsByTypeAndScope(
+        typeId: 'scene',
+        scopeId: 'project-plot',
+      );
+      expect(scenesAsRecords, isEmpty,
+          reason: 'scenes are manuscript nodes, never AuthorRecords (D-3)');
+    });
+  });
+
 }

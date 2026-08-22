@@ -51,6 +51,22 @@ Two milestones were checked specifically for a second graph system:
   **Invariant I-13 holds** — no second persistence, no second edge model.
 - **Writing Session History** adds a table but no node — see the findings below.
 
+### Amendment — Phase 0 integrity milestone (`c9ae671`)
+
+Re-verified from the working tree, not carried forward. Phase 0 changed two things and
+recorded the rest as findings; see `docs/universal-story-graph-phase-0-integrity.md`.
+
+| Finding | Status after Phase 0 |
+|---|---|
+| **R-1** — manuscript nodes are never deleted | **CLOSED.** Two halves. Manuscript Studio Phase 2 had already added `ManuscriptService.deleteScene`/`deleteChapter` and a `removeManuscriptNodes` primitive this document does not mention — so the *service* path was already correct. The hole was the *projection*: `ManuscriptStore.saveStudio` was upsert-only and is now reconciling. A second, unrecorded half is also fixed: `removeManuscriptNodes` threw `SqliteException(787)` on any node that still had an edge, because `record_link_rows` references `connected_entities`. It now deletes the node's edges inside its own transaction |
+| **R-8** — raw validated-write bypasses | **Understated here.** `story_codex_service.dart` has seven raw writes, not one. Still open |
+| **R-21** — a read path writes graph nodes | **Holds, now pinned by a test.** `WorldBoardService` no longer calls `loadStudio` directly; `release_destinations.dart` does, in two places this document does not list |
+| **R-5**, **R-2**, **R-22**, **I-1** | Hold as written. R-5 is now pinned by a test |
+
+`ManuscriptNodeReference` still has **no `status` field**, deliberately: the manuscript
+summary is already the source of truth for which scenes exist, and history already records
+what was deleted. Active graph state and historical state stay distinct.
+
 ### Findings corrected
 
 | § | Said | Now |

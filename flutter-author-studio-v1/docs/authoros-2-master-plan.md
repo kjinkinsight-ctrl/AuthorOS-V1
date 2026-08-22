@@ -1,5 +1,24 @@
 # AuthorOS 2.0 Master Feature and Architecture Plan
 
+> ## 🔒 This plan now operates inside the Architecture Lock
+>
+> As of **August 22, 2026**, the principles this plan describes are no longer
+> proposals to be honoured where convenient. They are locked constraints, stated
+> in the [**AuthorOS Architecture Lock**](architecture/authoros-architecture-lock.md)
+> and governed by the precedence rule in
+> [**ADR-0006**](architecture/ADR-0006-architectural-precedence.md):
+>
+> **When a new feature conflicts with an established AuthorOS architectural
+> principle, the feature must adapt to the architecture — the architecture must
+> not be weakened to accommodate the feature.**
+>
+> Read the lock before this plan. Where the two differ, the lock wins — including
+> where this plan is merely silent. Section 22 below records what the lock adds.
+>
+> The current tree's compliance is measured in the
+> [Architecture Compliance Audit](authoros-architecture-compliance-audit.md),
+> and new feature work is paused until Steps 3–6 of the lock's sequence complete.
+
 Status: Proposed for product and architecture approval  
 Created: August 17, 2026  
 Product: AuthorOS  
@@ -903,3 +922,96 @@ AuthorOS 2.0 succeeds when an author can:
 - understand precisely when any data leaves the device
 
 The architecture succeeds when those workflows use one canonical set of records and links rather than studio-specific copies.
+
+---
+
+## 22. What the Architecture Lock adds to this plan
+
+This plan was written as a design. The [Architecture Lock](architecture/authoros-architecture-lock.md)
+converts it into a set of constraints and adds six things this plan did not
+cover, because the product had not yet grown far enough to need them.
+
+### 22.1 Systems are a layer, and they live inside domains
+
+This plan lists magic systems, religions, cultures and technologies as built-in
+record types. The lock adds the layer above them: a **System** is a named,
+project-activatable capability — Magic, Languages, Religion, Economy,
+Government, Biology, Technology, Bestiary and whatever follows — that
+contributes record types, fields, relationship types, templates and views to the
+domain it belongs to.
+
+A System contributes no store, no identity space, no relationship model, and no
+permanent navigation destination. Twenty Systems must cost roughly what two do.
+
+### 22.2 Extensions are configuration, and deactivation preserves data
+
+Section 6 gives every record a scope. The lock adds a second axis: whether the
+project has that capability **active**.
+
+`inactive ≠ deleted` is a persistence rule. Deactivating a system hides its
+interface and its specialised views; it never removes its records, its
+relationships, or its fields. Reactivating returns the author to exactly what
+they had. A feature that cannot honour this is not ready to ship.
+
+`ProjectRows.payloadJson` is the eventual home for that configuration and is
+currently opaque — Step 5 of the sequence.
+
+### 22.3 Field configuration is a foundation, built once
+
+Section 6.3 lists field primitives. The lock adds the **configuration surface**
+around each field: enabled, required, input type, options, custom values,
+default, quick create, main view, searchable, track changes, conditional
+availability, relationships and calculated values.
+
+`RecordFieldDefinition` today carries five of the thirteen. The rest are built
+once, in Step 4, before more specialised entry surfaces exist — not grown
+independently by each studio, and never smuggled through `extensionData`.
+
+### 22.4 Presets configure; they never restrict
+
+Principle 7 of this plan promises genre-flexible foundations. The lock states the
+prohibition that makes it real: a genre preset may **suggest** that a fantasy
+project enable Magic, Bestiary, Religion and Languages, and may never say
+*"because this is fantasy, Economics cannot be enabled."*
+
+Presets are configuration helpers. They are not capability gates, and no code
+path may treat them as one.
+
+### 22.5 Generation produces canonical entities
+
+Section 2's first principle says generators are deterministic rather than
+generative. The lock adds where their output goes:
+
+```text
+Procedural generator → canonical entities → canonical relationships
+                     → universal fields → universal templates
+                     → maps / codex / timeline / story
+```
+
+A generated city is a city record; its buildings are building records; its
+geometry is map placement on those records. **The map is a view of the world, not
+the world itself.** Generation is seeded, reproducible, provenance-stamped,
+sandboxed before canon, adopted only on author approval, and must respect author
+modifications on regeneration.
+
+This governs Map Studio Phase 7, which does not begin until Step 6 re-audits its
+design against it.
+
+### 22.6 The feature gate
+
+Every proposed feature answers ten questions in its implementation map before
+implementation starts: does it use canonical data; does it duplicate data; can it
+use universal fields; can it use universal templates; does it create a
+relationship type unnecessarily; does it need a new navigation destination; does
+it work through deterministic intelligence; does deactivation preserve data; does
+export remain possible; does it add unnecessary complexity.
+
+A feature that fails any of them is redesigned before code is written.
+
+### 22.7 What the lock does not change
+
+Everything in sections 1–21 stands. The lock adds constraints; it removes no
+scope, reorders no milestone, and — per ADR-0006 — authorises no rewrite of
+working code that already complies. The compliance audit found one conflict, four
+debts and five extensions across 106,000 lines of hand-written Dart. The
+correction pass is a short list, not a remediation programme.

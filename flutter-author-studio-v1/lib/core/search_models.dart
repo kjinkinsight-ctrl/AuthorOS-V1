@@ -11,6 +11,7 @@ enum SearchDestination {
   plotStudio,
   manuscriptStudio,
   seriesStudio,
+  knowledgeGraph,
   record,
 }
 

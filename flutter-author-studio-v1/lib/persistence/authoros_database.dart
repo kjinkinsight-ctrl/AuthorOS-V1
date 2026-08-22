@@ -1072,6 +1072,10 @@ class DriftConnectedDomainRepository {
       await database.delete(database.authorRecordRows).go();
       await database.delete(database.manuscriptNodeRows).go();
       await database.delete(database.connectedEntities).go();
+      // A restore is a whole-snapshot replace, so session history goes with
+      // it. Leaving it behind would leave totals and streaks describing a
+      // manuscript that no longer exists.
+      await database.delete(database.writingSessionRows).go();
       if (database.schemaVersion >= 2) {
         await database.customStatement('DELETE FROM author_search');
       }
@@ -1420,6 +1424,9 @@ class DriftConnectedDomainRepository {
     final auditRows = await (database.select(database.auditEventRows)
           ..orderBy([(table) => OrderingTerm.asc(table.createdAt)]))
         .get();
+    final sessionRows = await (database.select(database.writingSessionRows)
+          ..orderBy([(table) => OrderingTerm.asc(table.id)]))
+        .get();
     return ConnectedDomainSnapshot(
       records: recordRows.map(_recordFromRow).toList(),
       manuscriptNodes: nodeRows.map(_nodeFromRow).toList(),
@@ -1434,6 +1441,7 @@ class DriftConnectedDomainRepository {
           branchLinkRows.map(_branchLinkOverlayFromRow).toList(),
       versions: versionRows.map(_versionFromRow).toList(),
       auditEvents: auditRows.map(_auditFromRow).toList(),
+      writingSessions: sessionRows.map(_writingSessionFromRow).toList(),
     );
   }
 
@@ -1463,6 +1471,9 @@ class DriftConnectedDomainRepository {
     }
     for (final overlay in snapshot.branchLinkOverlays) {
       await putBranchLinkOverlay(overlay);
+    }
+    if (snapshot.writingSessions.isNotEmpty) {
+      await putWritingSessions(snapshot.writingSessions);
     }
     for (final version in snapshot.versions) {
       await _insertVersion(version);

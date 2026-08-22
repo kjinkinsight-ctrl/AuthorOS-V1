@@ -183,28 +183,61 @@ class ManuscriptPdfExporter {
   }
 }
 
+/// Where an export ends up.
+///
+/// Widened in Phase 6 from PDF-only to any file an export produces: a map is
+/// exported as PNG, SVG, PDF or JSON, and a second saving mechanism beside this
+/// one would be exactly the duplication the architecture forbids. [savePdf] is
+/// kept as the name the manuscript exporter already calls, delegating to
+/// [saveBytes], so nothing that worked before changes.
 abstract class ExportFileSaver {
+  const ExportFileSaver();
+
+  Future<String?> saveBytes({
+    required String suggestedName,
+    required Uint8List bytes,
+    required String mimeType,
+    required List<String> extensions,
+    String typeLabel = 'File',
+  });
+
   Future<String?> savePdf({
     required String suggestedName,
     required Uint8List bytes,
-  });
+  }) =>
+      saveBytes(
+        suggestedName: suggestedName,
+        bytes: bytes,
+        mimeType: 'application/pdf',
+        extensions: const ['pdf'],
+        typeLabel: 'PDF document',
+      );
 }
 
-class NativeExportFileSaver implements ExportFileSaver {
+/// Saves through the platform's own file dialog.
+///
+/// Works on the web build as well as the desktop ones, despite the name: the
+/// web implementation of `file_selector` returns a placeholder location and
+/// `XFile.saveTo` triggers a browser download with the suggested name. No
+/// second saving path is needed for the web, and none exists.
+class NativeExportFileSaver extends ExportFileSaver {
   const NativeExportFileSaver();
 
   @override
-  Future<String?> savePdf({
+  Future<String?> saveBytes({
     required String suggestedName,
     required Uint8List bytes,
+    required String mimeType,
+    required List<String> extensions,
+    String typeLabel = 'File',
   }) async {
     final location = await getSaveLocation(
       suggestedName: suggestedName,
-      acceptedTypeGroups: const [
+      acceptedTypeGroups: [
         XTypeGroup(
-          label: 'PDF document',
-          extensions: ['pdf'],
-          mimeTypes: ['application/pdf'],
+          label: typeLabel,
+          extensions: extensions,
+          mimeTypes: [mimeType],
         ),
       ],
     );
@@ -214,7 +247,7 @@ class NativeExportFileSaver implements ExportFileSaver {
 
     final file = XFile.fromData(
       bytes,
-      mimeType: 'application/pdf',
+      mimeType: mimeType,
       name: suggestedName,
     );
     await file.saveTo(location.path);

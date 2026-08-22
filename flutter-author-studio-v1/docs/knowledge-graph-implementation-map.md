@@ -308,14 +308,28 @@ Also carried:
 
 ## 14. Verification
 
-`flutter analyze` reports **0 errors**. The first pass over this work added eight `info`
-issues — seven `unnecessary_import` and one `prefer_const_literals_to_create_immutables` —
-and all eight were fixed rather than absorbed into the backlog, so the milestone adds no
-analyzer issue of its own.
+Green on CI at `f31e4c5`, all eight steps:
 
-Tests: `story_graph_service_test.dart`, `story_graph_traversal_test.dart`,
-`story_graph_modes_test.dart`, `knowledge_graph_view_test.dart`, and the extended
-`story_graph_architecture_test.dart`.
+| Step | Result |
+|---|---|
+| `flutter analyze --no-fatal-infos --no-fatal-warnings` | **57 issues found, 0 errors** |
+| `flutter test` | **1153 tests passed**, 0 failed |
+| `flutter build web --release --no-web-resources-cdn` | **`✓ Built build/web`** |
 
-No Flutter SDK was available in the authoring environment, so every result quoted here comes
-from CI (`.github/workflows/dart.yml`, Flutter 3.44.9) rather than a local run.
+57 is **below** the 60-issue baseline Phase 0 recorded. The first pass over this work added
+eight `info` issues — seven `unnecessary_import` and one
+`prefer_const_literals_to_create_immutables` — and clearing them took the tree slightly
+under where it started rather than adding to the backlog.
+
+The web build matters more than a formality here and is worth naming: the graph is
+`CustomPainter`-heavy and Drift runs SQLite as WebAssembly in the browser, so browser-only
+breakage is a real failure mode. It passed with no warning naming any graph or canvas file.
+
+Tests added: `story_graph_service_test.dart`, `story_graph_traversal_test.dart`,
+`story_graph_modes_test.dart`, `knowledge_graph_view_test.dart`,
+`knowledge_graph_canvas_test.dart`, plus the extended `story_graph_architecture_test.dart`.
+
+No Flutter SDK was available in the authoring environment, so every number here comes from
+CI (`.github/workflows/dart.yml`, Flutter 3.44.9) rather than a local run. Seven CI rounds
+were needed to get here; the two defects worth recording are in §4 (`relatedTo` overriding
+its own switch) and §12 (a canvas appearing inside the graph it describes).

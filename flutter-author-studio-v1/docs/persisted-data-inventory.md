@@ -32,6 +32,28 @@ Dynamic placeholders use `{projectId}` or `{collection}`. SharedPreferences stor
 - 2.0 destination: project metadata plus initial records/manuscript seeds
 - Fixture coverage: simple, missing optional fields, unknown future fields
 
+### `author_studio.book_studio.{projectId}`
+
+- Owner: `BookStore`
+- Storage type: JSON object string
+- Shape: `BookProject`
+- Root fields: `projectId`, `titleOverride`, `authorOverride`, `subtitle`, `seriesName`, `seriesNumber`, `isbn`, `publisher`, `copyrightYear`, `copyrightHolder`, `edition`, `rightsStatement`, `frontMatter`, `backMatter`, `parts`, `format`, `version`, `migration`
+- Note: title and author are stored as *overrides*. Empty means "resolve from the
+  manuscript title and the author profile at build time", so renaming a project
+  keeps the title page and the running heads correct. Storing copies would go
+  stale silently and only show up in a proof copy.
+- Note: front and back matter that is generated (title page, copyright, contents)
+  carries no body text here; it is rendered from the metadata and, for the
+  contents, from the laid-out body, so it cannot go stale.
+- Risk: outside the `.authoros` archive, structurally the same gap as scene prose
+  (R-2); closing it adds a `data/book.json` entry and changes the archive entry
+  count the story-graph audit pins
+- Risk: no version history. A margin is not creative corpus; dedication and
+  acknowledgement text is, and is mitigated by `version`/`migration` plus a
+  `author_studio.book_studio_backup.{projectId}` key written on first overwrite
+- 2.0 destination: project presentation settings, alongside the manuscript
+- Fixture coverage: seeded defaults, malformed blob, foreign `projectId`, backup
+
 ### `author_studio.manuscript_studio.{projectId}`
 
 - Owner: `ManuscriptStore`

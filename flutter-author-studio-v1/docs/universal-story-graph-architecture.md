@@ -122,6 +122,40 @@ sits close to the graph, but they are nullable soft pointers with no foreign key
 `connected_entities`. Proximity without participation. That is the shape every
 historical or operational subsystem should take, and invariant I-16 holds it there.
 
+### Applied: book presentation is outside the boundary (Book Studio Phase 1)
+
+The boundary above was first applied to a new subsystem by Book Studio Phase 1
+(`docs/book-studio-phase-1-implementation-map.md`).
+
+Book presentation data — trim size, margins, typography, chapter design, and the
+front and back matter an author switches on — fails the participation test
+outright. No `RecordLink` will ever want a copyright page as the endpoint of
+`appearsIn`, `occursAt` or `mentionedIn`. A trim size is not a thing the story is
+made of.
+
+It is therefore **outside the graph and outside the database**: `BookProject` is
+persisted as a JSON blob at `author_studio.book_studio.{projectId}`, the same
+mechanism the prose itself uses. The registered-but-never-instantiated `book`
+record type (§3.3) stays uninstantiated; instantiating it would have quietly
+resurrected withdrawn decision D-1.
+
+Two further consequences worth recording:
+
+- Making these records would have put "Copyright (c) 2026" into the `author_search`
+  FTS index beside characters and locations, and written a `record_version_rows`
+  entry every time a margin moved — reopening exactly the churn problem D-2 was
+  withdrawn for.
+- **Parts** are the one structural addition, and they are modelled as ordering
+  metadata rather than nodes: `BookPart.startsAtChapterId` holds a stable chapter
+  id in `connected_entities`. That keeps R-1 from worsening — no new node kind on
+  an upsert-only table that cannot delete — while staying forward-compatible: when
+  the graph gains `contains`/`partOf` edges (§4.3), the anchor id becomes an edge
+  with no change to the book model.
+
+Table count and schema version are unchanged at **12** and **9**; the archive
+entry count is unchanged at **10**. Book settings being outside the archive is the
+same gap as R-2, not a new one.
+
 ### Phase plan superseded
 
 §20's Phase 0 was written for D-1 and no longer applies. The live plan is:

@@ -20,6 +20,7 @@ import 'migrations/research_panel_migration.dart';
 import 'onboarding.dart';
 import 'plot_service.dart';
 import 'persistence/authoros_database.dart';
+import 'book_studio_view.dart';
 import 'release_destinations.dart';
 import 'research_service.dart';
 import 'research_studio_view.dart';
@@ -628,6 +629,7 @@ enum StudioSection {
   projects,
   ideas,
   manuscript,
+  book,
   chapters,
   characters,
   codex,
@@ -651,6 +653,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.projects => 'Projects',
         StudioSection.ideas => 'Ideas',
         StudioSection.manuscript => 'Manuscript',
+        StudioSection.book => 'Book',
         StudioSection.chapters => 'Chapters',
         StudioSection.characters => 'Characters',
         StudioSection.codex => 'Story Codex',
@@ -673,6 +676,7 @@ extension StudioSectionData on StudioSection {
         StudioSection.projects => Icons.folder_copy_outlined,
         StudioSection.ideas => Icons.lightbulb_outline,
         StudioSection.manuscript => Icons.menu_book_outlined,
+        StudioSection.book => Icons.import_contacts_outlined,
         StudioSection.chapters => Icons.chrome_reader_mode_outlined,
         StudioSection.characters => Icons.groups_outlined,
         StudioSection.codex => Icons.auto_stories_outlined,
@@ -736,6 +740,7 @@ class _AuthorStudioShellState extends State<AuthorStudioShell> {
     StudioSection.projects,
     StudioSection.ideas,
     StudioSection.manuscript,
+    StudioSection.book,
   ];
 
   static const storySections = <StudioSection>[
@@ -1186,6 +1191,7 @@ class _DesktopNavigation extends StatelessWidget {
     StudioSection.projects,
     StudioSection.ideas,
     StudioSection.manuscript,
+    StudioSection.book,
   ];
 
   static const storySections = <StudioSection>[
@@ -1585,6 +1591,10 @@ class _SectionView extends StatelessWidget {
             categories: ['Concept', 'Scene', 'Dialogue', 'Research'],
           ),
         StudioSection.manuscript => const SizedBox.shrink(),
+        StudioSection.book => BookStudioView(
+            project: project,
+            manuscriptStore: manuscriptStore,
+          ),
         StudioSection.chapters => ChapterStudioView(project: project),
         StudioSection.characters => CharacterBoardView(
             project: project,

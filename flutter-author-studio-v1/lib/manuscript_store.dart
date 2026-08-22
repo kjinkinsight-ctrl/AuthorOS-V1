@@ -636,6 +636,24 @@ class ManuscriptStore {
     return seeds;
   }
 
+  /// Reads the stored manuscript without creating one.
+  ///
+  /// [loadStudio] seeds and persists a manuscript when a project has none,
+  /// which is right for the writing studio but wrong for a reader: Book Studio
+  /// consumes a manuscript snapshot and must never write the source while
+  /// laying a book out. Returns null when the project has nothing stored yet.
+  Future<ManuscriptProjectSummary?> readStudio(String projectId) async {
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_studioKey(projectId));
+    if (encoded == null || encoded.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(encoded) as Map<String, dynamic>;
+      return ManuscriptProjectSummary.fromJson(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<ManuscriptProjectSummary> loadStudio(
     String projectId, {
     required String manuscriptTitle,

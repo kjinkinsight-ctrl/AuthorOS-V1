@@ -17,7 +17,24 @@ import 'persistence/authoros_database.dart';
 import 'core/scene_revision.dart';
 import 'reading_rhythm.dart';
 import 'scene_revision_service.dart';
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/theme_tokens.dart';
 import 'writing_session_recorder.dart';
+
+/// [base] in the code face, from [ThemeTextRole.code].
+///
+/// Library-level because two widgets need it: the draft editor and the scene
+/// revision preview, which live in different States. One place decides the
+/// family, so they cannot drift onto different faces, and the no-scope
+/// fallback is written once.
+TextStyle? _asCode(BuildContext context, TextStyle? base) {
+  final code =
+      StudioThemeScope.maybeOf(context)?.theme.text(ThemeTextRole.code);
+  return base?.copyWith(
+    fontFamily: code?.family ?? 'monospace',
+    fontFamilyFallback: code?.fallbackFamilies,
+  );
+}
 
 class ManuscriptStudioView extends StatefulWidget {
   const ManuscriptStudioView({
@@ -2393,11 +2410,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                   maxLines: null,
                   expands: true,
                   keyboardType: TextInputType.multiline,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontFamily: 'monospace',
-                        fontSize: _readingRhythm.fontSize,
-                        height: _readingRhythm.lineHeight,
-                      ),
+                  style: _draftTextStyle(context),
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     hintText: 'Write this scene...',
@@ -2499,11 +2512,7 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
                     maxLines: null,
                     expands: true,
                     keyboardType: TextInputType.multiline,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontFamily: 'monospace',
-                          fontSize: _readingRhythm.fontSize,
-                          height: _readingRhythm.lineHeight,
-                        ),
+                    style: _draftTextStyle(context),
                     decoration: InputDecoration(
                       border: InputBorder.none,
                       hintText: 'Write this scene...',
@@ -2901,6 +2910,20 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
     );
   }
 
+  /// The draft editor face.
+  ///
+  /// Comes from the theme's `code` typography role, which is what the
+  /// previously hard-coded `'monospace'` family was reproducing — same face,
+  /// plus the role's fallback families. Reading rhythm still owns size and
+  /// line height. Falls back to the literal family only when no
+  /// [StudioThemeScope] is installed above this Studio.
+  TextStyle? _draftTextStyle(BuildContext context) =>
+      _asCode(context, Theme.of(context).textTheme.bodyLarge)?.copyWith(
+        fontSize: _readingRhythm.fontSize,
+        height: _readingRhythm.lineHeight,
+      );
+
+
   Widget _buildDetailsModeSwitch() => SegmentedButton<bool>(
         key: const Key('manuscript-details-mode'),
         segments: const [
@@ -2933,7 +2956,12 @@ class _ManuscriptStudioViewState extends State<ManuscriptStudioView>
         children: [
           SizedBox(
             width: 90,
-            child: Text(label, style: const TextStyle(color: Colors.white70)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           Expanded(child: Text(value)),
         ],
@@ -3143,8 +3171,8 @@ class _SceneRevisionDialogState extends State<_SceneRevisionDialog> {
                           key: const Key('scene-revision-preview'),
                           child: Text(
                             revision.content,
-                            style: theme.textTheme.bodyMedium
-                                ?.copyWith(fontFamily: 'monospace'),
+                            style:
+                                _asCode(context, theme.textTheme.bodyMedium),
                           ),
                         );
                       },

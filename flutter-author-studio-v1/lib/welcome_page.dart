@@ -231,7 +231,7 @@ class _WelcomeWordmark extends StatelessWidget {
           ),
         ),
         Text(
-          name.isEmpty ? 'Author OS' : name,
+          name.isEmpty ? 'AuthorOS' : name,
           style: const TextStyle(
             fontFamily: 'Merriweather',
             color: _WelcomePalette.goldBright,
@@ -462,7 +462,7 @@ class _WelcomeHero extends StatelessWidget {
                 _Monogram(),
                 SizedBox(height: 22),
                 Text(
-                  'Author OS',
+                  'AuthorOS',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontFamily: 'Merriweather',

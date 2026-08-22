@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'theme/flutter/authoros_theme.dart';
+import 'theme/theme_tokens.dart';
+
 enum ContinuityWarningType {
   unknownCharacter,
   unknownLocation,
@@ -395,6 +398,7 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
 
   @override
   Widget build(BuildContext context) {
+    final semantic = AuthorOsSemanticColors.of(context);
     final integrity = ContinuityAnalyzer.summaryFor(widget.warnings);
     final povs = widget.events
         .map((event) => event.pov)
@@ -435,8 +439,8 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.fact_check_outlined,
-                      color: Color(0xFFC59B6D)),
+                  Icon(Icons.fact_check_outlined,
+                      color: semantic.warning),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -453,17 +457,17 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
                     ),
                     decoration: BoxDecoration(
                       color: integrity.score >= 80
-                          ? const Color(0xFF77B884).withValues(alpha: 0.18)
+                          ? semantic.success.withValues(alpha: 0.18)
                           : integrity.score >= 50
-                              ? const Color(0xFFC59B6D).withValues(alpha: 0.18)
-                              : const Color(0xFFE07A6F).withValues(alpha: 0.18),
+                              ? semantic.warning.withValues(alpha: 0.18)
+                              : semantic.error.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
                         color: integrity.score >= 80
-                            ? const Color(0xFF77B884)
+                            ? semantic.success
                             : integrity.score >= 50
-                                ? const Color(0xFFC59B6D)
-                                : const Color(0xFFE07A6F),
+                                ? semantic.warning
+                                : semantic.error,
                       ),
                     ),
                     child: Text(
@@ -476,9 +480,9 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
               ),
               const SizedBox(height: 12),
               if (widget.warnings.isEmpty)
-                const Text(
+                Text(
                   'No character presence, overlap, or sequence conflicts detected.',
-                  style: TextStyle(color: Color(0xFF77B884)),
+                  style: TextStyle(color: semantic.success),
                 )
               else ...[
                 Text(
@@ -498,12 +502,12 @@ class _ContinuityTimelinePanelState extends State<ContinuityTimelinePanel> {
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: issue.severity == ContinuitySeverity.critical
-                            ? const Color(0xFFE07A6F).withValues(alpha: 0.12)
-                            : const Color(0xFFC59B6D).withValues(alpha: 0.12),
+                            ? semantic.error.withValues(alpha: 0.12)
+                            : semantic.warning.withValues(alpha: 0.12),
                         border: Border.all(
                           color: issue.severity == ContinuitySeverity.critical
-                              ? const Color(0xFFE07A6F)
-                              : const Color(0xFFC59B6D),
+                              ? semantic.error
+                              : semantic.warning,
                         ),
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -783,13 +787,23 @@ class _LayeredTimeline extends StatelessWidget {
           ? (event.pov.isEmpty ? 'Unassigned POV' : event.pov)
           : (event.plotline.isEmpty ? 'Unassigned Plotline' : event.plotline);
 
-  Color colorFor(String type) => switch (type) {
-        'Character' || 'Relationship' => const Color(0xFF65A8A0),
-        'World' || 'Discovery' => const Color(0xFF7EA6D8),
-        'Political' || 'War' => const Color(0xFFE07A6F),
-        'Historical' => const Color(0xFF9B8AC4),
-        _ => const Color(0xFFC59B6D),
-      };
+  /// Link categories resolve through the theme's categorical ramp.
+  ///
+  /// `Political`/`War` deliberately uses a ramp slot rather than the `error`
+  /// status role: a political link is a kind of thing, not a failure, and the
+  /// two must stay free to diverge even though they share a value today.
+  Color colorFor(BuildContext context, String type) {
+    final ramp = AuthorOsSemanticColors.of(context);
+    return switch (type) {
+      'Character' ||
+      'Relationship' =>
+        ramp.category(ThemeCategoryRef.category2),
+      'World' || 'Discovery' => ramp.category(ThemeCategoryRef.category6),
+      'Political' || 'War' => ramp.category(ThemeCategoryRef.category7),
+      'Historical' => ramp.category(ThemeCategoryRef.category8),
+      _ => ramp.category(ThemeCategoryRef.category3),
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -953,7 +967,7 @@ class _LayeredTimeline extends StatelessWidget {
                                 event: event,
                                 minimumDay: minimumDay,
                                 dayWidth: dayWidth,
-                                color: colorFor(event.type),
+                                color: colorFor(context, event.type),
                                 hasWarning: warningIds.contains(event.id),
                                 isSelected: selectedEventId == event.id,
                                 onTap: onEventSelected == null
@@ -1015,7 +1029,9 @@ class _TimelineEventBar extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(6),
             side: BorderSide(
-              color: hasWarning ? const Color(0xFFE07A6F) : color,
+              color: hasWarning
+                  ? AuthorOsSemanticColors.of(context).error
+                  : color,
               width: isSelected || hasWarning ? 2 : 1,
             ),
           ),
@@ -1028,11 +1044,11 @@ class _TimelineEventBar extends StatelessWidget {
               child: Row(
                 children: [
                   if (hasWarning) ...[
-                    const Icon(
+                    Icon(
                       Icons.warning_amber_rounded,
-                      key: Key('timeline-event-warning'),
+                      key: const Key('timeline-event-warning'),
                       size: 14,
-                      color: Color(0xFFE07A6F),
+                      color: AuthorOsSemanticColors.of(context).error,
                     ),
                     const SizedBox(width: 4),
                   ],

@@ -2,13 +2,19 @@ import 'package:author_studio_v1/core/connected_domain.dart';
 import 'package:author_studio_v1/core/connection_engine.dart';
 import 'package:author_studio_v1/core/record_service.dart';
 import 'package:author_studio_v1/core/series_scope.dart';
+import 'package:author_studio_v1/project_roster_store.dart';
 import 'package:author_studio_v1/core/version_audit.dart';
 import 'package:author_studio_v1/persistence/authoros_database.dart';
 import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'fixtures/series_fixture.dart';
+
 void main() {
+  // ProjectRosterStore.deleteSeries queues sync, which needs a binding.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late AuthorOsDatabase database;
   late DriftConnectedDomainRepository repository;
 
@@ -56,7 +62,8 @@ void main() {
   test('promote and demote preserve identity, content and relationships',
       () async {
     final series = seriesFor('book-1');
-    final created = await series.createSeries(title: 'The Endovier Cycle');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
     final original = await seedCharacter('book-1');
 
     // A relationship the character must survive being shared.
@@ -104,7 +111,8 @@ void main() {
 
   test('each scope change is audited exactly once', () async {
     final series = seriesFor('book-1');
-    await series.createSeries(title: 'Endovier');
+    await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
     await seedCharacter('book-1');
 
     await series.promoteToSeries('kael');
@@ -121,12 +129,14 @@ void main() {
 
   test('a shared record keeps one version chain across books', () async {
     final series = seriesFor('book-1');
-    final created = await series.createSeries(title: 'Endovier');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
     await seedCharacter('book-1');
     await series.promoteToSeries('kael');
 
     // Book two joins and edits the shared record through the inherited scope.
-    await seriesFor('book-2').enrol(created.id);
+    await enrolInSeries(repository,
+        seriesId: created.id, projectIds: ['book-1', 'book-2']);
     final fromBookTwo = recordsFor('book-2', inherited: {created.id});
     final shared = await fromBookTwo.getRecord('kael');
     expect(shared, isNotNull,
@@ -150,10 +160,12 @@ void main() {
 
   test('a book cannot return canon another book owns', () async {
     final series = seriesFor('book-1');
-    final created = await series.createSeries(title: 'Endovier');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
     await seedCharacter('book-1');
     await series.promoteToSeries('kael');
-    await seriesFor('book-2').enrol(created.id);
+    await enrolInSeries(repository,
+        seriesId: created.id, projectIds: ['book-1', 'book-2']);
 
     expect(
       () => seriesFor('book-2').demoteToProject('kael'),
@@ -170,16 +182,66 @@ void main() {
     );
   });
 
-  test('rehoming moves provenance so a series outlives its founding book',
+  test('releasing a series returns its canon to the books that wrote it',
       () async {
     final series = seriesFor('book-1');
-    final created = await series.createSeries(title: 'Endovier');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
+    final original = await seedCharacter('book-1');
+    await series.promoteToSeries('kael');
 
-    final rehomed = await series.rehomeSeries(created.id, toProjectId: 'book-2');
+    final stranded = await series.releaseSeries(created.id);
 
-    expect(rehomed.projectId, 'book-2');
-    expect(rehomed.id, created.id);
-    expect(rehomed.scopeId, created.id,
-        reason: 'the scope a series owns never moves');
+    expect(stranded, isEmpty);
+    final released = await repository.recordById('kael');
+    expect(released!.scopeType, RecordScopeType.project);
+    expect(released.scopeId, 'book-1');
+    expect(released.seriesId, isNull);
+    expect(released.id, original.id, reason: 'release preserves identity');
+    expect(released.fields, original.fields);
+    expect(released.tags, original.tags);
+  });
+
+  test('deleting a series releases its canon rather than stranding it',
+      () async {
+    final series = seriesFor('book-1');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
+    await seedCharacter('book-1');
+    await series.promoteToSeries('kael');
+
+    await ProjectRosterStore(repository: repository).deleteSeries(created.id);
+
+    final survivor = await repository.recordById('kael');
+    expect(survivor, isNotNull,
+        reason: 'deleting a series must never delete a character');
+    expect(survivor!.scopeType, RecordScopeType.project);
+    expect(survivor.scopeId, 'book-1');
+    expect(await repository.recordsInSeriesScope(created.id), isEmpty);
+  });
+
+  test('a record whose book is gone is reported rather than guessed at',
+      () async {
+    final series = seriesFor('book-1');
+    final created = await enrolInSeries(repository,
+        seriesId: 'series_1724_0', projectIds: ['book-1']);
+    final now = DateTime.utc(2026, 8, 22);
+    await repository.putRecordsAndLinks(
+      records: [
+        AuthorRecord(
+          id: 'orphan',
+          typeId: 'faction',
+          scopeType: RecordScopeType.series,
+          scopeId: created.id,
+          seriesId: created.id,
+          title: 'Orphan',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+      links: const [],
+    );
+
+    expect(await series.releaseSeries(created.id), ['orphan']);
   });
 }

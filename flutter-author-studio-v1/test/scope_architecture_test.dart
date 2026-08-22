@@ -42,25 +42,44 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('a series is an AuthorRecord, not a new table', () async {
+  test('series scope is an AuthorRecord, not a store of its own', () async {
+    // `series_rows` exists and is NOT this layer's. It arrived with the project
+    // roster and holds a series' planning attributes — its name, and the word
+    // target a joining book inherits. Series *scope* is a different thing: the
+    // record scope that lets canon be shared between books, which is an
+    // AuthorRecord so it inherits validation, versioning, audit, safe-delete
+    // and graph node-hood.
+    //
+    // Two systems naming the same word is a real hazard, and the reconciliation
+    // is the last assertion here: scope never mints an identity it could not
+    // have been handed. See the open question in the implementation map.
     final rows = await database.customSelect(
       "SELECT name FROM sqlite_master WHERE type = 'table'",
     ).get();
     final names = rows.map((row) => row.read<String>('name')).toSet();
 
     for (final forbidden in const [
-      'series_rows',
+      'series_scope_rows',
       'universe_rows',
       'scope_rows',
       'series_member_rows',
     ]) {
       expect(names, isNot(contains(forbidden)),
-          reason: 'scope must not grow a private store');
+          reason: 'series scope must not grow a private store');
     }
 
     expect(BuiltInRecordTypes.registry().resolve(kSeriesRecordTypeId).id,
         kSeriesRecordTypeId,
         reason: 'a series must stay an ordinary registered record type');
+
+    // Scope accepts an identity from outside, so a roster series and a scope
+    // series can be made one id without changing this layer.
+    final scope = await SeriesScopeService(
+      projectId: 'book-1',
+      repository: repository,
+    ).createSeries(title: 'Endovier', id: 'roster-series-7');
+    expect(scope.id, 'roster-series-7');
+    expect(scope.record.scopeId, 'roster-series-7');
   });
 
   test('there is exactly one scope-resolution path', () {

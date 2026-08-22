@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 
 import 'map_overlay_service.dart';
 import 'map_service.dart';
+import 'map_world_service.dart';
 import 'onboarding.dart';
 import 'theme/flutter/authoros_theme.dart';
 import 'theme/theme_tokens.dart';
@@ -36,6 +37,7 @@ class MapStudioView extends StatefulWidget {
     this.service,
     this.overlays,
     this.onNavigate,
+    this.world,
   });
 
   final StarterProject project;
@@ -43,6 +45,10 @@ class MapStudioView extends StatefulWidget {
   /// The overlay projection. Read-only, and injectable for tests exactly like
   /// [service].
   final MapOverlayService? overlays;
+
+  /// The world-state projection. Read-only, and injectable for tests exactly
+  /// like [service] and [overlays].
+  final MapWorldService? world;
 
   /// Opens another Studio, using the shell's own navigation. Map Studio adds no
   /// routing of its own.
@@ -59,6 +65,7 @@ class MapStudioView extends StatefulWidget {
 class _MapStudioViewState extends State<MapStudioView> {
   late final MapService service;
   late final MapOverlayService overlayService;
+  late final MapWorldService worldService;
 
   bool loading = true;
   bool busy = false;
@@ -99,10 +106,37 @@ class _MapStudioViewState extends State<MapStudioView> {
   final TextEditingController overlaySearch = TextEditingController();
   String overlayQuery = '';
 
+  /// Phase 5 world state. A projection, recomputed on load and on every change
+  /// of era: nothing here is stored, and nothing here is written back.
+  MapWorldState? worldData;
+
+  /// The era the map is standing in, or `null` for the whole story.
+  int? worldMoment;
+
+  bool worldVisible = true;
+  bool bordersVisible = true;
+  bool routesVisible = true;
+
+  /// The travel question, and the answer the data supports.
+  String? travelFromId;
+  String? travelToId;
+  MapTravelMode travelMode = MapTravelMode.foot;
+  MapSeason travelSeason = MapSeason.none;
+  MapTravelEstimate? travelEstimate;
+
+  /// The last world query and what it lit up.
+  MapWorldQueryResult? queryResult;
+  Set<String> highlightedIds = const {};
+
   @override
   void initState() {
     super.initState();
     service = widget.service ?? MapService.forProject(widget.project.id);
+    worldService = widget.world ??
+        MapWorldService(
+          projectId: widget.project.id,
+          repository: service.repository,
+        );
     overlayService = widget.overlays ??
         MapOverlayService(
           projectId: widget.project.id,
@@ -140,12 +174,19 @@ class _MapStudioViewState extends State<MapStudioView> {
       final data = active == null ? null : await service.loadCanvas(active);
       final overlays =
           active == null ? null : await overlayService.loadOverlays(active);
+      final world = active == null
+          ? null
+          : await worldService.loadWorldState(active, moment: worldMoment);
       if (!mounted) return;
       setState(() {
         maps = loaded;
         selectedMapId = active;
         canvas = data;
         overlayData = overlays;
+        worldData = world;
+        travelEstimate = null;
+        queryResult = null;
+        highlightedIds = const {};
         if (selectedOverlayId != null &&
             !(overlays?.items.any((item) => item.id == selectedOverlayId) ??
                 false)) {
@@ -775,6 +816,107 @@ class _MapStudioViewState extends State<MapStudioView> {
     });
   }
 
+  // ---------------------------------------------------------- world state ---
+  //
+  // Every action here changes which world the map is showing. None of them
+  // writes: the world state is a reading of canonical records and links, and
+  // asking to see the year 412 is a question, not an edit.
+
+  /// Re-reads the world at [moment], where `null` means the whole story.
+  Future<void> _setEra(int? moment) async {
+    final mapId = selectedMapId;
+    if (mapId == null) return;
+    setState(() => worldMoment = moment);
+    final state = await worldService.loadWorldState(mapId, moment: moment);
+    if (!mounted) return;
+    setState(() {
+      worldData = state;
+      // The old answer belonged to the old world.
+      travelEstimate = null;
+      queryResult = null;
+      highlightedIds = const {};
+    });
+  }
+
+  void _stepEra(int direction) {
+    final state = worldData;
+    if (state == null || state.moments.isEmpty) return;
+    final keys = [for (final moment in state.moments) moment.sortKey];
+    final current = worldMoment;
+    if (current == null) {
+      _setEra(keys.first);
+      return;
+    }
+    final index = keys.indexOf(current);
+    final next = (index < 0 ? 0 : index) + direction;
+    if (next < 0 || next >= keys.length) return;
+    _setEra(keys[next]);
+  }
+
+  /// Answers the travel question, or reports why it cannot be answered.
+  void _calculateTravel() {
+    final state = worldData;
+    final from = travelFromId;
+    final to = travelToId;
+    if (state == null || from == null || to == null) return;
+    final terrain = canvas?.map.terrain;
+    final extent = selectedMap?.extent ?? MapExtent.standard;
+    setState(() {
+      travelEstimate = state.travelBetween(
+        from,
+        to,
+        mode: travelMode,
+        season: travelSeason,
+        // Terrain is read from the painted map where there is any: the ground
+        // the author painted is the ground the traveller crosses.
+        terrainAt: terrain == null || terrain.isEmpty
+            ? null
+            : (position) {
+                final cell = terrain.cellFor(position, extent);
+                if (cell == null) return '';
+                return terrain.kindAt(cell.$1, cell.$2)?.name ?? '';
+              },
+      );
+      final estimate = travelEstimate!;
+      highlightedIds = {
+        for (final leg in estimate.legs) leg.route.id,
+      };
+    });
+  }
+
+  Future<void> _runQuery(MapWorldQueryKind kind, String subjectId) async {
+    final mapId = selectedMapId;
+    if (mapId == null) return;
+    final result = switch (kind) {
+      MapWorldQueryKind.controlledBy =>
+        await worldService.controlledBy(mapId, subjectId, moment: worldMoment),
+      MapWorldQueryKind.visitedBy => await worldService.visitedBy(
+          mapId,
+          subjectId,
+        ),
+      MapWorldQueryKind.scenesIn => await worldService.scenesIn(
+          mapId,
+          subjectId,
+        ),
+      MapWorldQueryKind.affectedBy => await worldService.affectedBy(
+          mapId,
+          subjectId,
+        ),
+      MapWorldQueryKind.routesBetween || MapWorldQueryKind.worldAt =>
+        await worldService.controlledBy(mapId, subjectId, moment: worldMoment),
+    };
+    if (!mounted) return;
+    setState(() {
+      queryResult = result;
+      highlightedIds = result.highlightedIds.toSet();
+    });
+  }
+
+  void _clearQuery() => setState(() {
+        queryResult = null;
+        highlightedIds = const {};
+      });
+
   // ------------------------------------------------------- inline editing ---
 
   void _openInlineEditor(MapSelection value) => setState(() {
@@ -994,6 +1136,11 @@ class _MapStudioViewState extends State<MapStudioView> {
           selectedOverlayId: selectedOverlayId,
           overlaysVisible: overlaysVisible,
           onOverlaySelected: _selectOverlay,
+          worldData: worldData,
+          worldVisible: worldVisible,
+          bordersVisible: bordersVisible,
+          routesVisible: routesVisible,
+          highlightedIds: highlightedIds,
         ),
         if (data.map.visualStyle.showLegend && data.map.legend.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -1002,6 +1149,10 @@ class _MapStudioViewState extends State<MapStudioView> {
             entries: data.map.legend,
             style: data.map.visualStyle,
           ),
+        ],
+        if (worldData != null) ...[
+          const SizedBox(height: 12),
+          _buildWorldPanel(palette, worldData!),
         ],
         if (overlayData != null) ...[
           const SizedBox(height: 12),
@@ -1030,6 +1181,366 @@ class _MapStudioViewState extends State<MapStudioView> {
           onEdit: busy ? null : _openInlineEditor,
         ),
       ],
+    );
+  }
+
+  /// The Phase 5 world controls: era, world state, simulation and queries.
+  ///
+  /// Optional by construction. An author who only wants to draw a map never has
+  /// to touch any of it, and a map with no world data shows the panel with
+  /// nothing in it rather than inventing something to show.
+  Widget _buildWorldPanel(_MapPalette palette, MapWorldState state) {
+    return _Panel(
+      key: const Key('map-world-panel'),
+      palette: palette,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'World',
+                  style: palette.ui.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text(
+                state.kind.label,
+                key: const Key('map-world-state-kind'),
+                style: palette.label,
+              ),
+              const SizedBox(width: 8),
+              _ToolButton(
+                key: const Key('map-world-toggle'),
+                palette: palette,
+                icon: worldVisible
+                    ? Icons.public_outlined
+                    : Icons.public_off_outlined,
+                label: worldVisible ? 'Hide world' : 'Show world',
+                selected: worldVisible,
+                onPressed: () => setState(() => worldVisible = !worldVisible),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _buildEraControl(palette, state),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            key: const Key('map-world-summary'),
+            children: [
+              _WorldCount(
+                palette: palette,
+                label: 'Settlements',
+                value: state.settlements.length,
+              ),
+              _WorldCount(
+                palette: palette,
+                label: 'Territories',
+                value: state.territories.length,
+              ),
+              _WorldCount(
+                palette: palette,
+                label: 'Borders',
+                value: state.borders.length,
+              ),
+              _WorldCount(
+                palette: palette,
+                label: 'Routes',
+                value: state.routes.length,
+              ),
+              _WorldCount(
+                palette: palette,
+                label: 'Resources',
+                value: state.resources.length,
+              ),
+              _WorldCount(
+                palette: palette,
+                label: 'Conditions',
+                value: state.conditions.length,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ToolButton(
+                key: const Key('map-world-borders-toggle'),
+                palette: palette,
+                icon: Icons.timeline_outlined,
+                label: 'Borders',
+                selected: bordersVisible,
+                onPressed: () =>
+                    setState(() => bordersVisible = !bordersVisible),
+              ),
+              _ToolButton(
+                key: const Key('map-world-routes-toggle'),
+                palette: palette,
+                icon: Icons.alt_route_outlined,
+                label: 'Routes',
+                selected: routesVisible,
+                onPressed: () => setState(() => routesVisible = !routesVisible),
+              ),
+            ],
+          ),
+          if (state.routes.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _buildTravelControl(palette, state),
+          ],
+          if (state.factions.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _buildQueryControl(palette, state),
+          ],
+          if (queryResult != null) ...[
+            const SizedBox(height: 10),
+            _buildQueryResult(palette, queryResult!),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The era scrubber: which point in the story the world is read at.
+  Widget _buildEraControl(_MapPalette palette, MapWorldState state) {
+    final keys = [for (final moment in state.moments) moment.sortKey];
+    final index = worldMoment == null ? -1 : keys.indexOf(worldMoment!);
+    final label = index < 0
+        ? 'The whole story'
+        : state.moments[index].label;
+    return Column(
+      key: const Key('map-world-era'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _ToolButton(
+              key: const Key('map-world-era-prev'),
+              palette: palette,
+              icon: Icons.chevron_left,
+              label: 'Earlier',
+              selected: false,
+              onPressed: state.moments.isEmpty ? null : () => _stepEra(-1),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                key: const Key('map-world-era-label'),
+                textAlign: TextAlign.center,
+                style: palette.ui.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _ToolButton(
+              key: const Key('map-world-era-next'),
+              palette: palette,
+              icon: Icons.chevron_right,
+              label: 'Later',
+              selected: false,
+              onPressed: state.moments.isEmpty ? null : () => _stepEra(1),
+            ),
+          ],
+        ),
+        if (state.moments.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Nothing on this map is dated yet, so there is one world to show.',
+              key: const Key('map-world-no-eras'),
+              style: palette.label,
+            ),
+          )
+        else
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: _ToolButton(
+                key: const Key('map-world-whole-story'),
+                palette: palette,
+                icon: Icons.all_inclusive_outlined,
+                label: 'Whole story',
+                selected: worldMoment == null,
+                onPressed: () => _setEra(null),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The travel calculator.
+  ///
+  /// It answers only where the author's own data supports an answer; where it
+  /// does not, it says which data is missing instead of producing a number.
+  Widget _buildTravelControl(_MapPalette palette, MapWorldState state) {
+    final places = [...state.settlements]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final estimate = travelEstimate;
+    return Column(
+      key: const Key('map-world-travel'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Travel',
+            style: palette.ui.copyWith(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            DropdownButton<String>(
+              key: const Key('map-world-travel-from'),
+              value: travelFromId,
+              hint: Text('From', style: palette.label),
+              items: [
+                for (final place in places)
+                  DropdownMenuItem(value: place.id, child: Text(place.name)),
+              ],
+              onChanged: (value) => setState(() => travelFromId = value),
+            ),
+            DropdownButton<String>(
+              key: const Key('map-world-travel-to'),
+              value: travelToId,
+              hint: Text('To', style: palette.label),
+              items: [
+                for (final place in places)
+                  DropdownMenuItem(value: place.id, child: Text(place.name)),
+              ],
+              onChanged: (value) => setState(() => travelToId = value),
+            ),
+            DropdownButton<MapTravelMode>(
+              key: const Key('map-world-travel-mode'),
+              value: travelMode,
+              items: [
+                for (final mode in MapTravelMode.values)
+                  DropdownMenuItem(value: mode, child: Text(mode.label)),
+              ],
+              onChanged: (value) =>
+                  setState(() => travelMode = value ?? travelMode),
+            ),
+            DropdownButton<MapSeason>(
+              key: const Key('map-world-travel-season'),
+              value: travelSeason,
+              items: [
+                for (final season in MapSeason.values)
+                  DropdownMenuItem(value: season, child: Text(season.label)),
+              ],
+              onChanged: (value) =>
+                  setState(() => travelSeason = value ?? travelSeason),
+            ),
+            FilledButton.icon(
+              key: const Key('map-world-travel-button'),
+              onPressed: travelFromId == null || travelToId == null
+                  ? null
+                  : _calculateTravel,
+              icon: const Icon(Icons.directions_outlined),
+              label: const Text('How long?'),
+            ),
+          ],
+        ),
+        if (estimate != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            estimate.summary,
+            key: const Key('map-world-travel-result'),
+            style: palette.ui.copyWith(
+              fontWeight: estimate.isAvailable ? FontWeight.w700 : FontWeight.w400,
+            ),
+          ),
+          for (var index = 0; index < estimate.explanation.length; index++)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                estimate.explanation[index],
+                key: Key('map-world-travel-line-$index'),
+                style: palette.label,
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  /// The world queries: what a faction holds, at the selected era.
+  Widget _buildQueryControl(_MapPalette palette, MapWorldState state) {
+    final factions = state.factions.entries.toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    return Column(
+      key: const Key('map-world-query'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Ask the map',
+            style: palette.ui.copyWith(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final faction in factions)
+              _ToolButton(
+                key: Key('map-world-query-${faction.key}'),
+                palette: palette,
+                icon: Icons.flag_outlined,
+                label: 'Held by ${faction.value}',
+                selected: queryResult?.subject == faction.value,
+                onPressed: () => _runQuery(
+                  MapWorldQueryKind.controlledBy,
+                  faction.key,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQueryResult(_MapPalette palette, MapWorldQueryResult result) {
+    return Container(
+      key: const Key('map-world-query-result'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  result.headline,
+                  style: palette.ui.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              IconButton(
+                key: const Key('map-world-query-clear'),
+                tooltip: 'Clear this answer',
+                onPressed: _clearQuery,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          if (result.note.isNotEmpty)
+            Text(
+              result.note,
+              key: const Key('map-world-query-note'),
+              style: palette.body,
+            ),
+          for (final line in result.lines)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(line, style: palette.label),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1816,6 +2327,11 @@ class _MapCanvas extends StatefulWidget {
     required this.selectedOverlayId,
     required this.overlaysVisible,
     required this.onOverlaySelected,
+    required this.worldData,
+    required this.worldVisible,
+    required this.bordersVisible,
+    required this.routesVisible,
+    required this.highlightedIds,
   });
 
   final MapCanvasData data;
@@ -1854,6 +2370,14 @@ class _MapCanvas extends StatefulWidget {
   final String? selectedOverlayId;
   final bool overlaysVisible;
   final ValueChanged<String?> onOverlaySelected;
+
+  final MapWorldState? worldData;
+  final bool worldVisible;
+  final bool bordersVisible;
+  final bool routesVisible;
+
+  /// Ids a query or a travel answer has lit up. Presentation only.
+  final Set<String> highlightedIds;
 
   @override
   State<_MapCanvas> createState() => _MapCanvasState();
@@ -2210,6 +2734,8 @@ class _MapCanvasState extends State<_MapCanvas> {
                 icon: Icons.push_pin,
               ),
           ],
+        MapLayer.borders => _borderLayer(projection),
+        MapLayer.worldRoutes => _worldRouteLayer(projection),
         MapLayer.storyPaths => _storyPathLayer(projection),
         MapLayer.storyOverlays => _storyOverlayLayer(projection),
         MapLayer.selection => _selectionLayer(projection),
@@ -2380,6 +2906,60 @@ class _MapCanvasState extends State<_MapCanvas> {
   }
 
   /// Journeys, drawn as lines between the stops the story actually names.
+  /// Political borders, read from the world state.
+  ///
+  /// A border is drawn as the shape the author gave it; the dash pattern says
+  /// what kind it is, so a disputed line and a settled one never look alike in
+  /// greyscale.
+  List<Widget> _borderLayer(MapProjection projection) {
+    final state = widget.worldData;
+    if (!widget.worldVisible || !widget.bordersVisible || state == null) {
+      return const [];
+    }
+    if (state.borders.isEmpty) return const [];
+    return [
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            key: const Key('map-borders'),
+            painter: _BorderPainter(
+              borders: state.borders,
+              projection: projection,
+              color: widget.palette.onSurfaceVariant,
+              highlight: widget.palette.primary,
+              highlightedIds: widget.highlightedIds,
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Roads, rivers, passes and sea lanes between placed settlements.
+  List<Widget> _worldRouteLayer(MapProjection projection) {
+    final state = widget.worldData;
+    if (!widget.worldVisible || !widget.routesVisible || state == null) {
+      return const [];
+    }
+    if (state.routes.isEmpty) return const [];
+    return [
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            key: const Key('map-world-routes'),
+            painter: _WorldRoutePainter(
+              routes: state.routes,
+              projection: projection,
+              color: widget.palette.onSurfaceVariant,
+              highlight: widget.palette.primary,
+              highlightedIds: widget.highlightedIds,
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
   List<Widget> _storyPathLayer(MapProjection projection) {
     final data = widget.overlayData;
     if (!widget.overlaysVisible || data == null) return const [];
@@ -2777,6 +3357,137 @@ class _MapCanvasState extends State<_MapCanvas> {
 /// Rendering order and rendering only: the shape comes from the record, the
 /// colours come from the engine, and how a region is *styled* beyond this is
 /// deliberately not a Phase 2 concern.
+/// Draws the ways between places.
+///
+/// One line per route, through [MapProjection] like everything else on the
+/// canvas. A route the author has just asked about is drawn heavier rather than
+/// merely recoloured, so the answer is visible without relying on colour.
+class _WorldRoutePainter extends CustomPainter {
+  const _WorldRoutePainter({
+    required this.routes,
+    required this.projection,
+    required this.color,
+    required this.highlight,
+    required this.highlightedIds,
+  });
+
+  final List<MapWorldRoute> routes;
+  final MapProjection projection;
+  final Color color;
+  final Color highlight;
+  final Set<String> highlightedIds;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final route in routes) {
+      final lit = highlightedIds.contains(route.id);
+      final start = projection.toCanvas(route.fromPosition);
+      final end = projection.toCanvas(route.toPosition);
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = lit ? 4 : 2
+        ..color = (lit ? highlight : color)
+            .withValues(alpha: lit ? 0.95 : 0.55);
+      final from = Offset(start.x, start.y);
+      final to = Offset(end.x, end.y);
+      if (_isDashed(route.kind)) {
+        _dashedLine(canvas, from, to, paint);
+      } else {
+        canvas.drawLine(from, to, paint);
+      }
+    }
+  }
+
+  /// Ways that are not open ground are dashed: a hidden path and a king's road
+  /// should not read the same at a glance.
+  bool _isDashed(MapRouteKind kind) =>
+      kind == MapRouteKind.hidden ||
+      kind == MapRouteKind.magical ||
+      kind == MapRouteKind.path ||
+      kind == MapRouteKind.mountainPass;
+
+  void _dashedLine(Canvas canvas, Offset from, Offset to, Paint paint) {
+    const dash = 8.0;
+    const gap = 5.0;
+    final delta = to - from;
+    final length = delta.distance;
+    if (length == 0) return;
+    final step = delta / length;
+    var travelled = 0.0;
+    while (travelled < length) {
+      final end = travelled + dash > length ? length : travelled + dash;
+      canvas.drawLine(
+        from + step * travelled,
+        from + step * end,
+        paint,
+      );
+      travelled = end + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_WorldRoutePainter oldDelegate) =>
+      oldDelegate.routes != routes ||
+      oldDelegate.color != color ||
+      oldDelegate.highlightedIds != highlightedIds ||
+      oldDelegate.projection.camera != projection.camera ||
+      oldDelegate.projection.canvasWidth != projection.canvasWidth ||
+      oldDelegate.projection.canvasHeight != projection.canvasHeight;
+}
+
+/// Draws political borders.
+class _BorderPainter extends CustomPainter {
+  const _BorderPainter({
+    required this.borders,
+    required this.projection,
+    required this.color,
+    required this.highlight,
+    required this.highlightedIds,
+  });
+
+  final List<MapBorder> borders;
+  final MapProjection projection;
+  final Color color;
+  final Color highlight;
+  final Set<String> highlightedIds;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final border in borders) {
+      final points = border.geometry.points;
+      if (points.length < 2) continue;
+      final lit = highlightedIds.contains(border.id);
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = lit ? 3.5 : 2
+        ..strokeJoin = StrokeJoin.round
+        ..color = (lit ? highlight : color)
+            .withValues(alpha: border.kind == MapBorderKind.historical ? 0.4 : 0.8);
+      final path = Path();
+      for (var index = 0; index < points.length; index++) {
+        final point = projection.toCanvas(points[index]);
+        if (index == 0) {
+          path.moveTo(point.x, point.y);
+        } else {
+          path.lineTo(point.x, point.y);
+        }
+      }
+      if (border.geometry.kind == MapGeometryKind.polygon) path.close();
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BorderPainter oldDelegate) =>
+      oldDelegate.borders != borders ||
+      oldDelegate.color != color ||
+      oldDelegate.highlightedIds != highlightedIds ||
+      oldDelegate.projection.camera != projection.camera ||
+      oldDelegate.projection.canvasWidth != projection.canvasWidth ||
+      oldDelegate.projection.canvasHeight != projection.canvasHeight;
+}
+
 /// A pan recognizer that keeps a map drag on the map.
 ///
 /// Map Studio is a page, and a page scrolls. A scroll view accepts a vertical
@@ -3323,6 +4034,36 @@ class _MapLegend extends StatelessWidget {
 /// Shape and text carry the category. Colour is a reinforcement, never the only
 /// signal, so the map stays readable in greyscale and to a reader who cannot
 /// separate the theme's hues.
+/// One counted thing in the world summary.
+class _WorldCount extends StatelessWidget {
+  const _WorldCount({
+    required this.palette,
+    required this.label,
+    required this.value,
+  });
+
+  final _MapPalette palette;
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        label: '$value $label',
+        child: Row(
+          key: Key('map-world-count-${label.toLowerCase()}'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$value',
+              style: palette.ui.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 4),
+            Text(label, style: palette.label),
+          ],
+        ),
+      );
+}
+
 class _OverlayLegend extends StatelessWidget {
   const _OverlayLegend({required this.palette, required this.filter});
 

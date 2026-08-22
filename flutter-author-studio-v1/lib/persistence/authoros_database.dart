@@ -10,6 +10,11 @@ import '../core/relationship_validation.dart';
 import '../core/branch_domain.dart';
 import '../core/search_models.dart';
 import '../core/version_audit.dart';
+import '../core/project_roster_entry.dart';
+import '../core/scene_revision.dart';
+import '../core/starter_project.dart';
+import '../core/writing_goals.dart';
+import '../core/writing_series.dart';
 import '../core/writing_session.dart';
 
 part 'authoros_database.g.dart';
@@ -243,6 +248,123 @@ class WritingSessionRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// One project's daily, weekly, and monthly word targets.
+///
+/// Keyed by the project id rather than a surrogate id, because a project has
+/// exactly one set of goals: the schema itself enforces what would otherwise
+/// be an invariant the write path had to remember. That also makes a save a
+/// plain upsert with no read-modify-write.
+///
+/// Unlike [WritingSessionRows], this table is overwritten rather than appended
+/// to. A session is a historical fact; a goal is the target the author holds
+/// right now, and editing it must replace what was there.
+///
+/// A project with no row here has never had its goals edited and resolves to
+/// [WritingGoals.seedDefaults]. Reading never inserts a row, so "never
+/// customized" stays distinguishable from "customized back to the defaults".
+class WritingGoalRows extends Table {
+  TextColumn get projectId => text()();
+  IntColumn get dailyWords => integer()();
+  IntColumn get weeklyWords => integer()();
+  IntColumn get monthlyWords => integer()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {projectId};
+}
+
+/// The author's named series.
+///
+/// Deliberately small: a name and the target a joining book inherits. A series
+/// owns no books of its own — membership lives on [ProjectRows], because a
+/// book is a project, and a project already knows its title and its target.
+///
+/// This is library structure, not graph truth. AuthorOS forbids record links
+/// across projects, so a series could never have been an edge between books in
+/// the first place.
+class SeriesRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  IntColumn get defaultTargetWords => integer()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// The author's projects — the roster that lets AuthorOS hold more than one
+/// book at a time.
+///
+/// Before this table the app stored exactly one project, in a single
+/// preferences key, and saving a second overwrote the first. The roster is
+/// additive: `author_studio.starter_project` remains the pointer to whichever
+/// project is currently open, and this table is the durable list of every
+/// project that exists.
+///
+/// [payloadJson] holds the whole `StarterProject` rather than exploding it
+/// into columns, because it is seed data — chapters, character sheets, acts —
+/// that nothing queries by field. Title and word target are read from it, so
+/// there is exactly one definition of each.
+///
+/// [seriesId] and [seriesPosition] are what make a project a book: a project
+/// with no series is a standalone novel, which the domain must keep
+/// supporting.
+@TableIndex(name: 'projects_series_position', columns: {#seriesId, #seriesPosition})
+class ProjectRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get payloadJson => text()();
+  TextColumn get seriesId => text().nullable()();
+  IntColumn get seriesPosition => integer().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// Durable prose history, scene by scene.
+///
+/// The first place in AuthorOS that has ever kept a copy of a scene's words
+/// after they were overwritten. [RecordVersionRows] holds manuscript *nodes* —
+/// titles, statuses, metadata — and `ManuscriptService.restoreVersion` says in
+/// its own doc comment that it does not roll prose back, because the snapshot
+/// it stores has never contained any.
+///
+/// Append-only, like [WritingSessionRows] and for the same reason: a revision
+/// is what the scene said at a moment, not a view of current state, so writes
+/// use insert-or-ignore and no later edit can revise it. Unlike sessions it is
+/// pruned, by [SceneRevisionRetention] — history that grew without bound would
+/// eventually hold more prose than the manuscript it protects.
+///
+/// [contentDigest] is what makes the recorder cheap: it answers "has this
+/// scene changed since its last snapshot?" without reading a single stored
+/// body back out.
+///
+/// Deliberately project-scoped and deliberately not synced. See
+/// `core/scene_revision.dart` for why history stays on the device that made
+/// it.
+@TableIndex(name: 'scene_revisions_scene', columns: {#projectId, #sceneId})
+@TableIndex(
+  name: 'scene_revisions_scene_captured',
+  columns: {#projectId, #sceneId, #capturedAt},
+)
+class SceneRevisionRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get projectId => text()();
+  TextColumn get sceneId => text()();
+  TextColumn get chapterId => text()();
+  TextColumn get title => text()();
+  TextColumn get content => text()();
+  TextColumn get contentDigest => text()();
+  IntColumn get wordCount => integer()();
+  DateTimeColumn get capturedAt => dateTime()();
+  TextColumn get trigger => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     ConnectedEntities,
@@ -257,6 +379,10 @@ class WritingSessionRows extends Table {
     RecordVersionRows,
     AuditEventRows,
     WritingSessionRows,
+    WritingGoalRows,
+    SeriesRows,
+    ProjectRows,
+    SceneRevisionRows,
   ],
 )
 class AuthorOsDatabase extends _$AuthorOsDatabase {
@@ -290,7 +416,7 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
     driftWorker: Uri.parse('drift_worker.js'),
   );
 
-  static const currentSchemaVersion = 9;
+  static const currentSchemaVersion = 12;
   final int _schemaVersion;
 
   @override
@@ -379,6 +505,16 @@ class AuthorOsDatabase extends _$AuthorOsDatabase {
           }
           if (from < 9 && to >= 9) {
             await migrator.createTable(writingSessionRows);
+          }
+          if (from < 10 && to >= 10) {
+            await migrator.createTable(writingGoalRows);
+          }
+          if (from < 11 && to >= 11) {
+            await migrator.createTable(seriesRows);
+            await migrator.createTable(projectRows);
+          }
+          if (from < 12 && to >= 12) {
+            await migrator.createTable(sceneRevisionRows);
           }
         },
         beforeOpen: (details) async {
@@ -848,6 +984,326 @@ class DriftConnectedDomainRepository {
       (database.delete(database.writingSessionRows)
             ..where((table) => table.projectId.equals(projectId)))
           .go();
+
+  // --- Writing goals -------------------------------------------------------
+
+  /// The goals stored for one project, or `null` when the author has never
+  /// edited them.
+  ///
+  /// Returning `null` rather than the defaults is deliberate: exactly one
+  /// place — [WritingGoalsStore] — decides what a default goal is, and the
+  /// caller keeps the ability to tell "never customized" from "customized".
+  /// Reading never writes a row.
+  Future<WritingGoals?> writingGoalsForProject(String projectId) async {
+    final row = await (database.select(database.writingGoalRows)
+          ..where((table) => table.projectId.equals(projectId)))
+        .getSingleOrNull();
+    return row == null ? null : _writingGoalsFromRow(row);
+  }
+
+  /// Stores one project's goals, replacing whatever was there.
+  ///
+  /// Upsert, deliberately, and the one place this table's write semantics
+  /// differ from [putWritingSession]'s insert-or-ignore: a session is a
+  /// historical fact that a repeated write must not disturb, while a goal is
+  /// the target the author currently holds, so editing it has to overwrite.
+  Future<void> putWritingGoals(WritingGoals goals) async {
+    await database.into(database.writingGoalRows).insertOnConflictUpdate(
+          _writingGoalsCompanion(goals),
+        );
+  }
+
+  /// Clears one project's goals so the next read resolves to the defaults
+  /// again. Removing the row rather than storing the default values keeps
+  /// "never customized" honest.
+  Future<int> deleteWritingGoalsForProject(String projectId) =>
+      (database.delete(database.writingGoalRows)
+            ..where((table) => table.projectId.equals(projectId)))
+          .go();
+
+  // --- Series and the project roster ---------------------------------------
+
+  /// Every series the author has created, newest first.
+  Future<List<WritingSeries>> allSeries() async {
+    final rows = await (database.select(database.seriesRows)
+          ..orderBy([(table) => OrderingTerm.desc(table.createdAt)]))
+        .get();
+    return rows.map(_seriesFromRow).toList();
+  }
+
+  Future<WritingSeries?> seriesById(String seriesId) async {
+    final row = await (database.select(database.seriesRows)
+          ..where((table) => table.id.equals(seriesId)))
+        .getSingleOrNull();
+    return row == null ? null : _seriesFromRow(row);
+  }
+
+  /// Stores one series, replacing whatever was there. Upsert, like writing
+  /// goals: a series is a current setting, not a historical fact.
+  Future<void> putSeries(WritingSeries series) async {
+    await database.into(database.seriesRows).insertOnConflictUpdate(
+          _seriesCompanion(series),
+        );
+  }
+
+  /// Removes a series and releases its books.
+  ///
+  /// The projects survive: deleting a series must never delete a manuscript.
+  /// Every book that belonged to it becomes standalone again.
+  Future<int> deleteSeries(String seriesId) async {
+    return database.transaction(() async {
+      await (database.update(database.projectRows)
+            ..where((table) => table.seriesId.equals(seriesId)))
+          .write(
+        const ProjectRowsCompanion(
+          seriesId: Value(null),
+          seriesPosition: Value(null),
+        ),
+      );
+      return (database.delete(database.seriesRows)
+            ..where((table) => table.id.equals(seriesId)))
+          .go();
+    });
+  }
+
+  /// Every project on the roster, newest first.
+  Future<List<ProjectRosterEntry>> projectRoster() async {
+    final rows = await (database.select(database.projectRows)
+          ..orderBy([(table) => OrderingTerm.desc(table.createdAt)]))
+        .get();
+    return rows.map(_rosterEntryFromRow).toList();
+  }
+
+  Future<ProjectRosterEntry?> projectRosterEntry(String projectId) async {
+    final row = await (database.select(database.projectRows)
+          ..where((table) => table.id.equals(projectId)))
+        .getSingleOrNull();
+    return row == null ? null : _rosterEntryFromRow(row);
+  }
+
+  /// Stores one roster entry, replacing whatever was there.
+  Future<void> putProjectRosterEntry(ProjectRosterEntry entry) async {
+    await database.into(database.projectRows).insertOnConflictUpdate(
+          _rosterEntryCompanion(entry),
+        );
+  }
+
+  /// Removes a project from the roster.
+  ///
+  /// Roster-only: the project's manuscript, records and writing history are
+  /// not touched, so removing an entry can never destroy an author's writing.
+  Future<int> deleteProjectRosterEntry(String projectId) =>
+      (database.delete(database.projectRows)
+            ..where((table) => table.id.equals(projectId)))
+          .go();
+
+  /// The books of one series, in the order the author put them in.
+  ///
+  /// Ordered by position with the id as a tiebreak, so the sequence is stable
+  /// even if two rows ever shared a position.
+  Future<List<ProjectRosterEntry>> booksInSeries(String seriesId) async {
+    final rows = await (database.select(database.projectRows)
+          ..where((table) => table.seriesId.equals(seriesId))
+          ..orderBy([
+            (table) => OrderingTerm.asc(table.seriesPosition),
+            (table) => OrderingTerm.asc(table.id),
+          ]))
+        .get();
+    return rows.map(_rosterEntryFromRow).toList();
+  }
+
+  // --- Scene revision history ----------------------------------------------
+
+  /// Appends one snapshot and prunes what [retention] says is no longer worth
+  /// keeping, in a single transaction.
+  ///
+  /// Insert-or-ignore for the same reason as [putWritingSession]: a revision
+  /// is a historical fact. Pruning inside the same transaction is what keeps
+  /// the invariant "a scene's history obeys the retention policy" true at
+  /// every point a reader could observe it, rather than only after a separate
+  /// housekeeping pass that might never run.
+  Future<void> putSceneRevision(
+    SceneRevision revision, {
+    SceneRevisionRetention retention = const SceneRevisionRetention(),
+    DateTime? now,
+  }) async {
+    await database.transaction(() async {
+      await database.into(database.sceneRevisionRows).insert(
+            _sceneRevisionCompanion(revision),
+            mode: InsertMode.insertOrIgnore,
+          );
+      final summaries = await sceneRevisionSummaries(
+        revision.projectId,
+        revision.sceneId,
+      );
+      final stale = retention.idsToPrune(summaries, now ?? DateTime.now());
+      if (stale.isEmpty) return;
+      await (database.delete(database.sceneRevisionRows)
+            ..where((table) => table.id.isIn(stale)))
+          .go();
+    });
+  }
+
+  /// One scene's history, newest first, **without the prose**.
+  ///
+  /// The column list is the point. Selecting rows would load every stored copy
+  /// of the scene to draw a list that shows none of them — on a heavily
+  /// revised scene that is megabytes to render a few dozen lines. Bodies are
+  /// read one at a time, by [sceneRevision], when the author opens one.
+  Future<List<SceneRevisionSummary>> sceneRevisionSummaries(
+    String projectId,
+    String sceneId, {
+    int? limit,
+  }) async {
+    final buffer = StringBuffer(
+      'SELECT id, project_id, scene_id, chapter_id, title, content_digest, '
+      'word_count, captured_at, trigger FROM scene_revision_rows '
+      'WHERE project_id = ? AND scene_id = ? '
+      'ORDER BY captured_at DESC, id DESC',
+    );
+    if (limit != null) buffer.write(' LIMIT $limit');
+    final rows = await database.customSelect(
+      buffer.toString(),
+      variables: [Variable<String>(projectId), Variable<String>(sceneId)],
+      readsFrom: {database.sceneRevisionRows},
+    ).get();
+    return [
+      for (final row in rows)
+        SceneRevisionSummary(
+          id: row.read<String>('id'),
+          projectId: row.read<String>('project_id'),
+          sceneId: row.read<String>('scene_id'),
+          chapterId: row.read<String>('chapter_id'),
+          title: row.read<String>('title'),
+          wordCount: row.read<int>('word_count'),
+          capturedAt: row.read<DateTime>('captured_at'),
+          trigger: SceneRevisionTriggerX.fromId(row.read<String>('trigger')),
+          contentDigest: row.read<String>('content_digest'),
+        ),
+    ];
+  }
+
+  /// One stored revision, prose included.
+  Future<SceneRevision?> sceneRevision(String revisionId) async {
+    final row = await (database.select(database.sceneRevisionRows)
+          ..where((table) => table.id.equals(revisionId)))
+        .getSingleOrNull();
+    return row == null ? null : _sceneRevisionFromRow(row);
+  }
+
+  /// The digest of the newest revision of every scene in [projectId].
+  ///
+  /// This is what lets the recorder decide, for a whole manuscript at once and
+  /// without reading any prose, which scenes have actually changed since they
+  /// were last snapshotted. One query per capture rather than one per scene.
+  Future<Map<String, String>> newestSceneRevisionDigests(
+    String projectId,
+  ) async {
+    final rows = await database.customSelect(
+      'SELECT r.scene_id AS scene_id, r.content_digest AS content_digest '
+      'FROM scene_revision_rows r '
+      'JOIN (SELECT scene_id, MAX(captured_at) AS captured_at '
+      '      FROM scene_revision_rows WHERE project_id = ? '
+      '      GROUP BY scene_id) newest '
+      '  ON newest.scene_id = r.scene_id '
+      ' AND newest.captured_at = r.captured_at '
+      'WHERE r.project_id = ?',
+      variables: [Variable<String>(projectId), Variable<String>(projectId)],
+      readsFrom: {database.sceneRevisionRows},
+    ).get();
+    return {
+      for (final row in rows)
+        row.read<String>('scene_id'): row.read<String>('content_digest'),
+    };
+  }
+
+  /// Removes one project's prose history. Cleanup only — nothing in the
+  /// capture or restore path calls this.
+  Future<int> deleteSceneRevisionsForProject(String projectId) =>
+      (database.delete(database.sceneRevisionRows)
+            ..where((table) => table.projectId.equals(projectId)))
+          .go();
+
+  SceneRevisionRowsCompanion _sceneRevisionCompanion(SceneRevision revision) =>
+      SceneRevisionRowsCompanion.insert(
+        id: revision.id,
+        projectId: revision.projectId,
+        sceneId: revision.sceneId,
+        chapterId: revision.chapterId,
+        title: revision.title,
+        content: revision.content,
+        contentDigest: revision.contentDigest,
+        wordCount: revision.wordCount,
+        capturedAt: revision.capturedAt,
+        trigger: revision.trigger.id,
+      );
+
+  SceneRevision _sceneRevisionFromRow(SceneRevisionRow row) => SceneRevision(
+        id: row.id,
+        projectId: row.projectId,
+        sceneId: row.sceneId,
+        chapterId: row.chapterId,
+        title: row.title,
+        content: row.content,
+        contentDigest: row.contentDigest,
+        wordCount: row.wordCount,
+        capturedAt: row.capturedAt,
+        trigger: SceneRevisionTriggerX.fromId(row.trigger),
+      );
+
+  SeriesRowsCompanion _seriesCompanion(WritingSeries series) =>
+      SeriesRowsCompanion.insert(
+        id: series.id,
+        name: series.name,
+        defaultTargetWords: series.defaultTargetWords,
+        createdAt: series.createdAt ?? DateTime.now(),
+        updatedAt: series.updatedAt ?? DateTime.now(),
+      );
+
+  WritingSeries _seriesFromRow(SeriesRow row) => WritingSeries(
+        id: row.id,
+        name: row.name,
+        defaultTargetWords: row.defaultTargetWords,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      );
+
+  ProjectRowsCompanion _rosterEntryCompanion(ProjectRosterEntry entry) =>
+      ProjectRowsCompanion.insert(
+        id: entry.project.id,
+        payloadJson: jsonEncode(entry.project.toJson()),
+        seriesId: Value(entry.seriesId),
+        seriesPosition: Value(entry.seriesPosition),
+        createdAt: entry.createdAt ?? DateTime.now(),
+        updatedAt: entry.updatedAt ?? DateTime.now(),
+      );
+
+  ProjectRosterEntry _rosterEntryFromRow(ProjectRow row) => ProjectRosterEntry(
+        project: StarterProject.fromJson(
+          Map<String, dynamic>.from(jsonDecode(row.payloadJson) as Map),
+        ),
+        seriesId: row.seriesId,
+        seriesPosition: row.seriesPosition,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      );
+
+  WritingGoalRowsCompanion _writingGoalsCompanion(WritingGoals goals) =>
+      WritingGoalRowsCompanion.insert(
+        projectId: goals.projectId,
+        dailyWords: goals.dailyWords,
+        weeklyWords: goals.weeklyWords,
+        monthlyWords: goals.monthlyWords,
+        updatedAt: goals.updatedAt ?? DateTime.now(),
+      );
+
+  WritingGoals _writingGoalsFromRow(WritingGoalRow row) => WritingGoals(
+        projectId: row.projectId,
+        dailyWords: row.dailyWords,
+        weeklyWords: row.weeklyWords,
+        monthlyWords: row.monthlyWords,
+        updatedAt: row.updatedAt,
+      );
 
   WritingSessionRowsCompanion _writingSessionCompanion(
     WritingSession session,

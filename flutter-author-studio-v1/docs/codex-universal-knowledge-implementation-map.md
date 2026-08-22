@@ -3,7 +3,7 @@
 Status: **Phases 1 and 2 implemented — cross-book scope and deterministic
 intelligence are live. Phases 3-4 designed, not built.**
 Audited: 2026-08-22, from the working tree at `d1b74c8` (PR #35, Knowledge Graph);
-re-verified after merging `main` at `5092c72` (PR #52)
+re-verified after merging `main` at `9b629e4` (PR #55)
 Scope: series-wide and cross-book knowledge in the Story Codex, and the phase
 order for the rest of the Codex vision
 Builds on: `docs/story-codex-implementation-map.md`,
@@ -221,6 +221,54 @@ infrastructure records on every Codex open.
 
 ---
 
+## 6a. Open question — two series, one word
+
+**Q-S1. `WritingSeries` and series scope are two identities for the same noun,
+and nothing reconciles them.** Raised here rather than resolved, because it is
+an architecture decision and both halves are days old.
+
+While this branch was in flight, `main` landed a series of its own
+(`lib/core/writing_series.dart`, the `series_rows` table,
+`ProjectRosterEntry.seriesId`/`seriesPosition`, `project_roster_store.dart`).
+That series is a **planning** object: a name, the word target a joining book
+inherits, and a book's position on the roster. It is the right shape for the
+Projects Studio and for series analytics.
+
+Series scope, in this document, is a different thing: an `AuthorRecord` that
+**owns a record scope**, so a character can be canon in every book of a series
+without being typed again. It is the right shape for shared knowledge.
+
+They are genuinely different concerns, so neither is wrong. The hazard is that
+an author can today create "The Endovier Cycle" in the Projects Studio and "The
+Endovier Cycle" in the Codex and get two unrelated ids — the exact
+"we built them separately and in six months they do not connect" failure
+`NEXT.md` warns about.
+
+**What this branch did about it.** Nothing that presumes an answer, and one
+thing that keeps every answer open: `SeriesScopeService.createSeries` takes an
+optional `id`, so scope never mints an identity it could not have been handed.
+A guardrail asserts it. Unifying is therefore a change to *callers*, not to this
+layer.
+
+**The three ways out, for the record:**
+
+1. **The roster owns identity; scope follows.** The Codex stops creating series
+   and offers only the roster's. One id, one name, one place to rename. Costs a
+   `ProjectRosterStore` dependency in the Codex, and means a series cannot exist
+   before it has a book.
+2. **Scope owns identity; the roster follows.** `series_rows` keys off the
+   series record's id. Keeps the "everything is a record" line, but rewrites a
+   table that just shipped.
+3. **Leave them separate and link them.** A `rosterSeriesId` field on the series
+   record. Cheapest, and the one that rots — two names that can drift apart is
+   what a reader will hit first.
+
+Recommendation: **(1)**. Identity belongs where the author creates the thing,
+and that is the Projects Studio. Scope should be derived from membership, not
+declared twice.
+
+---
+
 ## 7. Carried risks — stated, not fixed
 
 Existing risks from `docs/universal-story-graph-architecture.md` §18 that this
@@ -236,6 +284,11 @@ milestone touches or inherits:
   `AuthorOsArchiveService` is project-scoped. Exporting book one carries the
   records it owns, including ones it promoted, but there is no series-level
   archive. M4's "portable series/universe archive" is unmet.
+- **Reconciled with `main`:** `a2f5f87` fixed `StoryGraphService._allows` so a
+  null `bookId` is read as "not book-specific — series canon" rather than as
+  unassigned, and stops a book filter from hiding shared canon. That is the same
+  reading of a null book id this branch relies on, arrived at independently, and
+  the two agree.
 - **New: a member book sees shared canon with no relationships.** Edges are
   project-owned, so book two sees a shared character with only the edges book
   two drew. This is correct under I-2 and is documented rather than fixed; the
@@ -316,20 +369,20 @@ visibility model.
 Run locally against Flutter **3.44.9** (revision `6b182d2c75`) — the revision
 `.metadata` records and CI pins.
 
-Measured twice: once against the audit base, and again after merging `main` at
-`5092c72`, which had moved 22 commits ahead (Map Studio phases 4-5, cross-Studio
-graph entry, archive completeness).
+Re-measured after every rebase onto a moving `main`. The figures below are
+against `main` at `9b629e4`, which by then carried the Command System, the sync
+engine, the project roster, Map Studio phase 5 and the Author Performance
+system.
 
-| Step | `main` at `5092c72` | Phase 1 | Phases 1 and 2 |
-|---|---|---|---|
-| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 58 issues, 0 errors | 58 issues, 0 errors | **58 issues, 0 errors** |
-| `flutter test` | 1258 passed, 0 failed | 1294 passed, 0 failed | **1344 passed, 0 failed** |
-| `flutter build web --release --no-web-resources-cdn` | green | green | green |
+| Step | `main` at `9b629e4` | This branch |
+|---|---|---|
+| `flutter analyze --no-fatal-infos --no-fatal-warnings` | 57 issues, 0 errors | **57 issues, 0 errors** |
+| `flutter test` | 1663 passed, 0 failed | **1749 passed, 0 failed** |
+| `flutter build web --release --no-web-resources-cdn` | green | green |
 
-The analyzer count is unchanged across both phases: this work added no new
-issues and cleared every one it introduced along the way. (Against the audit
-base `d1b74c8` the Phase 1 figures were 57 -> 57 and 1153 -> 1189; `main` has
-since added one issue and 105 tests of its own.)
+The analyzer count is unchanged: this work added no new issues and cleared
+every one it introduced along the way. The 86 tests it adds are the difference
+between 1663 and 1749.
 
 Phase 1 added 36 tests. Phase 2 adds 50 more:
 `entity_recognition_test.dart` (15), `codex_intelligence_test.dart` (14),
